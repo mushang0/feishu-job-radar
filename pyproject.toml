@@ -1,0 +1,15 @@
+[project]
+name = "feishu-job-radar"
+version = "0.1.0"
+description = "秋招信息自动监控与飞书提醒系统"
+requires-python = ">=3.11"
+dependencies = [
+    "beautifulsoup4>=4.12",
+    "openpyxl>=3.1",
+    "PyYAML>=6.0",
+    "requests>=2.31",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

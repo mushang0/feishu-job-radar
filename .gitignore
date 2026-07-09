@@ -1,0 +1,25 @@
+# Config secrets
+config.yaml
+
+# Database runs & logs
+data/jobs.sqlite
+data/logs/
+data/exports/
+
+# Python temp files
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+
+# Python packaging & build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Un-tracked documentation / Developer resources
+DEVELOPER.md
+tests/
+.agents/

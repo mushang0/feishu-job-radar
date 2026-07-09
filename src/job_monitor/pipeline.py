@@ -1,0 +1,261 @@
+from dataclasses import dataclass
+from datetime import date
+
+from .matcher import Matcher
+from .models import Job
+from .storage import JobRepository
+
+
+@dataclass(frozen=True, slots=True)
+class DailySummary:
+    items_seen: int
+    new_items: int
+    updated_items: int
+    relevant_items: int
+    recommended_items: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class InitSummary:
+    pages_scanned: int
+    items_seen: int
+    new_items: int
+    updated_items: int
+    relevant_items: int
+
+
+def run_daily_with_jobs(repo: JobRepository, jobs: list[Job], config: dict, run_date: str | None = None) -> DailySummary:
+    matcher = Matcher(config)
+    new_items = 0
+    updated_items = 0
+    relevant_items = 0
+    recommendations: list[dict] = []
+    recommendation_date = run_date or date.today().isoformat()
+
+    for job in jobs:
+        result = repo.upsert_job(job)
+        if result.created:
+            new_items += 1
+            match = matcher.match(job)
+            repo.save_match(result.job_id, match)
+            if match.is_relevant:
+                relevant_items += 1
+            if match.should_push:
+                recommendations.append({"job_id": result.job_id, "recommend_reason": match.recommend_reason})
+        else:
+            updated_items += 1
+
+    repo.append_recommendations(recommendation_date, recommendations)
+    return DailySummary(
+        items_seen=len(jobs),
+        new_items=new_items,
+        updated_items=updated_items,
+        relevant_items=relevant_items,
+        recommended_items=len(recommendations),
+    )
+
+
+def rematch_existing_jobs(repo: JobRepository, config: dict, recommendation_date: str | None = None) -> DailySummary:
+    matcher = Matcher(config)
+    rows = repo.list_stored_jobs()
+    recommendations: list[dict] = []
+    relevant_items = 0
+    target_date = recommendation_date or date.today().isoformat()
+
+    for row in rows:
+        job = _job_from_row(row)
+        match = matcher.match(job)
+        repo.save_match(int(row["id"]), match)
+        if match.is_relevant:
+            relevant_items += 1
+        if match.should_push:
+            recommendations.append({"job_id": int(row["id"]), "recommend_reason": match.recommend_reason})
+
+    repo.sync_global_recommendations(target_date, recommendations)
+    return DailySummary(
+        items_seen=len(rows),
+        new_items=0,
+        updated_items=len(rows),
+        relevant_items=relevant_items,
+        recommended_items=len(recommendations),
+    )
+
+
+def backfill_existing_job_details(
+    repo: JobRepository,
+    crawler,
+    config: dict,
+    recommendation_date: str | None = None,
+    min_raw_text_length: int = 500,
+) -> DailySummary:
+    matcher = Matcher(config)
+    rows = repo.list_stored_jobs()
+    candidates = [
+        row
+        for row in rows
+        if row.get("detail_url")
+        and (not row.get("content_hash") or len(row.get("raw_text") or "") < min_raw_text_length)
+    ]
+    recommendations: list[dict] = []
+    relevant_items = 0
+    target_date = recommendation_date or date.today().isoformat()
+
+    for row in candidates:
+        job = _job_from_row(row)
+        enriched = crawler.enrich_detail(job)
+        result = repo.upsert_job(enriched)
+        match = matcher.match(enriched)
+        repo.save_match(result.job_id, match)
+        if match.is_relevant:
+            relevant_items += 1
+        if match.should_push:
+            recommendations.append({"job_id": result.job_id, "recommend_reason": match.recommend_reason})
+
+    repo.append_recommendations(target_date, recommendations)
+    return DailySummary(
+        items_seen=len(candidates),
+        new_items=0,
+        updated_items=len(candidates),
+        relevant_items=relevant_items,
+        recommended_items=len(recommendations),
+    )
+
+
+def enrich_official_urls(
+    repo: JobRepository,
+    finder,
+    *,
+    only_recommended: bool = True,
+    limit: int | None = None,
+) -> DailySummary:
+    rows = repo.list_recommended_jobs() if only_recommended else repo.list_all_jobs()
+    candidates = [row for row in rows if not row.get("official_url")]
+    if limit is not None:
+        candidates = candidates[: max(limit, 0)]
+    updated_items = 0
+    for row in candidates:
+        job = _job_from_row(row)
+        job_id = int(row.get("job_id") or row.get("id"))
+        official_url = finder.find_best(job)
+        if official_url and repo.update_official_url_if_empty(job_id, official_url):
+            updated_items += 1
+    return DailySummary(
+        items_seen=len(candidates),
+        new_items=0,
+        updated_items=updated_items,
+        relevant_items=0,
+        recommended_items=0,
+    )
+
+
+def run_init_with_page_batches(repo: JobRepository, page_batches, config: dict) -> InitSummary:
+    matcher = Matcher(config)
+    pages_scanned = 0
+    items_seen = 0
+    new_items = 0
+    updated_items = 0
+    relevant_items = 0
+
+    for jobs in page_batches:
+        pages_scanned += 1
+        items_seen += len(jobs)
+        for job in jobs:
+            result = repo.upsert_job(job)
+            if result.created:
+                new_items += 1
+            else:
+                updated_items += 1
+            match = matcher.match(job)
+            repo.save_match(result.job_id, match)
+            if match.is_relevant:
+                relevant_items += 1
+
+    return InitSummary(
+        pages_scanned=pages_scanned,
+        items_seen=items_seen,
+        new_items=new_items,
+        updated_items=updated_items,
+        relevant_items=relevant_items,
+    )
+
+
+def _job_from_row(row: dict) -> Job:
+    return Job(
+        source=row.get("source") or "WonderCV",
+        source_job_id=row.get("source_job_id"),
+        source_url=row.get("source_url"),
+        detail_url=row.get("detail_url"),
+        dedupe_key=row.get("dedupe_key"),
+        company=row.get("company") or "",
+        company_normalized=row.get("company_normalized"),
+        title=row.get("title") or "",
+        raw_title=row.get("raw_title"),
+        clean_title=row.get("clean_title"),
+        summary=row.get("summary"),
+        batch=row.get("batch"),
+        target_graduate_year=row.get("target_graduate_year"),
+        degree=row.get("degree"),
+        city=row.get("city"),
+        location_text=row.get("location_text"),
+        collected_date=row.get("collected_date"),
+        deadline=row.get("deadline"),
+        company_type=row.get("company_type"),
+        industry=row.get("industry"),
+        tags=_split(row.get("tags")),
+        job_tags=_split(row.get("job_tags")),
+        special_marks=_split(row.get("special_marks")),
+        raw_tags=_split(row.get("raw_tags")),
+        raw_text=row.get("raw_text"),
+        apply_url=row.get("apply_url"),
+        official_url=row.get("official_url"),
+        parse_status=row.get("parse_status") or "ok",
+        parse_note=row.get("parse_note"),
+        first_seen=row.get("first_seen"),
+        last_seen=row.get("last_seen"),
+        last_checked=row.get("last_checked"),
+        content_hash=row.get("content_hash"),
+        is_active=int(row.get("is_active") if row.get("is_active") is not None else 1),
+    )
+
+
+def _split(value: str | None) -> list[str]:
+    if not value:
+        return []
+    return [part for part in str(value).split(";") if part]
+
+
+def pull_user_states_from_feishu(repo: JobRepository, client: "FeishuBitableClient") -> int:
+    records = client.list_all_records()
+    updated_count = 0
+    for record in records:
+        fields = record.get("fields", {})
+        job_id_str = fields.get("岗位ID")
+        if not job_id_str:
+            continue
+        try:
+            if isinstance(job_id_str, list):
+                job_id_str = "".join(item.get("text", "") for item in job_id_str)
+            job_id = int(float(str(job_id_str).strip()))
+        except (ValueError, TypeError):
+            continue
+
+        status = fields.get("用户状态") or "未看"
+        if isinstance(status, list):
+            status = "".join(item.get("text", "") for item in status)
+        status = str(status).strip() or "未看"
+
+        note_val = fields.get("备注") or ""
+        if isinstance(note_val, list):
+            note = "".join(item.get("text", "") for item in note_val)
+        else:
+            note = str(note_val)
+
+        repo.update_user_state(job_id, status, note)
+
+        record_id = record.get("record_id")
+        if record_id:
+            repo.mark_sync(job_id, "synced", record_id=record_id)
+
+        updated_count += 1
+    return updated_count
+

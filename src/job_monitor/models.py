@@ -1,0 +1,104 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any
+
+
+@dataclass(slots=True)
+class Job:
+    source: str = "WonderCV"
+    source_job_id: str | None = None
+    source_url: str | None = None
+    detail_url: str | None = None
+    dedupe_key: str | None = None
+    company: str = ""
+    company_normalized: str | None = None
+    title: str = ""
+    raw_title: str | None = None
+    clean_title: str | None = None
+    summary: str | None = None
+    batch: str | None = None
+    target_graduate_year: str | None = None
+    degree: str | None = None
+    city: str | None = None
+    location_text: str | None = None
+    collected_date: str | None = None
+    deadline: str | None = None
+    company_type: str | None = None
+    industry: str | None = None
+    tags: list[str] = field(default_factory=list)
+    job_tags: list[str] = field(default_factory=list)
+    special_marks: list[str] = field(default_factory=list)
+    raw_tags: list[str] = field(default_factory=list)
+    raw_text: str | None = None
+    apply_url: str | None = None
+    official_url: str | None = None
+    parse_status: str = "ok"
+    parse_note: str | None = None
+    first_seen: str | None = None
+    last_seen: str | None = None
+    last_checked: str | None = None
+    content_hash: str | None = None
+    is_active: int = 1
+
+    def as_db_values(self) -> dict[str, Any]:
+        now = datetime.now().isoformat(timespec="seconds")
+        return {
+            "source": self.source,
+            "source_job_id": self.source_job_id,
+            "source_url": self.source_url,
+            "detail_url": self.detail_url,
+            "dedupe_key": self.dedupe_key,
+            "company": self.company,
+            "company_normalized": self.company_normalized or self.company,
+            "title": self.title,
+            "raw_title": self.raw_title,
+            "clean_title": self.clean_title or self.title,
+            "summary": self.summary,
+            "batch": self.batch,
+            "target_graduate_year": self.target_graduate_year,
+            "degree": self.degree,
+            "city": self.city,
+            "location_text": self.location_text,
+            "collected_date": self.collected_date,
+            "deadline": self.deadline,
+            "company_type": self.company_type,
+            "industry": self.industry,
+            "tags": ";".join(self.tags),
+            "job_tags": ";".join(self.job_tags),
+            "special_marks": ";".join(self.special_marks),
+            "raw_tags": ";".join(self.raw_tags),
+            "raw_text": self.raw_text,
+            "apply_url": self.apply_url,
+            "official_url": self.official_url,
+            "parse_status": self.parse_status,
+            "parse_note": self.parse_note,
+            "first_seen": self.first_seen or now,
+            "last_seen": self.last_seen or now,
+            "last_checked": self.last_checked,
+            "content_hash": self.content_hash,
+            "is_active": self.is_active,
+        }
+
+
+@dataclass(slots=True)
+class MatchResult:
+    matched_keywords: list[str]
+    matched_strong_keywords: list[str]
+    matched_weak_keywords: list[str]
+    matched_industry_keywords: list[str]
+    matched_company_rule: str
+    matched_city_rule: str
+    negative_keywords: list[str]
+    match_score: int
+    priority: str
+    is_relevant: bool
+    should_push: bool
+    needs_verify: bool
+    match_reason: str
+    verify_status: str
+    suggested_search_terms: list[str]
+    match_config_version: str
+    matched_at: str
+    recommend_reason: str = ""
