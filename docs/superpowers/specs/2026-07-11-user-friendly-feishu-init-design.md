@@ -66,7 +66,7 @@ Views:
 - `收藏`: grid view filtered to `求职状态 = 收藏`.
 - `投递进度`: kanban view showing tracked states from 收藏 through 已结束, grouped by the single-select 求职状态 field.
 
-Filters and field visibility must be provisioned automatically. If the server API cannot express the desired multi-key sort, that limitation is documented and does not require manual setup. The kanban view must still be visually verified to show status columns before release.
+Filters and grid-view field visibility must be provisioned automatically. Feishu's server API does not support editing hidden fields for kanban views, so the progress view uses Feishu's default card layout without requiring manual setup. If the server API cannot express the desired multi-key sort, that limitation is documented. The kanban view must still be visually verified to show status columns before release.
 
 ## Synchronization Contract
 

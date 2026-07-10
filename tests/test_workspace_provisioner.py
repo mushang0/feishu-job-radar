@@ -116,6 +116,8 @@ def test_provision_creates_and_verifies_complete_workspace():
     pending_status_value = pending["property"]["filter_info"]["conditions"][0]["value"]
     assert json.loads(pending_status_value) == [status_field["property"]["options"][0]["id"]]
     assert "待处理" not in pending_status_value
+    progress = next(view for view in client.views[result.table_id] if view["view_name"] == "投递进度")
+    assert "hidden_fields" not in progress["property"]
 
 
 def test_provision_is_idempotent_and_preserves_extra_resources():

@@ -170,7 +170,7 @@ Declare exactly these fields:
 首次发现:date, 最后更新:date, 推荐有效:checkbox
 ```
 
-Declare `待处理` and `收藏` as grid views and `投递进度` as kanban. Store visible-field names so the provisioner can translate them to remote field IDs and derive `hidden_fields`.
+Declare `待处理` and `收藏` as grid views and `投递进度` as kanban. Store visible-field names so the provisioner can translate them to remote field IDs and derive `hidden_fields` for grid views. Feishu kanban views use their default card layout because the server API rejects `hidden_fields` updates for kanban/gallery views.
 
 - [ ] **Step 4: Run tests and commit**
 

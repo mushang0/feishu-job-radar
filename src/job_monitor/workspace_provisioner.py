@@ -169,11 +169,12 @@ class WorkspaceProvisioner:
                     "value": json.dumps([True]),
                 }
             )
-        hidden_fields = [field_ids[name] for name in self.schema.field_names if name not in view.visible_fields]
-        return {
+        result = {
             "filter_info": {"conjunction": "and", "conditions": conditions},
-            "hidden_fields": hidden_fields,
         }
+        if view.view_type == "grid":
+            result["hidden_fields"] = [field_ids[name] for name in self.schema.field_names if name not in view.visible_fields]
+        return result
 
     @staticmethod
     def _view_property_matches(actual: dict, desired: dict) -> bool:
@@ -190,10 +191,11 @@ class WorkspaceProvisioner:
                 for item in conditions or []
             )
 
+        hidden_matches = "hidden_fields" not in desired or set(actual.get("hidden_fields") or []) == set(desired["hidden_fields"])
         return (
             actual_filter.get("conjunction") == desired_filter["conjunction"]
             and normalized(actual_filter.get("conditions")) == normalized(desired_filter["conditions"])
-            and set(actual.get("hidden_fields") or []) == set(desired["hidden_fields"])
+            and hidden_matches
         )
 
     @staticmethod
