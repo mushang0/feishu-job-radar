@@ -75,6 +75,7 @@ class FeishuBitableClient:
         self.delete = delete or requests.delete
         self.max_retries = max(max_retries, 0)
         self.sleep = sleep or time.sleep
+        self._cached_tenant_access_token = ""
 
     def get_app(self) -> dict[str, Any]:
         data = self._request_json("GET", self._api_url(""))
@@ -248,6 +249,8 @@ class FeishuBitableClient:
     def _tenant_access_token(self) -> str:
         if self.config.tenant_access_token:
             return self.config.tenant_access_token
+        if self._cached_tenant_access_token:
+            return self._cached_tenant_access_token
         if not (self.config.app_id and self.config.app_secret):
             return ""
         response = self.post(
@@ -259,7 +262,8 @@ class FeishuBitableClient:
         payload = response.json()
         if payload.get("code") not in (0, None):
             return ""
-        return str(payload.get("tenant_access_token") or "")
+        self._cached_tenant_access_token = str(payload.get("tenant_access_token") or "")
+        return self._cached_tenant_access_token
 
     @staticmethod
     def _records_result(response: Any) -> FeishuResult:

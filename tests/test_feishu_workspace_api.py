@@ -146,3 +146,20 @@ def test_client_reports_permission_error_as_non_retryable():
     assert error.value.code == 1254302
     assert error.value.retryable is False
     assert "1254302" in str(error.value)
+
+
+def test_client_reuses_tenant_access_token_across_workspace_requests():
+    post = Mock(return_value=_response({"code": 0, "tenant_access_token": "cached-token"}))
+    get = Mock(return_value=_response({"code": 0, "data": {"items": [], "has_more": False}}))
+    client = FeishuBitableClient(
+        FeishuConfig(app_token="base-token", app_id="cli-app", app_secret="secret"),
+        post=post,
+        get=get,
+    )
+
+    client.list_tables()
+    client.list_tables()
+
+    assert post.call_count == 1
+    assert get.call_count == 2
+    assert all(call.kwargs["headers"]["Authorization"] == "Bearer cached-token" for call in get.call_args_list)
