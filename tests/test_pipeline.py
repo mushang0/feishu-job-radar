@@ -88,8 +88,7 @@ def test_pipeline_pulls_from_feishu(tmp_path: Path):
     assert count == 1
 
     saved = repo.list_all_jobs()[0]
-    assert saved["user_status"] == "已收藏"
+    assert saved["user_status"] == "收藏"
     assert saved["note"] == "希望很大"
     assert saved["feishu_record_id"] == "rec-123"
-
 

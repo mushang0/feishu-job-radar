@@ -4,6 +4,7 @@ from datetime import date
 from .matcher import Matcher
 from .models import Job
 from .storage import JobRepository
+from .audit import recover_user_states
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,37 +226,4 @@ def _split(value: str | None) -> list[str]:
 
 
 def pull_user_states_from_feishu(repo: JobRepository, client: "FeishuBitableClient") -> int:
-    records = client.list_all_records()
-    updated_count = 0
-    for record in records:
-        fields = record.get("fields", {})
-        job_id_str = fields.get("岗位ID")
-        if not job_id_str:
-            continue
-        try:
-            if isinstance(job_id_str, list):
-                job_id_str = "".join(item.get("text", "") for item in job_id_str)
-            job_id = int(float(str(job_id_str).strip()))
-        except (ValueError, TypeError):
-            continue
-
-        status = fields.get("用户状态") or "未看"
-        if isinstance(status, list):
-            status = "".join(item.get("text", "") for item in status)
-        status = str(status).strip() or "未看"
-
-        note_val = fields.get("备注") or ""
-        if isinstance(note_val, list):
-            note = "".join(item.get("text", "") for item in note_val)
-        else:
-            note = str(note_val)
-
-        repo.update_user_state(job_id, status, note)
-
-        record_id = record.get("record_id")
-        if record_id:
-            repo.mark_sync(job_id, "synced", record_id=record_id)
-
-        updated_count += 1
-    return updated_count
-
+    return recover_user_states(repo, client.list_all_records()).updated_count

@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .alerts import build_daily_message
+from .audit import audit_feishu_records
 from .config import load_config
 from .exporters import build_feishu_record, export_jobs_to_excel
 from .feishu import FeishuBitableClient, FeishuBot, FeishuConfig
@@ -69,6 +70,10 @@ def main(argv: list[str] | None = None) -> int:
     pull_parser.add_argument("--config", dest="command_config")
     pull_parser.add_argument("--db", dest="command_db")
 
+    check_parser = subparsers.add_parser("check", help="只读检查飞书记录与本地岗位差异")
+    check_parser.add_argument("--config", dest="command_config")
+    check_parser.add_argument("--db", dest="command_db")
+
     args = parser.parse_args(argv)
     db_path = args.command_db or args.db
     config_path = getattr(args, "command_config", None) or args.config
@@ -99,6 +104,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_enrich_official_urls(config, db_path, only_recommended=not args.all, limit=args.limit)
     if args.command == "pull":
         return _run_pull(config, db_path)
+    if args.command == "check":
+        return _run_check(config, db_path)
     return 2
 
 
@@ -377,6 +384,27 @@ def _run_pull(config: dict, db_path: str) -> int:
         logging.exception("Failed to pull from Feishu")
         print(f"Error pulling from Feishu: {exc}")
         return 1
+
+
+def _run_check(config: dict, db_path: str) -> int:
+    """Report Feishu/local reconciliation facts without modifying either side."""
+    repo = JobRepository(db_path)
+    repo.init_schema()
+    client = FeishuBitableClient(FeishuConfig.from_config(config))
+    try:
+        report = audit_feishu_records(repo, client.list_all_records())
+    except Exception as exc:
+        logging.exception("Failed to audit Feishu records")
+        print(f"Error checking Feishu: {exc}")
+        return 1
+    print(
+        "check summary: "
+        f"local_job_count={report.local_job_count} remote_record_count={report.remote_record_count} "
+        f"only_local={len(report.only_local_job_ids)} only_remote={len(report.only_remote_record_ids)} "
+        f"duplicates={len(report.duplicate_job_ids)} blank={len(report.blank_record_ids)} "
+        f"unmatched={len(report.unmatched_record_ids)} unknown_statuses={len(report.unknown_statuses)}"
+    )
+    return 0
 
 
 def _sync_feishu(repo: JobRepository, config: dict, rows: list[dict]) -> SyncSummary:
