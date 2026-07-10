@@ -9,7 +9,7 @@ from job_monitor.workspace_schema import desired_workspace
 
 class FakeWorkspaceClient:
     def __init__(self):
-        self.config = SimpleNamespace(app_token="base-token")
+        self.config = SimpleNamespace(app_token="base-token", base_url="https://example.feishu.cn/base/base-token")
         self.tables = {}
         self.fields = {}
         self.views = {}
@@ -105,6 +105,7 @@ def test_provision_creates_and_verifies_complete_workspace():
     assert {field["field_name"] for field in client.list_fields(result.table_id)} == set(desired_workspace().field_names)
     assert {view["view_name"] for view in client.list_views(result.table_id)} == {"待处理", "收藏", "投递进度"}
     assert next(view for view in client.list_views(result.table_id) if view["view_name"] == "投递进度")["view_type"] == "kanban"
+    assert result.workspace_url == f"https://example.feishu.cn/base/base-token?table={result.table_id}"
 
 
 def test_provision_is_idempotent_and_preserves_extra_resources():

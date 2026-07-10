@@ -100,10 +100,7 @@ def validate_config(config: dict[str, Any], *, require_feishu: bool = False) -> 
 def save_config(config: dict[str, Any], path: str | Path = "config.yaml") -> None:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    safe_config = deepcopy(config)
-    feishu = safe_config.get("feishu")
-    if isinstance(feishu, dict):
-        feishu.pop("tenant_access_token", None)
+    safe_config = _config_for_storage(config)
     handle, temporary_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
     temporary = Path(temporary_name)
     try:
@@ -123,4 +120,61 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> None:
             _deep_merge(base[key], value)
         else:
             base[key] = value
+
+
+def _config_for_storage(config: dict[str, Any]) -> dict[str, Any]:
+    profile_keys = (
+        "graduate_years",
+        "batches",
+        "role_groups",
+        "target_industries",
+        "target_cities",
+        "must_watch_companies",
+        "exclude_role_groups",
+        "recall_mode",
+        "daily_push_limit",
+    )
+    feishu_keys = (
+        "base_url",
+        "app_id",
+        "app_secret",
+        "webhook_url",
+        "workspace_table_id",
+        "workspace_schema_version",
+    )
+    stored: dict[str, Any] = {
+        "user_profile": {
+            key: deepcopy(config.get("user_profile", {}).get(key, DEFAULT_CONFIG["user_profile"].get(key)))
+            for key in profile_keys
+        },
+        "feishu": {
+            key: deepcopy(config.get("feishu", {}).get(key, ""))
+            for key in feishu_keys
+            if config.get("feishu", {}).get(key, "") not in (None, "") or key in {"base_url", "app_id", "app_secret", "webhook_url"}
+        },
+    }
+    for key, value in config.items():
+        if key in {"user_profile", "feishu"}:
+            continue
+        if key not in DEFAULT_CONFIG:
+            stored[key] = deepcopy(value)
+            continue
+        difference = _deep_diff(value, DEFAULT_CONFIG[key])
+        if difference not in (None, {}, []):
+            stored[key] = difference
+    return stored
+
+
+def _deep_diff(value: Any, default: Any) -> Any:
+    if isinstance(value, dict) and isinstance(default, dict):
+        result: dict[str, Any] = {}
+        for key, child in value.items():
+            if key not in default:
+                result[key] = deepcopy(child)
+                continue
+            difference = _deep_diff(child, default[key])
+            if difference not in (None, {}, []):
+                result[key] = difference
+        return result
+    return None if value == default else deepcopy(value)
 

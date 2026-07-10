@@ -37,7 +37,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--db", default="data/jobs.sqlite")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    init_parser = subparsers.add_parser("init", help="初始化扫描并导出 Excel")
+    init_parser = subparsers.add_parser(
+        "init",
+        help="配置飞书工作台并完成首次扫描",
+        description="引导配置并自动创建或修复飞书求职工作台，然后完成首次扫描和同步。",
+    )
     init_parser.add_argument("--config", dest="command_config")
     init_parser.add_argument("--db", dest="command_db")
     init_parser.add_argument("--output", default="data/exports/all_jobs_initial.xlsx")
@@ -73,7 +77,7 @@ def main(argv: list[str] | None = None) -> int:
     export_parser.add_argument("--table", choices=["all", "recommended", "daily-new", "raw"], default="all")
     export_parser.add_argument("--date")
 
-    pull_parser = subparsers.add_parser("pull", help="从飞书表格拉取并更新本地的用户状态和备注")
+    pull_parser = subparsers.add_parser("pull", help="从飞书工作台回收求职状态、下次行动和备注")
     pull_parser.add_argument("--config", dest="command_config")
     pull_parser.add_argument("--db", dest="command_db")
 

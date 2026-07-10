@@ -10,6 +10,9 @@ dependencies = [
     "requests>=2.31",
 ]
 
+[project.scripts]
+feishu-job-radar = "job_monitor.cli:main"
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]

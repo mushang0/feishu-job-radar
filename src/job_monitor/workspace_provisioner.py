@@ -61,6 +61,9 @@ class WorkspaceProvisioner:
         views_created, views_updated = self._reconcile_views(table_id, fields)
         self.verify(table_id)
         app_token = str(getattr(self.client.config, "app_token", ""))
+        base_url = str(getattr(self.client.config, "base_url", "") or "").split("?", 1)[0].rstrip("/")
+        if not base_url:
+            base_url = f"https://feishu.cn/base/{app_token}"
         return ProvisioningResult(
             table_id=table_id,
             table_created=table_created,
@@ -68,7 +71,7 @@ class WorkspaceProvisioner:
             fields_updated=tuple(fields_updated),
             views_created=tuple(views_created),
             views_updated=tuple(views_updated),
-            workspace_url=f"https://feishu.cn/base/{app_token}?table={table_id}",
+            workspace_url=f"{base_url}?table={table_id}",
         )
 
     def verify(self, table_id: str) -> None:
