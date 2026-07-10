@@ -144,11 +144,21 @@ class WorkspaceProvisioner:
 
     def _view_property(self, view: WorkspaceView, fields: list[dict]) -> dict:
         field_ids = {str(item.get("field_name")): str(item.get("field_id")) for item in fields}
+        status_field = next((item for item in fields if item.get("field_name") == "求职状态"), None)
+        status_options = (status_field.get("property") or {}).get("options") if status_field else []
+        status_option_ids = {
+            str(option.get("name")): str(option.get("id"))
+            for option in status_options or []
+            if isinstance(option, dict) and option.get("name") and option.get("id")
+        }
+        missing_statuses = [status for status in view.status_values if status not in status_option_ids]
+        if missing_statuses:
+            raise WorkspaceVerificationError(f"求职状态选项缺少远端 ID：{', '.join(missing_statuses)}")
         conditions = [
             {
                 "field_id": field_ids["求职状态"],
                 "operator": "is",
-                "value": json.dumps(list(view.status_values), ensure_ascii=False),
+                "value": json.dumps([status_option_ids[status] for status in view.status_values]),
             }
         ]
         if view.require_recommended:

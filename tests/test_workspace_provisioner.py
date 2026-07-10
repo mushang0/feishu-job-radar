@@ -1,4 +1,5 @@
 from copy import deepcopy
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -34,6 +35,8 @@ class FakeWorkspaceClient:
             created = deepcopy(field)
             created["field_id"] = self._id("fld")
             created["is_primary"] = index == 0
+            for option in (created.get("property") or {}).get("options") or []:
+                option["id"] = self._id("opt")
             self.fields[table_id].append(created)
         view_id = self._id("vew")
         self.views[table_id] = [
@@ -58,6 +61,8 @@ class FakeWorkspaceClient:
         field = deepcopy(payload)
         field["field_id"] = self._id("fld")
         field["is_primary"] = False
+        for option in (field.get("property") or {}).get("options") or []:
+            option["id"] = self._id("opt")
         self.fields[table_id].append(field)
         return deepcopy(field)
 
@@ -106,6 +111,11 @@ def test_provision_creates_and_verifies_complete_workspace():
     assert {view["view_name"] for view in client.list_views(result.table_id)} == {"待处理", "收藏", "投递进度"}
     assert next(view for view in client.list_views(result.table_id) if view["view_name"] == "投递进度")["view_type"] == "kanban"
     assert result.workspace_url == f"https://example.feishu.cn/base/base-token?table={result.table_id}"
+    pending = next(view for view in client.views[result.table_id] if view["view_name"] == "待处理")
+    status_field = next(field for field in client.fields[result.table_id] if field["field_name"] == "求职状态")
+    pending_status_value = pending["property"]["filter_info"]["conditions"][0]["value"]
+    assert json.loads(pending_status_value) == [status_field["property"]["options"][0]["id"]]
+    assert "待处理" not in pending_status_value
 
 
 def test_provision_is_idempotent_and_preserves_extra_resources():
