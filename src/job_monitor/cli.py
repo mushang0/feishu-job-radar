@@ -8,15 +8,19 @@ from pathlib import Path
 
 from .alerts import build_daily_message
 from .audit import audit_feishu_records
-from .config import load_config
+from .config import load_config, save_config, validate_config
+from .diagnostics import preflight_check
 from .exporters import export_jobs_to_excel
 from .feishu import FeishuBitableClient, FeishuBot, FeishuConfig
 from .feishu_records import build_create_fields, build_update_fields, index_remote_records
 from .logging_utils import setup_logging
+from .onboarding import InitializationPreview, collect_missing_config, confirm_initialization
 from .official_search import OfficialUrlFinder
 from .pipeline import backfill_existing_job_details, enrich_official_urls, rematch_existing_jobs, run_daily_with_jobs, run_init_with_page_batches, pull_user_states_from_feishu
 from .storage import JobRepository
 from .wondercv import WonderCVCrawler
+from .workspace_provisioner import WorkspaceProvisioner
+from .workspace_schema import WORKSPACE_SCHEMA_VERSION, desired_workspace
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,6 +41,7 @@ def main(argv: list[str] | None = None) -> int:
     init_parser.add_argument("--config", dest="command_config")
     init_parser.add_argument("--db", dest="command_db")
     init_parser.add_argument("--output", default="data/exports/all_jobs_initial.xlsx")
+    init_parser.add_argument("--yes", action="store_true", help="验证配置后无需再次确认")
 
     daily_parser = subparsers.add_parser("daily", help="每日增量扫描、飞书同步和提醒")
     daily_parser.add_argument("--config", dest="command_config")
@@ -89,7 +94,7 @@ def main(argv: list[str] | None = None) -> int:
     setup_logging(Path(log_dir) / log_name)
 
     if args.command == "init":
-        return _run_init(config, db_path, args.output)
+        return _run_init(config, db_path, config_path, args.output, assume_yes=args.yes)
     if args.command == "daily":
         return _run_daily(config, db_path, skip_feishu=args.no_feishu)
     if args.command == "rematch":
@@ -126,38 +131,125 @@ def _run_export(db_path: str, output_path: str, table: str = "all", export_date:
         rows = repo.list_jobs_with_matches()
         export_jobs_to_excel(rows, output_path)
     else:
-        rows = repo.list_feishu_sync_candidates()
+        rows = repo.list_feishu_reconciliation_rows()
         export_jobs_to_excel(rows, output_path)
     return 0
 
 
-def _run_init(config: dict, db_path: str, output_path: str) -> int:
+def _run_init(
+    config: dict,
+    db_path: str,
+    config_path: str,
+    output_path: str,
+    *,
+    assume_yes: bool = False,
+) -> int:
+    try:
+        configured = collect_missing_config(config)
+        if configured is not config:
+            config.clear()
+            config.update(configured)
+        errors = validate_config(config, require_feishu=True)
+        if errors:
+            print("配置检查失败：" + "；".join(errors))
+            return 1
+        save_config(config, config_path)
+    except Exception as exc:
+        logging.error("initial configuration failed: %s", exc)
+        print(f"初始化配置失败：{exc}")
+        return 1
+
     repo = JobRepository(db_path)
     repo.init_schema()
-    crawler = WonderCVCrawler(config)
-    error = None
+    local_preflight = preflight_check(config, db_path)
+    if not local_preflight.ok:
+        print("运行前检查失败：" + "；".join(local_preflight.errors))
+        return 1
+
     try:
+        client = FeishuBitableClient(FeishuConfig.from_config(config))
+        client.get_app()
+    except Exception as exc:
+        logging.error("Feishu read-only preflight failed: %s", exc)
+        print(f"飞书连接检查失败：{exc}")
+        return 1
+
+    preview = InitializationPreview(
+        base_url=str(config["feishu"]["base_url"]),
+        table_name=desired_workspace().table_name,
+        pending_candidates=len(repo.list_feishu_sync_candidates()),
+    )
+    if not confirm_initialization(preview, assume_yes=assume_yes):
+        print("已取消初始化，未修改飞书结构。")
+        return 0
+
+    try:
+        def persist_table_id(table_id: str) -> None:
+            config["feishu"]["workspace_table_id"] = table_id
+            save_config(config, config_path)
+
+        provisioning = WorkspaceProvisioner(client, desired_workspace()).provision(
+            config["feishu"].get("workspace_table_id") or None,
+            on_table_created=persist_table_id,
+        )
+        config["feishu"]["workspace_table_id"] = provisioning.table_id
+        config["feishu"]["workspace_schema_version"] = WORKSPACE_SCHEMA_VERSION
+        save_config(config, config_path)
+    except Exception as exc:
+        logging.exception("Feishu workspace provisioning failed")
+        print(f"飞书工作台初始化失败：{exc}")
+        return 1
+
+    started_at = datetime.now().isoformat(timespec="seconds")
+    try:
+        crawler = WonderCVCrawler(config)
         summary = run_init_with_page_batches(repo, crawler.crawl_pages(mode="init"), config)
     except Exception as exc:
-        error = str(exc)
-        summary = run_init_with_page_batches(repo, [], config)
+        repo.record_scan_run(
+            {
+                "run_type": "init",
+                "started_at": started_at,
+                "finished_at": datetime.now().isoformat(timespec="seconds"),
+                "status": "partial",
+                "pages_scanned": 0,
+                "items_seen": 0,
+                "new_items": 0,
+                "updated_items": 0,
+                "error_message": str(exc),
+            }
+        )
+        logging.exception("initial scan failed")
+        print(f"首次扫描失败，工作台结构已保留，可修复后重试：{exc}")
+        return 1
+
+    sync_summary = _sync_feishu(repo, config, repo.list_feishu_reconciliation_rows())
     export_jobs_to_excel(repo.list_all_jobs(), output_path)
     repo.record_scan_run(
         {
             "run_type": "init",
-            "started_at": datetime.now().isoformat(timespec="seconds"),
+            "started_at": started_at,
             "finished_at": datetime.now().isoformat(timespec="seconds"),
-            "status": "partial" if error else "success",
+            "status": "partial" if sync_summary.failed else "success",
             "pages_scanned": summary.pages_scanned,
             "items_seen": summary.items_seen,
             "new_items": summary.new_items,
             "updated_items": summary.updated_items,
-            "error_message": error,
+            "error_message": f"飞书同步失败 {sync_summary.failed} 条" if sync_summary.failed else None,
         }
     )
-    logging.info("init finished: seen=%s new=%s output=%s", summary.items_seen, summary.new_items, output_path)
+    print(_format_run_summary("init", summary, None, sync_summary))
+    print(f"飞书工作台：{provisioning.workspace_url}")
+    logging.info(
+        "init finished: seen=%s new=%s recommended=%s feishu_created=%s feishu_updated=%s feishu_failed=%s",
+        summary.items_seen,
+        summary.new_items,
+        summary.recommended_items,
+        sync_summary.created,
+        sync_summary.updated,
+        sync_summary.failed,
+    )
     repo.vacuum()
-    return 1 if error and summary.items_seen == 0 else 0
+    return 1 if sync_summary.failed else 0
 
 
 def _run_daily(config: dict, db_path: str, skip_feishu: bool = False) -> int:
@@ -221,12 +313,12 @@ def _run_daily(config: dict, db_path: str, skip_feishu: bool = False) -> int:
             "run_type": "daily",
             "started_at": datetime.now().isoformat(timespec="seconds"),
             "finished_at": datetime.now().isoformat(timespec="seconds"),
-            "status": "partial" if crawl.error else "success",
+            "status": "partial" if crawl.error or sync_summary.failed else "success",
             "pages_scanned": crawl.pages_scanned,
             "items_seen": summary.items_seen,
             "new_items": summary.new_items,
             "updated_items": summary.updated_items,
-            "error_message": crawl.error,
+            "error_message": crawl.error or (f"飞书同步失败 {sync_summary.failed} 条" if sync_summary.failed else None),
         }
     )
     logging.info(
@@ -242,7 +334,7 @@ def _run_daily(config: dict, db_path: str, skip_feishu: bool = False) -> int:
     )
     print(_format_run_summary("daily", summary, enrich_summary, sync_summary))
     repo.vacuum()
-    return 1 if crawl.error and not crawl.jobs else 0
+    return 1 if (crawl.error and not crawl.jobs) or sync_summary.failed else 0
 
 
 def _run_rematch(
@@ -255,7 +347,6 @@ def _run_rematch(
 ) -> int:
     repo = JobRepository(db_path)
     repo.init_schema()
-    summary = rematch_existing_jobs(repo, config, recommendation_date)
     enrich_summary = None
     sync_summary = SyncSummary()
     if not skip_feishu:
@@ -266,20 +357,22 @@ def _run_rematch(
         except Exception as exc:
             logging.warning("Failed to pull latest user states from Feishu: %s", exc)
 
+    summary = rematch_existing_jobs(repo, config, recommendation_date)
+    if not skip_feishu:
         if not skip_enrich_official:
             enrich_summary = enrich_official_urls(repo, OfficialUrlFinder(), only_recommended=True)
-        sync_summary = _sync_feishu(repo, config, repo.list_feishu_sync_candidates())
+        sync_summary = _sync_feishu(repo, config, repo.list_feishu_reconciliation_rows())
     repo.record_scan_run(
         {
             "run_type": "rematch",
             "started_at": datetime.now().isoformat(timespec="seconds"),
             "finished_at": datetime.now().isoformat(timespec="seconds"),
-            "status": "success",
+            "status": "partial" if sync_summary.failed else "success",
             "pages_scanned": 0,
             "items_seen": summary.items_seen,
             "new_items": summary.new_items,
             "updated_items": summary.updated_items,
-            "error_message": None,
+            "error_message": f"飞书同步失败 {sync_summary.failed} 条" if sync_summary.failed else None,
         }
     )
     logging.info(
@@ -294,7 +387,7 @@ def _run_rematch(
     )
     print(_format_run_summary("rematch", summary, enrich_summary, sync_summary))
     repo.vacuum()
-    return 0
+    return 1 if sync_summary.failed else 0
 
 
 def _run_backfill_details(

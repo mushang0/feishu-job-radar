@@ -23,6 +23,7 @@ class InitSummary:
     new_items: int
     updated_items: int
     relevant_items: int
+    recommended_items: int = 0
 
 
 def run_daily_with_jobs(repo: JobRepository, jobs: list[Job], config: dict, run_date: str | None = None) -> DailySummary:
@@ -149,13 +150,19 @@ def enrich_official_urls(
     )
 
 
-def run_init_with_page_batches(repo: JobRepository, page_batches, config: dict) -> InitSummary:
+def run_init_with_page_batches(
+    repo: JobRepository,
+    page_batches,
+    config: dict,
+    run_date: str | None = None,
+) -> InitSummary:
     matcher = Matcher(config)
     pages_scanned = 0
     items_seen = 0
     new_items = 0
     updated_items = 0
     relevant_items = 0
+    recommendations: dict[int, dict] = {}
 
     for jobs in page_batches:
         pages_scanned += 1
@@ -170,6 +177,10 @@ def run_init_with_page_batches(repo: JobRepository, page_batches, config: dict) 
             repo.save_match(result.job_id, match)
             if match.is_relevant:
                 relevant_items += 1
+            if match.should_push:
+                recommendations[result.job_id] = {"job_id": result.job_id, "recommend_reason": match.recommend_reason}
+
+    repo.sync_global_recommendations(run_date or date.today().isoformat(), recommendations.values())
 
     return InitSummary(
         pages_scanned=pages_scanned,
@@ -177,6 +188,7 @@ def run_init_with_page_batches(repo: JobRepository, page_batches, config: dict) 
         new_items=new_items,
         updated_items=updated_items,
         relevant_items=relevant_items,
+        recommended_items=len(recommendations),
     )
 
 

@@ -346,6 +346,62 @@ def test_notification_rows_obeys_daily_push_limit_without_limiting_recommendatio
     assert [row["job_id"] for row in limited] == [1]
 
 
+def test_cli_rematch_deactivates_previously_synced_job_that_is_no_longer_recommended(tmp_path: Path, monkeypatch):
+    db_path = tmp_path / "jobs.sqlite"
+    config_path = tmp_path / "config.yaml"
+    repo = JobRepository(db_path)
+    repo.init_schema()
+    inserted = repo.upsert_job(Job(source="WonderCV", dedupe_key="stale:1", company="OldCo", title="销售经理"))
+    repo.append_recommendations("2026-07-10", [{"job_id": inserted.job_id, "recommend_reason": "old"}])
+    repo.mark_sync(inserted.job_id, "synced", record_id="rec-stale")
+    config_path.write_text(
+        """
+user_profile:
+  graduate_years: ["2027届"]
+  batches: ["秋招"]
+  role_groups: ["硬件"]
+  exclude_role_groups: ["销售"]
+system_taxonomy:
+  role_groups:
+    硬件: ["FPGA"]
+  exclude_role_groups:
+    销售: ["销售"]
+  generic_role_terms: []
+  important_company_types: []
+  important_company_marks: []
+  company_aliases: {}
+feishu:
+  bitable_app_token: base
+  table_id: tbl
+  tenant_access_token: token
+""",
+        encoding="utf-8",
+    )
+    captured = {}
+
+    class Client:
+        def __init__(self, config):
+            pass
+
+        def list_all_records(self):
+            return [{"record_id": "rec-stale", "fields": {"岗位ID": str(inserted.job_id), "求职状态": "待处理"}}]
+
+        def batch_create_records(self, records):
+            raise AssertionError("inactive record already exists")
+
+        def batch_update_records(self, records):
+            captured["records"] = records
+            return FeishuResult(sent=True)
+
+    monkeypatch.setattr("job_monitor.cli.FeishuBitableClient", Client)
+
+    code = main(["--config", str(config_path), "--db", str(db_path), "rematch", "--no-enrich-official"])
+
+    assert code == 0
+    assert captured["records"][0]["record_id"] == "rec-stale"
+    assert captured["records"][0]["fields"]["推荐有效"] is False
+
+
 def test_cli_pull_command(tmp_path, monkeypatch):
     from unittest.mock import patch
     from job_monitor.cli import main

@@ -30,7 +30,8 @@ def test_init_pipeline_saves_each_page_batch_incrementally(tmp_path):
         [Job(source="WonderCV", dedupe_key="WonderCV:id:2", company="B", title="FPGA", collected_date="2026-07-01")],
     ]
 
-    summary = run_init_with_page_batches(repo, page_batches, config)
+    summary = run_init_with_page_batches(repo, page_batches, config, run_date="2026-07-11")
 
-    assert summary == InitSummary(pages_scanned=2, items_seen=2, new_items=2, updated_items=0, relevant_items=2)
+    assert summary == InitSummary(pages_scanned=2, items_seen=2, new_items=2, updated_items=0, relevant_items=2, recommended_items=2)
     assert repo.count_jobs() == 2
+    assert len(repo.list_feishu_sync_candidates()) == 2
