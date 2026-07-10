@@ -90,7 +90,7 @@ def recover_user_states(repo: JobRepository, records: Iterable[dict[str, Any]]) 
             status,
             _text(fields.get("备注")),
             apply_url_manual=None,
-            next_action=_text(fields.get("下一步行动")),
+            next_action=_text(fields.get("下次行动")),
         )
         if record.get("record_id"):
             repo.mark_sync(job_id, "synced", record_id=str(record["record_id"]))

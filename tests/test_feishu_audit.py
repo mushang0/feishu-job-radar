@@ -46,7 +46,7 @@ def test_recovery_normalizes_known_statuses_and_preserves_unknown_statuses(tmp_p
                     "岗位ID": str(known.job_id),
                     "求职状态": "收藏",
                     "备注": [{"text": "from Feishu"}],
-                    "下一步行动": [{"text": "2026-07-15"}],
+                    "下次行动": [{"text": "2026-07-15"}],
                 },
             },
             {"record_id": "rec-unknown", "fields": {"岗位ID": str(unknown.job_id), "求职状态": "自定义状态", "备注": "overwrite me"}},
