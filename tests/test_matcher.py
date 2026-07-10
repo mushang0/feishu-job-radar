@@ -47,6 +47,21 @@ def test_must_watch_company_pushes_generic_notice():
     assert result.priority == "push"
 
 
+def test_must_watch_company_cannot_bypass_an_explicit_excluded_role():
+    matcher = Matcher(_config())
+    job = Job(
+        company="必看集团",
+        title="2027届销售客户经理",
+        batch="秋招",
+        target_graduate_year="2027届",
+    )
+
+    result = matcher.match(job)
+
+    assert result.should_push is False
+    assert result.recommend_reason == ""
+
+
 def test_role_group_hit_pushes_and_names_group():
     matcher = Matcher(_config())
     job = Job(company="普通公司", title="2027届FPGA工程师", batch="秋招", target_graduate_year="2027届", city="深圳")
@@ -74,7 +89,7 @@ def test_target_industry_plus_generic_role_pushes():
     assert result.recommend_reason == "目标行业下的研发/技术类岗位"
 
 
-def test_important_company_fallback_pushes_campus_notice():
+def test_important_company_fallback_does_not_create_a_pending_verification_recommendation():
     matcher = Matcher(_config())
     job = Job(
         company="重点公司",
@@ -86,10 +101,9 @@ def test_important_company_fallback_pushes_campus_notice():
 
     result = matcher.match(job)
 
-    assert result.should_push is True
-    assert result.needs_verify is True
-    assert result.verify_status == "待核验"
-    assert result.recommend_reason == "重要公司公告，岗位方向需人工确认"
+    assert result.should_push is False
+    assert result.needs_verify is False
+    assert result.recommend_reason == ""
 
 
 def test_city_only_does_not_push():
@@ -170,7 +184,7 @@ def test_negative_words_in_raw_text_do_not_block_positive_role_group_signal():
     assert result.recommend_reason == "命中岗位方向：硬件/嵌入式"
 
 
-def test_must_watch_mixed_notice_with_positive_role_pushes_without_verify():
+def test_must_watch_mixed_notice_with_an_explicit_excluded_role_is_not_recommended():
     matcher = Matcher(_config())
     job = Job(
         company="必看集团",
@@ -182,10 +196,10 @@ def test_must_watch_mixed_notice_with_positive_role_pushes_without_verify():
 
     result = matcher.match(job)
 
-    assert result.should_push is True
+    assert result.should_push is False
     assert result.needs_verify is False
-    assert result.negative_keywords == ["市场", "营销", "运营"]
-    assert result.recommend_reason == "命中必看公司"
+    assert result.negative_keywords == ["营销"]
+    assert result.recommend_reason == ""
 
 
 def test_marketing_keyword_is_excluded_by_market_group():

@@ -27,6 +27,9 @@ class Matcher:
         if self._city_is_clear_mismatch(job, city_hit):
             return self._result(False, "城市不匹配", negative_hits=negative_hits, city_hit=city_hit)
 
+        if role_negative_hits:
+            return self._result(False, "命中排除岗位", negative_hits=role_negative_hits, city_hit=city_hit)
+
         company_hit = self._must_watch_company_hit(job)
         if company_hit:
             return self._result(
@@ -37,9 +40,6 @@ class Matcher:
                 negative_hits=negative_hits,
                 city_hit=city_hit,
             )
-
-        if role_negative_hits:
-            return self._result(False, "命中排除岗位", negative_hits=role_negative_hits, city_hit=city_hit)
 
         role_group, keyword_hits = self._role_group_hit(text)
         if role_group:
@@ -62,17 +62,6 @@ class Matcher:
                 matched_keywords=generic_hits,
                 negative_hits=negative_hits,
                 city_hit=city_hit,
-            )
-
-        if self._important_company_fallback(job, text):
-            return self._result(
-                True,
-                "重要公司公告，岗位方向需人工确认",
-                score=60,
-                negative_hits=negative_hits,
-                city_hit=city_hit,
-                needs_verify=True,
-                verify_status="待核验",
             )
 
         return self._result(False, "", negative_hits=negative_hits, city_hit=city_hit)
