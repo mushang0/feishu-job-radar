@@ -27,3 +27,12 @@ feishu:
     assert "matching" not in config
     assert "keywords" not in config
     assert config["feishu"]["webhook_url"] == "https://example.com/hook"
+
+
+def test_validate_config_reports_missing_required_user_inputs():
+    from job_monitor.config import validate_config
+
+    errors = validate_config({"user_profile": {}, "feishu": {}})
+
+    assert "至少选择一个毕业届别" in errors
+    assert "至少选择一个岗位方向" in errors

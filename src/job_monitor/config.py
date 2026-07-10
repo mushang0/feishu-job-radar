@@ -74,6 +74,16 @@ def load_config(path: str | Path = "config.yaml") -> dict[str, Any]:
     return config
 
 
+def validate_config(config: dict[str, Any]) -> list[str]:
+    profile = config.get("user_profile", {})
+    errors: list[str] = []
+    if not profile.get("graduate_years"):
+        errors.append("至少选择一个毕业届别")
+    if not profile.get("role_groups"):
+        errors.append("至少选择一个岗位方向")
+    return errors
+
+
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> None:
     for key, value in override.items():
         if isinstance(value, dict) and isinstance(base.get(key), dict):
