@@ -1,6 +1,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
+
+
+WORKSPACE_SCHEMA_VERSION = "1"
+
+FIELD_TYPE_CODES = {
+    "text": 1,
+    "single_select": 3,
+    "date": 5,
+    "checkbox": 7,
+    "url": 15,
+}
+
+JOB_STATUS_OPTIONS = ("待处理", "收藏", "不合适", "已投递", "笔试中", "面试中", "Offer", "已结束")
 
 
 @dataclass(frozen=True, slots=True)
@@ -8,23 +22,72 @@ class WorkspaceField:
     name: str
     field_type: str
     hidden: bool = False
+    options: tuple[str, ...] = ()
+
+    @property
+    def type_code(self) -> int:
+        return FIELD_TYPE_CODES[self.field_type]
+
+    @property
+    def property(self) -> dict[str, Any] | None:
+        if self.options:
+            return {"options": [{"name": option} for option in self.options]}
+        if self.field_type == "date":
+            return {"date_formatter": "yyyy/MM/dd"}
+        return None
+
+    def create_payload(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {"field_name": self.name, "type": self.type_code}
+        if self.property is not None:
+            payload["property"] = self.property
+        return payload
 
 
 @dataclass(frozen=True, slots=True)
 class WorkspaceView:
     name: str
     status_values: tuple[str, ...]
+    view_type: str = "grid"
+    require_recommended: bool = False
+    visible_fields: tuple[str, ...] = ()
+
+    def create_payload(self) -> dict[str, Any]:
+        return {"view_name": self.name, "view_type": self.view_type}
 
 
 @dataclass(frozen=True, slots=True)
 class WorkspaceSchema:
+    table_name: str
     primary_field: str
     fields: tuple[WorkspaceField, ...]
     views: tuple[WorkspaceView, ...]
 
+    @property
+    def field_names(self) -> tuple[str, ...]:
+        return tuple(field.name for field in self.fields)
+
+    def field(self, name: str) -> WorkspaceField:
+        for field in self.fields:
+            if field.name == name:
+                return field
+        raise KeyError(name)
+
+    def table_create_payload(self) -> dict[str, Any]:
+        return {
+            "table": {
+                "name": self.table_name,
+                "default_view_name": self.views[0].name,
+                "fields": [field.create_payload() for field in self.fields],
+            }
+        }
+
 
 def desired_workspace() -> WorkspaceSchema:
+    pending_visible = ("岗位", "公司", "城市", "届别", "批次", "推荐理由", "投递入口", "截止时间", "求职状态")
+    favorite_visible = ("岗位", "公司", "城市", "截止时间", "推荐理由", "投递入口", "求职状态")
+    progress_visible = ("岗位", "公司", "下次行动", "投递入口", "备注", "求职状态")
     return WorkspaceSchema(
+        table_name="求职工作台",
         primary_field="岗位",
         fields=(
             WorkspaceField("岗位", "text"),
@@ -35,16 +98,23 @@ def desired_workspace() -> WorkspaceSchema:
             WorkspaceField("推荐理由", "text"),
             WorkspaceField("投递入口", "url"),
             WorkspaceField("截止时间", "date"),
-            WorkspaceField("求职状态", "single_select"),
-            WorkspaceField("下一步行动", "text"),
+            WorkspaceField("求职状态", "single_select", options=JOB_STATUS_OPTIONS),
+            WorkspaceField("下次行动", "text"),
             WorkspaceField("备注", "text"),
             WorkspaceField("岗位ID", "text", hidden=True),
             WorkspaceField("来源详情", "url", hidden=True),
-            WorkspaceField("同步状态", "text", hidden=True),
+            WorkspaceField("首次发现", "date", hidden=True),
+            WorkspaceField("最后更新", "date", hidden=True),
+            WorkspaceField("推荐有效", "checkbox", hidden=True),
         ),
         views=(
-            WorkspaceView("待处理", ("待处理",)),
-            WorkspaceView("收藏", ("收藏",)),
-            WorkspaceView("投递进度", ("收藏", "已投递", "笔试中", "面试中", "Offer", "已结束")),
+            WorkspaceView("待处理", ("待处理",), require_recommended=True, visible_fields=pending_visible),
+            WorkspaceView("收藏", ("收藏",), visible_fields=favorite_visible),
+            WorkspaceView(
+                "投递进度",
+                ("收藏", "已投递", "笔试中", "面试中", "Offer", "已结束"),
+                view_type="kanban",
+                visible_fields=progress_visible,
+            ),
         ),
     )
