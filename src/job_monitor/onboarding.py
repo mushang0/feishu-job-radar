@@ -67,7 +67,7 @@ def collect_missing_config(
         ("must_watch_companies", "重点公司（可留空）：", False),
     )
     for key, prompt, required in prompts:
-        if profile.get(key):
+        if key in profile and (profile.get(key) or not required):
             continue
         values = _split_values(input_fn(prompt))
         if required and not values:

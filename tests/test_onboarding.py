@@ -71,6 +71,33 @@ def test_collect_missing_config_prompts_only_for_required_inputs():
     assert secrets == ["asked"]
 
 
+def test_collect_missing_config_accepts_explicit_empty_optional_lists_non_interactively():
+    config = {
+        "user_profile": {
+            "graduate_years": ["2027届"],
+            "batches": ["秋招"],
+            "role_groups": ["硬件/嵌入式"],
+            "target_cities": [],
+            "must_watch_companies": [],
+        },
+        "feishu": {
+            "base_url": "https://example.feishu.cn/base/bascnToken",
+            "app_id": "cli-app",
+            "app_secret": "secret",
+        },
+    }
+
+    collected = collect_missing_config(
+        config,
+        input_fn=lambda _: pytest.fail("complete configuration must not prompt"),
+        secret_input_fn=lambda _: pytest.fail("complete configuration must not prompt for secret"),
+        output_fn=lambda _: None,
+    )
+
+    assert collected["user_profile"]["target_cities"] == []
+    assert collected["user_profile"]["must_watch_companies"] == []
+
+
 def test_confirm_initialization_requires_explicit_yes_unless_flag_is_set():
     preview = InitializationPreview(base_url="https://example.feishu.cn/base/token", table_name="求职工作台", pending_candidates=12)
 
