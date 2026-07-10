@@ -22,6 +22,7 @@ from .wondercv import WonderCVCrawler
 class SyncSummary:
     created: int = 0
     updated: int = 0
+    skipped: int = 0
     failed: int = 0
 
 
@@ -124,7 +125,7 @@ def _run_export(db_path: str, output_path: str, table: str = "all", export_date:
         rows = repo.list_jobs_with_matches()
         export_jobs_to_excel(rows, output_path)
     else:
-        rows = repo.list_all_jobs()
+        rows = repo.list_feishu_sync_candidates()
         export_jobs_to_excel(rows, output_path)
     return 0
 
@@ -206,7 +207,7 @@ def _run_daily(config: dict, db_path: str, skip_feishu: bool = False) -> int:
             logging.warning("Failed to pull latest user states from Feishu: %s", exc)
 
         enrich_summary = enrich_official_urls(repo, OfficialUrlFinder(), only_recommended=True)
-        rows = repo.list_all_jobs()
+        rows = repo.list_feishu_sync_candidates()
         sync_summary = _sync_feishu(repo, config, rows)
         message = build_daily_message(summary.new_items, recommended_rows, crawl.error)
         bot = FeishuBot(FeishuConfig.from_config(config).webhook_url)
@@ -266,7 +267,7 @@ def _run_rematch(
 
         if not skip_enrich_official:
             enrich_summary = enrich_official_urls(repo, OfficialUrlFinder(), only_recommended=True)
-        sync_summary = _sync_feishu(repo, config, repo.list_all_jobs())
+        sync_summary = _sync_feishu(repo, config, repo.list_feishu_sync_candidates())
     repo.record_scan_run(
         {
             "run_type": "rematch",
@@ -451,7 +452,7 @@ def _sync_feishu(repo: JobRepository, config: dict, rows: list[dict]) -> SyncSum
         for row in to_update:
             repo.mark_sync(int(row.get("job_id", row.get("id"))), "synced", record_id=row.get("feishu_record_id"))
             updated += 1
-    return SyncSummary(created=created, updated=updated, failed=failed)
+    return SyncSummary(created=created, updated=updated, skipped=len(rows) - len(to_create) - len(to_update), failed=failed)
 
 
 def _notification_rows(rows: list[dict], config: dict) -> list[dict]:
@@ -482,7 +483,7 @@ def _format_run_summary(command: str, summary, enrich_summary, sync_summary: Syn
         f"recommended={summary.recommended_items} "
         f"official_seen={enrich_summary.items_seen if enrich_summary else 0} "
         f"official_updated={enrich_summary.updated_items if enrich_summary else 0} "
-        f"feishu_created={sync_summary.created} feishu_updated={sync_summary.updated} "
+        f"feishu_created={sync_summary.created} feishu_updated={sync_summary.updated} feishu_skipped={sync_summary.skipped} "
         f"feishu_failed={sync_summary.failed}"
     )
 
