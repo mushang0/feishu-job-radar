@@ -7,7 +7,6 @@ from .storage import JobRepository
 
 
 KNOWN_STATUSES = frozenset({"待处理", "收藏", "不合适", "已投递", "笔试中", "面试中", "Offer", "已结束"})
-STATUS_MIGRATIONS = {"未看": "待处理", "已收藏": "收藏"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,7 +56,7 @@ def audit_feishu_records(repo: JobRepository, records: Iterable[dict[str, Any]])
             only_remote.append(record_id)
         else:
             matched_ids.add(job_id)
-        status = _text(fields.get("用户状态")).strip()
+        status = _text(fields.get("求职状态")).strip()
         if status and normalize_status(status) is None:
             unknown[record_id] = status
 
@@ -83,14 +82,14 @@ def recover_user_states(repo: JobRepository, records: Iterable[dict[str, Any]]) 
             continue
         fields = _fields(record)
         job_id = _job_id(fields.get("岗位ID"))
-        status = normalize_status(_text(fields.get("用户状态")).strip() or "未看")
+        status = normalize_status(_text(fields.get("求职状态")).strip())
         if job_id is None or status is None:
             continue
         repo.update_user_state(
             job_id,
             status,
             _text(fields.get("备注")),
-            apply_url_manual=_link_or_text(fields.get("手动投递入口")),
+            apply_url_manual=None,
             next_action=_text(fields.get("下一步行动")),
         )
         if record.get("record_id"):
@@ -100,7 +99,6 @@ def recover_user_states(repo: JobRepository, records: Iterable[dict[str, Any]]) 
 
 
 def normalize_status(value: str) -> str | None:
-    value = STATUS_MIGRATIONS.get(value, value)
     return value if value in KNOWN_STATUSES else None
 
 

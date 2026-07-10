@@ -134,7 +134,9 @@ def test_sync_feishu_updates_official_url_but_not_manual_fields(tmp_path, monkey
             "feishu_record_id": "rec1",
             "sync_status": "pending",
             "official_url": "https://auto.example.com",
+            "recommendation_active": True,
             "user_status": "manual",
+            "next_action": "keep action",
             "note": "keep",
         }
     ]
@@ -143,6 +145,9 @@ def test_sync_feishu_updates_official_url_but_not_manual_fields(tmp_path, monkey
     class Client:
         def __init__(self, config):
             pass
+
+        def list_all_records(self):
+            return [{"record_id": "rec1", "fields": {"岗位ID": "1"}}]
 
         def batch_create_records(self, records):
             raise AssertionError("create should not be called")
@@ -153,12 +158,11 @@ def test_sync_feishu_updates_official_url_but_not_manual_fields(tmp_path, monkey
 
     monkeypatch.setattr("job_monitor.cli.FeishuBitableClient", Client)
 
-    _sync_feishu(repo, {"feishu": {"tenant_access_token": "token"}}, rows)
+    _sync_feishu(repo, {"feishu": {"bitable_app_token": "base", "table_id": "tbl", "tenant_access_token": "token"}}, rows)
 
     fields = captured["records"][0]["fields"]
-    assert fields["官方链接"]["link"] == "https://auto.example.com"
-    assert "用户状态" not in fields
-    assert "备注" not in fields
+    assert fields["投递入口"]["link"] == "https://auto.example.com"
+    assert {"求职状态", "下次行动", "备注"}.isdisjoint(fields)
 
 
 def test_sync_feishu_updates_records_by_record_id_not_row_order(tmp_path, monkeypatch):
@@ -171,6 +175,7 @@ def test_sync_feishu_updates_records_by_record_id_not_row_order(tmp_path, monkey
             "feishu_record_id": "rec-second",
             "sync_status": "pending",
             "official_url": "https://second.example.com",
+            "recommendation_active": True,
         },
         {
             "job_id": 1,
@@ -178,6 +183,7 @@ def test_sync_feishu_updates_records_by_record_id_not_row_order(tmp_path, monkey
             "feishu_record_id": "rec-first",
             "sync_status": "pending",
             "official_url": "https://first.example.com",
+            "recommendation_active": True,
         },
     ]
     captured = {}
@@ -185,6 +191,12 @@ def test_sync_feishu_updates_records_by_record_id_not_row_order(tmp_path, monkey
     class Client:
         def __init__(self, config):
             pass
+
+        def list_all_records(self):
+            return [
+                {"record_id": "rec-first", "fields": {"岗位ID": "1"}},
+                {"record_id": "rec-second", "fields": {"岗位ID": "2"}},
+            ]
 
         def batch_create_records(self, records):
             raise AssertionError("create should not be called")
@@ -195,9 +207,9 @@ def test_sync_feishu_updates_records_by_record_id_not_row_order(tmp_path, monkey
 
     monkeypatch.setattr("job_monitor.cli.FeishuBitableClient", Client)
 
-    _sync_feishu(repo, {"feishu": {"tenant_access_token": "token"}}, rows)
+    _sync_feishu(repo, {"feishu": {"bitable_app_token": "base", "table_id": "tbl", "tenant_access_token": "token"}}, rows)
 
-    by_record_id = {record["record_id"]: record["fields"]["官方链接"]["link"] for record in captured["records"]}
+    by_record_id = {record["record_id"]: record["fields"]["投递入口"]["link"] for record in captured["records"]}
     assert by_record_id == {
         "rec-second": "https://second.example.com",
         "rec-first": "https://first.example.com",
@@ -237,4 +249,40 @@ def test_feishu_client_lists_all_records():
     assert records[0]["record_id"] == "rec1"
     assert records[1]["record_id"] == "rec2"
     assert mock_get.call_count == 2
+
+
+def test_sync_feishu_uses_remote_job_id_when_local_record_id_is_missing(tmp_path, monkeypatch):
+    repo = JobRepository(tmp_path / "jobs.sqlite")
+    repo.init_schema()
+    rows = [
+        {
+            "job_id": 7,
+            "title": "工程师",
+            "company": "RemoteCo",
+            "sync_status": "pending",
+            "recommendation_active": True,
+        }
+    ]
+    captured = {}
+
+    class Client:
+        def __init__(self, config):
+            pass
+
+        def list_all_records(self):
+            return [{"record_id": "rec-remote", "fields": {"岗位ID": "7"}}]
+
+        def batch_create_records(self, records):
+            raise AssertionError("remote record must prevent duplicate create")
+
+        def batch_update_records(self, records):
+            captured["records"] = records
+            return type("Result", (), {"sent": True, "error": None})()
+
+    monkeypatch.setattr("job_monitor.cli.FeishuBitableClient", Client)
+
+    summary = _sync_feishu(repo, {"feishu": {"bitable_app_token": "base", "table_id": "tbl", "tenant_access_token": "token"}}, rows)
+
+    assert summary.updated == 1
+    assert captured["records"][0]["record_id"] == "rec-remote"
 

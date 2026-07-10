@@ -76,11 +76,11 @@ def test_pipeline_pulls_from_feishu(tmp_path: Path):
     mock_client.list_all_records.return_value = [
         {
             "record_id": "rec-123",
-            "fields": {
-                "岗位ID": str(inserted.job_id),
-                "用户状态": "已收藏",
-                "备注": [{"text": "希望很大"}]  # 支持段结构
-            }
+                "fields": {
+                    "岗位ID": str(inserted.job_id),
+                    "求职状态": "收藏",
+                    "备注": [{"text": "希望很大"}]  # 支持段结构
+                }
         }
     ]
 

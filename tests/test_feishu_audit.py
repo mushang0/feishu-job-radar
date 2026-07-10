@@ -14,10 +14,10 @@ def test_audit_classifies_records_by_job_id_and_reports_discrepancies(tmp_path: 
     report = audit_feishu_records(
         repository,
         [
-            {"record_id": "rec-1", "fields": {"岗位ID": str(first.job_id), "用户状态": "未看"}},
-            {"record_id": "rec-duplicate", "fields": {"岗位ID": str(first.job_id), "用户状态": "收藏"}},
-            {"record_id": "rec-remote", "fields": {"岗位ID": "999", "用户状态": "未知状态"}},
-            {"record_id": "rec-blank", "fields": {"用户状态": "待处理"}},
+            {"record_id": "rec-1", "fields": {"岗位ID": str(first.job_id), "求职状态": "待处理"}},
+            {"record_id": "rec-duplicate", "fields": {"岗位ID": str(first.job_id), "求职状态": "收藏"}},
+            {"record_id": "rec-remote", "fields": {"岗位ID": "999", "求职状态": "未知状态"}},
+            {"record_id": "rec-blank", "fields": {"求职状态": "待处理"}},
         ],
     )
 
@@ -44,13 +44,12 @@ def test_recovery_normalizes_known_statuses_and_preserves_unknown_statuses(tmp_p
                 "record_id": "rec-known",
                 "fields": {
                     "岗位ID": str(known.job_id),
-                    "用户状态": "已收藏",
+                    "求职状态": "收藏",
                     "备注": [{"text": "from Feishu"}],
                     "下一步行动": [{"text": "2026-07-15"}],
-                    "手动投递入口": {"link": "https://careers.example/apply"},
                 },
             },
-            {"record_id": "rec-unknown", "fields": {"岗位ID": str(unknown.job_id), "用户状态": "自定义状态", "备注": "overwrite me"}},
+            {"record_id": "rec-unknown", "fields": {"岗位ID": str(unknown.job_id), "求职状态": "自定义状态", "备注": "overwrite me"}},
         ],
     )
 
@@ -61,9 +60,16 @@ def test_recovery_normalizes_known_statuses_and_preserves_unknown_statuses(tmp_p
     assert saved_known["user_status"] == "收藏"
     assert saved_known["note"] == "from Feishu"
     assert saved_known["next_action"] == "2026-07-15"
-    assert saved_known["apply_url_manual"] == "https://careers.example/apply"
+    assert saved_known["apply_url_manual"] == ""
     assert saved_unknown["user_status"] == "收藏"
     assert saved_unknown["note"] == "existing note"
+
+
+def test_legacy_personal_table_statuses_are_not_silently_migrated():
+    from job_monitor.audit import normalize_status
+
+    assert normalize_status("未看") is None
+    assert normalize_status("已收藏") is None
 
 
 def test_check_command_only_reads_feishu_records(tmp_path: Path, monkeypatch, capsys):
@@ -81,7 +87,7 @@ def test_check_command_only_reads_feishu_records(tmp_path: Path, monkeypatch, ca
             pass
 
         def list_all_records(self):
-            return [{"record_id": "rec-check", "fields": {"岗位ID": str(job.job_id), "用户状态": "待处理"}}]
+            return [{"record_id": "rec-check", "fields": {"岗位ID": str(job.job_id), "求职状态": "待处理"}}]
 
     monkeypatch.setattr("job_monitor.cli.FeishuBitableClient", Client)
     assert main(["--config", str(config), "--db", str(database), "check"]) == 0

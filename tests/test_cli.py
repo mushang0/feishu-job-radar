@@ -131,6 +131,8 @@ system_taxonomy:
   important_company_marks: []
   company_aliases: {}
 feishu:
+  bitable_app_token: base
+  table_id: tbl
   tenant_access_token: token
 """,
         encoding="utf-8",
@@ -147,6 +149,9 @@ feishu:
     class Client:
         def __init__(self, config):
             pass
+
+        def list_all_records(self):
+            return [{"record_id": "rec-target", "fields": {"岗位ID": str(result.job_id)}}]
 
         def batch_create_records(self, records):
             raise AssertionError("create should not be called")
@@ -165,7 +170,7 @@ feishu:
     assert row["official_url"] == "https://careers.example.com/target"
     assert row["sync_status"] == "synced"
     assert captured["records"][0]["record_id"] == "rec-target"
-    assert captured["records"][0]["fields"]["\u5b98\u65b9\u94fe\u63a5"]["link"] == "https://careers.example.com/target"
+    assert captured["records"][0]["fields"]["投递入口"]["link"] == "https://careers.example.com/target"
 
 
 def test_cli_rematch_no_feishu_skips_enrichment_and_sync(tmp_path: Path, monkeypatch):
@@ -252,6 +257,8 @@ system_taxonomy:
   important_company_marks: []
   company_aliases: {}
 feishu:
+  bitable_app_token: base
+  table_id: tbl
   tenant_access_token: token
   webhook_url: https://example.com/hook
 """,
@@ -294,6 +301,9 @@ feishu:
         def __init__(self, config):
             pass
 
+        def list_all_records(self):
+            return []
+
         def batch_create_records(self, records):
             captured["create_records"] = records
             return FeishuResult(sent=True, record_ids=["rec-daily"])
@@ -321,7 +331,7 @@ feishu:
     row = repo.list_all_jobs()[0]
     assert row["official_url"] == "https://careers.example.com/daily"
     assert row["sync_status"] == "synced"
-    assert captured["create_records"][0]["fields"]["官方链接"]["link"] == "https://careers.example.com/daily"
+    assert captured["create_records"][0]["fields"]["投递入口"]["link"] == "https://careers.example.com/daily"
 
 
 def test_notification_rows_obeys_daily_push_limit_without_limiting_recommendations():

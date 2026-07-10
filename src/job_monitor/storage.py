@@ -324,6 +324,23 @@ class JobRepository:
         with self.connect() as conn:
             return [dict(row) for row in conn.execute(query, tracked_statuses).fetchall()]
 
+    def list_feishu_reconciliation_rows(self) -> list[dict[str, Any]]:
+        """Return every row that may require a create, update, or safe deactivation."""
+        tracked_statuses = ("收藏", "已投递", "笔试中", "面试中", "Offer", "已结束")
+        placeholders = ", ".join("?" for _ in tracked_statuses)
+        query = self._all_jobs_query(
+            f"""
+            WHERE latest_recommendation.id IS NOT NULL
+               OR job_user_state.status IN ({placeholders})
+               OR feishu_sync.feishu_record_id IS NOT NULL
+            """
+        )
+        with self.connect() as conn:
+            rows = [dict(row) for row in conn.execute(query, tracked_statuses).fetchall()]
+        for row in rows:
+            row["recommendation_active"] = bool(row["recommendation_active"])
+        return rows
+
     def list_daily_new_jobs(self, date: str) -> list[dict[str, Any]]:
         query = self._all_jobs_query(
             """
@@ -453,10 +470,12 @@ class JobRepository:
                 jobs.last_seen,
                 COALESCE(job_matches.verify_status, '') AS verify_status,
                 CASE WHEN latest_recommendation.id IS NULL THEN '不推荐' ELSE '推荐' END AS recommendation_status,
+                CASE WHEN latest_recommendation.id IS NULL THEN 0 ELSE 1 END AS recommendation_active,
                 CASE WHEN latest_recommendation.id IS NULL THEN NULL ELSE latest_recommendation.recommendation_date END AS recommendation_date,
                 COALESCE(jobs.collected_date, latest_recommendation.recommendation_date) AS feishu_collected_date,
                 COALESCE(latest_recommendation.recommend_reason, '') AS recommend_reason,
                 COALESCE(job_user_state.status, '未看') AS user_status,
+                COALESCE(job_user_state.next_action, '') AS next_action,
                 COALESCE(job_user_state.note, '') AS note,
                 feishu_sync.feishu_record_id,
                 feishu_sync.sync_status
