@@ -51,6 +51,23 @@ def test_feishu_config_reads_app_credentials():
     assert feishu.app_secret == "secret"
 
 
+def test_feishu_config_derives_app_token_from_base_url_and_managed_table_id():
+    config = {
+        "feishu": {
+            "base_url": "https://example.feishu.cn/base/bascnManaged?table=tblIgnored",
+            "workspace_table_id": "tblManaged",
+            "app_id": "cli_app",
+            "app_secret": "secret",
+        }
+    }
+
+    feishu = FeishuConfig.from_config(config)
+
+    assert feishu.base_url == "https://example.feishu.cn/base/bascnManaged?table=tblIgnored"
+    assert feishu.app_token == "bascnManaged"
+    assert feishu.table_id == "tblManaged"
+
+
 def test_feishu_client_fetches_tenant_access_token_from_app_credentials():
     mock_post = Mock()
     

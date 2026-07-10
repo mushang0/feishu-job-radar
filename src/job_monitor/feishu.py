@@ -19,6 +19,7 @@ class FeishuApiError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class FeishuConfig:
+    base_url: str = ""
     app_token: str = ""
     table_id: str = ""
     tenant_access_token: str = ""
@@ -29,9 +30,16 @@ class FeishuConfig:
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> "FeishuConfig":
         feishu = config.get("feishu", {})
+        base_url = str(feishu.get("base_url") or "")
+        app_token = str(feishu.get("bitable_app_token") or "")
+        if base_url:
+            from .onboarding import parse_base_url
+
+            app_token = parse_base_url(base_url).app_token
         return cls(
-            app_token=feishu.get("bitable_app_token", ""),
-            table_id=feishu.get("table_id", ""),
+            base_url=base_url,
+            app_token=app_token,
+            table_id=feishu.get("workspace_table_id") or feishu.get("table_id", ""),
             tenant_access_token=feishu.get("tenant_access_token", ""),
             app_id=feishu.get("app_id", ""),
             app_secret=feishu.get("app_secret", ""),

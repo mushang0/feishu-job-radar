@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import tempfile
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -55,6 +57,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "company_aliases": {},
     },
     "feishu": {
+        "base_url": "",
+        "workspace_table_id": "",
+        "workspace_schema_version": "",
         "bitable_app_token": "",
         "table_id": "",
         "tenant_access_token": "",
@@ -74,14 +79,42 @@ def load_config(path: str | Path = "config.yaml") -> dict[str, Any]:
     return config
 
 
-def validate_config(config: dict[str, Any]) -> list[str]:
+def validate_config(config: dict[str, Any], *, require_feishu: bool = False) -> list[str]:
     profile = config.get("user_profile", {})
     errors: list[str] = []
     if not profile.get("graduate_years"):
         errors.append("至少选择一个毕业届别")
     if not profile.get("role_groups"):
         errors.append("至少选择一个岗位方向")
+    if require_feishu:
+        feishu = config.get("feishu", {})
+        if not feishu.get("base_url"):
+            errors.append("请填写飞书多维表格 Base 链接")
+        if not feishu.get("app_id"):
+            errors.append("请填写飞书 App ID")
+        if not feishu.get("app_secret"):
+            errors.append("请填写飞书 App Secret")
     return errors
+
+
+def save_config(config: dict[str, Any], path: str | Path = "config.yaml") -> None:
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    safe_config = deepcopy(config)
+    feishu = safe_config.get("feishu")
+    if isinstance(feishu, dict):
+        feishu.pop("tenant_access_token", None)
+    handle, temporary_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as stream:
+            yaml.safe_dump(safe_config, stream, allow_unicode=True, sort_keys=False)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, target)
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> None:
