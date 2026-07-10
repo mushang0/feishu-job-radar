@@ -100,6 +100,30 @@ def test_client_deletes_table_and_view():
     assert delete.call_args_list[1].args[0].endswith("/tables/tbl-old")
 
 
+def test_client_gets_full_view_properties_for_verification():
+    get = Mock(
+        return_value=_response(
+            {
+                "code": 0,
+                "data": {
+                    "view": {
+                        "view_id": "vew-1",
+                        "view_name": "待处理",
+                        "view_type": "grid",
+                        "property": {"hidden_fields": ["fld-internal"]},
+                    }
+                },
+            }
+        )
+    )
+    client = FeishuBitableClient(_config(), get=get)
+
+    view = client.get_view("tbl-target", "vew-1")
+
+    assert view["property"]["hidden_fields"] == ["fld-internal"]
+    assert get.call_args.args[0].endswith("/tables/tbl-target/views/vew-1")
+
+
 def test_client_classifies_write_conflict_as_retryable_without_retry_when_disabled():
     post = Mock(return_value=_response({"code": 1254291, "msg": "Write conflict"}))
     client = FeishuBitableClient(_config(), post=post, max_retries=0)

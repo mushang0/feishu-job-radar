@@ -96,6 +96,10 @@ class FeishuBitableClient:
     def list_views(self, table_id: str) -> list[dict[str, Any]]:
         return self._list_items(self._api_url(f"/tables/{table_id}/views"), page_size=100)
 
+    def get_view(self, table_id: str, view_id: str) -> dict[str, Any]:
+        data = self._request_json("GET", self._api_url(f"/tables/{table_id}/views/{view_id}"))
+        return self._unwrap(data, "view")
+
     def create_view(self, table_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         data = self._request_json("POST", self._api_url(f"/tables/{table_id}/views"), json=payload)
         return self._unwrap(data, "view")
