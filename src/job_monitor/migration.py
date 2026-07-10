@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from .audit import normalize_status
 from .storage import JobRepository
@@ -33,3 +33,12 @@ def build_migration_plan(repo: JobRepository, records: Iterable[dict[str, Any]])
         action = "保留" if job_id in local_ids and status else "隔离"
         items.append(MigrationItem(record_id, action, status))
     return MigrationPlan(tuple(items))
+
+
+def apply_migration_plan(plan: MigrationPlan, apply_item: Callable[[MigrationItem], None], *, apply: bool) -> int:
+    """Apply only after the caller has supplied an explicit --apply confirmation."""
+    if not apply:
+        return 0
+    for item in plan.items:
+        apply_item(item)
+    return len(plan.items)

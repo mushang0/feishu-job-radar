@@ -20,3 +20,16 @@ def test_migration_dry_run_reports_actions_without_mutating_records(tmp_path: Pa
         ("rec-1", "保留", "收藏"),
         ("rec-x", "隔离", "待处理"),
     ]
+
+
+def test_migration_apply_requires_explicit_confirmation(tmp_path: Path):
+    from job_monitor.migration import apply_migration_plan
+
+    repo = JobRepository(tmp_path / "jobs.sqlite")
+    repo.init_schema()
+    plan = build_migration_plan(repo, [])
+    calls = []
+
+    assert apply_migration_plan(plan, lambda item: calls.append(item), apply=False) == 0
+    assert calls == []
+    assert apply_migration_plan(plan, lambda item: calls.append(item), apply=True) == 0
