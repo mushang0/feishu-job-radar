@@ -314,6 +314,16 @@ class JobRepository:
         with self.connect() as conn:
             return [dict(row) for row in conn.execute(self._all_jobs_query()).fetchall()]
 
+    def list_feishu_sync_candidates(self) -> list[dict[str, Any]]:
+        """Return only jobs that belong in the user-facing Feishu workspace."""
+        tracked_statuses = ("收藏", "已投递", "笔试中", "面试中", "Offer", "已结束")
+        placeholders = ", ".join("?" for _ in tracked_statuses)
+        query = self._all_jobs_query(
+            f"WHERE latest_recommendation.id IS NOT NULL OR job_user_state.status IN ({placeholders})"
+        )
+        with self.connect() as conn:
+            return [dict(row) for row in conn.execute(query, tracked_statuses).fetchall()]
+
     def list_daily_new_jobs(self, date: str) -> list[dict[str, Any]]:
         query = self._all_jobs_query(
             """
