@@ -7,6 +7,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Iterable
 
+from .backup import BackupService
 from .models import Job, MatchResult
 
 
@@ -32,6 +33,9 @@ class JobRepository:
         return conn
 
     def init_schema(self) -> None:
+        schema_backup_needed = self._schema_backup_needed()
+        if schema_backup_needed:
+            BackupService(self.db_path.parent / "backups").backup_sqlite(self.db_path, source="schema-upgrade")
         with self.connect() as conn:
             conn.executescript(
                 """
@@ -99,6 +103,7 @@ class JobRepository:
                     status TEXT DEFAULT '未看',
                     official_url TEXT,
                     apply_url_manual TEXT,
+                    next_action TEXT,
                     note TEXT,
                     updated_at DATETIME,
                     FOREIGN KEY(job_id) REFERENCES jobs(id)
@@ -156,6 +161,22 @@ class JobRepository:
                 "match_config_version": "TEXT",
                 "recommend_reason": "TEXT",
             })
+            self._ensure_columns(conn, "job_user_state", {
+                "apply_url_manual": "TEXT",
+                "next_action": "TEXT",
+            })
+
+    def _schema_backup_needed(self) -> bool:
+        if not self.db_path.exists():
+            return False
+        with self.connect() as conn:
+            existing_tables = {
+                row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+            }
+            if "job_user_state" not in existing_tables:
+                return False
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(job_user_state)")}
+            return not {"apply_url_manual", "next_action"}.issubset(columns)
 
     def _ensure_columns(self, conn: sqlite3.Connection, table: str, columns: dict[str, str]) -> None:
         existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
@@ -251,7 +272,9 @@ class JobRepository:
                 """
                 SELECT jobs.*, job_matches.*,
                        COALESCE(job_user_state.status, '未看') AS user_status,
-                       COALESCE(job_user_state.note, '') AS note
+                       COALESCE(job_user_state.note, '') AS note,
+                       COALESCE(job_user_state.apply_url_manual, '') AS apply_url_manual,
+                       COALESCE(job_user_state.next_action, '') AS next_action
                 FROM jobs
                 LEFT JOIN job_matches ON jobs.id = job_matches.job_id
                 LEFT JOIN job_user_state ON jobs.id = job_user_state.job_id
@@ -514,20 +537,22 @@ class JobRepository:
         note: str,
         official_url: str | None = None,
         apply_url_manual: str | None = None,
+        next_action: str | None = None,
     ) -> None:
         with self.connect() as conn:
             conn.execute(
                 """
-                INSERT INTO job_user_state (job_id, status, note, official_url, apply_url_manual, updated_at)
-                VALUES (?, ?, ?, ?, ?, datetime('now'))
+                INSERT INTO job_user_state (job_id, status, note, official_url, apply_url_manual, next_action, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
                 ON CONFLICT(job_id) DO UPDATE SET
                     status=excluded.status,
                     note=excluded.note,
                     official_url=COALESCE(excluded.official_url, job_user_state.official_url),
                     apply_url_manual=COALESCE(excluded.apply_url_manual, job_user_state.apply_url_manual),
+                    next_action=COALESCE(excluded.next_action, job_user_state.next_action),
                     updated_at=excluded.updated_at
                 """,
-                (job_id, status, note, official_url, apply_url_manual),
+                (job_id, status, note, official_url, apply_url_manual, next_action),
             )
 
     @staticmethod
