@@ -98,6 +98,56 @@ def test_collect_missing_config_accepts_explicit_empty_optional_lists_non_intera
     assert collected["user_profile"]["must_watch_companies"] == []
 
 
+def test_collect_missing_config_prompts_for_profile_on_first_run_even_when_defaults_exist():
+    answers = iter(
+        [
+            "2026届",
+            "秋招",
+            "算法/研发",
+            "上海",
+            "示例公司",
+            "https://example.feishu.cn/base/bascnToken",
+            "cli-app",
+        ]
+    )
+
+    collected = collect_missing_config(
+        {
+            "user_profile": {
+                "graduate_years": ["2027届"],
+                "batches": ["秋招", "提前批"],
+                "role_groups": ["硬件/嵌入式"],
+                "target_cities": [],
+                "must_watch_companies": [],
+            },
+            "feishu": {},
+        },
+        force_profile_prompts=True,
+        input_fn=lambda _: next(answers),
+        secret_input_fn=lambda _: "app-secret",
+        output_fn=lambda _: None,
+    )
+
+    assert collected["user_profile"]["graduate_years"] == ["2026届"]
+    assert collected["user_profile"]["batches"] == ["秋招"]
+    assert collected["user_profile"]["role_groups"] == ["算法/研发"]
+    assert collected["user_profile"]["target_cities"] == ["上海"]
+    assert collected["user_profile"]["must_watch_companies"] == ["示例公司"]
+
+
+def test_secret_reader_uses_plain_input_only_when_stdin_is_not_a_tty(monkeypatch):
+    from job_monitor import onboarding
+
+    class InputStream:
+        def isatty(self):
+            return False
+
+    monkeypatch.setattr(onboarding.sys, "stdin", InputStream())
+    monkeypatch.setattr("builtins.input", lambda prompt: f"read:{prompt}")
+
+    assert onboarding._read_secret("Secret: ") == "read:Secret: "
+
+
 def test_confirm_initialization_requires_explicit_yes_unless_flag_is_set():
     preview = InitializationPreview(base_url="https://example.feishu.cn/base/token", table_name="求职工作台", pending_candidates=12)
 

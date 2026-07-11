@@ -18,12 +18,21 @@ from .normalizer import build_dedupe_key, infer_batch, infer_city, infer_graduat
 WONDERCV_URL = "https://www.wondercv.com/xiaozhao/"
 
 
+def _print_progress(message: str) -> None:
+    print(message, flush=True)
+
+
 @dataclass(frozen=True, slots=True)
 class CrawlResult:
     jobs: list[Job]
     pages_scanned: int
     partial: bool = False
     error: str | None = None
+    interrupted: bool = False
+
+
+class ScanInterrupted(RuntimeError):
+    pass
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,43 +144,74 @@ class WonderCVCrawler:
         config: dict,
         get: Callable[..., requests.Response] | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        progress: Callable[[str], None] = _print_progress,
+        cancel_check: Callable[[], bool] | None = None,
     ):
         self.config = config
         self.get = get or requests.get
         self.sleep = sleep
+        self.progress = progress
+        self.cancel_check = cancel_check or (lambda: False)
         self.aliases = config.get("companies", {}).get("aliases", {})
 
     def crawl(self, mode: str = "daily", should_stop: Callable[[list[Job]], bool] | None = None) -> CrawlResult:
         jobs: list[Job] = []
         pages_scanned = 0
         try:
-            for page_jobs in self.crawl_pages(mode):
+            for page_jobs in self.crawl_pages(mode, should_stop=should_stop):
                 pages_scanned += 1
                 jobs.extend(page_jobs)
-                if should_stop and should_stop(page_jobs):
-                    break
             return CrawlResult(jobs=jobs, pages_scanned=pages_scanned)
         except Exception as exc:
+            if isinstance(exc, ScanInterrupted):
+                return CrawlResult(jobs=jobs, pages_scanned=pages_scanned, error="日常扫描已中断", interrupted=True)
             return CrawlResult(jobs=jobs, pages_scanned=pages_scanned, partial=bool(jobs), error=str(exc))
 
-    def crawl_pages(self, mode: str = "daily"):
+    def crawl_pages(self, mode: str = "daily", should_stop: Callable[[list[Job]], bool] | None = None):
         crawler_config = self.config.get("crawler", {})
         max_pages = int(crawler_config.get("max_pages_init" if mode == "init" else "max_pages_daily", 20))
         import logging
         for page in range(1, max_pages + 1):
+            self._ensure_not_cancelled()
             page_url = self._page_url(page)
+            self.progress(f"抓取列表：第 {page}/{max_pages} 页")
             try:
                 response = self.get(page_url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
                 response.raise_for_status()
             except Exception as exc:
                 logging.error("Failed to fetch page %s: %s", page, exc)
-                break
+                raise RuntimeError(f"WonderCV 第 {page} 页抓取失败：{exc}") from exc
             page_jobs = parse_wondercv_list(response.text, page_url, self.aliases)
+            self._ensure_not_cancelled()
             if not page_jobs:
+                self.progress(f"第 {page} 页没有岗位，扫描完成。")
+                break
+            # The stop rule only depends on list-page fields.  Evaluate it before
+            # detail requests so a fully known page does not spend minutes
+            # re-fetching detail pages which will be discarded anyway.
+            if should_stop and should_stop(page_jobs):
+                self.progress(f"第 {page} 页均为已处理岗位，日常扫描完成。")
                 break
             if self._enrich_details_enabled():
-                page_jobs = [self.enrich_detail(job) for job in page_jobs]
+                self.progress(f"第 {page} 页发现 {len(page_jobs)} 个岗位，开始回填详情。")
+                enriched_jobs: list[Job] = []
+                for index, job in enumerate(page_jobs, start=1):
+                    self._ensure_not_cancelled()
+                    label = _clean(f"{job.company} {job.title}")[:36]
+                    self.progress(f"详情回填：第 {page} 页 {index}/{len(page_jobs)} - {label}")
+                    enriched = self.enrich_detail(job)
+                    self._ensure_not_cancelled()
+                    state = "完成" if enriched.parse_status == "ok" else "未完整"
+                    self.progress(f"详情回填：第 {page} 页 {index}/{len(page_jobs)} - {state}")
+                    enriched_jobs.append(enriched)
+                page_jobs = enriched_jobs
+            else:
+                self.progress(f"第 {page} 页发现 {len(page_jobs)} 个岗位。")
             yield page_jobs
+
+    def _ensure_not_cancelled(self) -> None:
+        if self.cancel_check():
+            raise ScanInterrupted()
             self._pause()
 
     def enrich_detail(self, job: Job) -> Job:

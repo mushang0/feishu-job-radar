@@ -47,6 +47,34 @@ def test_must_watch_company_pushes_generic_notice():
     assert result.priority == "push"
 
 
+def test_role_input_alias_expands_to_bundled_ai_taxonomy():
+    config = _config()
+    config["user_profile"]["role_groups"] = ["推理部署"]
+    config["system_taxonomy"]["role_groups"]["AI/大模型/推理部署"] = ["大模型", "推理优化", "TensorRT"]
+    config["system_taxonomy"]["role_input_aliases"] = {"推理部署": "AI/大模型/推理部署"}
+
+    result = Matcher(config).match(
+        Job(company="普通公司", title="2027届大模型推理优化工程师", batch="秋招", target_graduate_year="2027届")
+    )
+
+    assert result.should_push is True
+    assert result.matched_keywords == ["大模型", "推理优化"]
+
+
+def test_company_group_expands_to_bundled_known_companies():
+    config = _config()
+    config["user_profile"]["must_watch_companies"] = ["互联网大厂"]
+    config["system_taxonomy"]["company_groups"] = {"互联网大厂": ["字节跳动"]}
+    config["system_taxonomy"]["company_aliases"] = {"字节跳动": ["字节"]}
+
+    result = Matcher(config).match(
+        Job(company="北京字节跳动科技有限公司", title="2027届校园招聘", batch="秋招", target_graduate_year="2027届")
+    )
+
+    assert result.should_push is True
+    assert result.matched_company_rule == "字节跳动"
+
+
 def test_must_watch_company_cannot_bypass_an_explicit_excluded_role():
     matcher = Matcher(_config())
     job = Job(

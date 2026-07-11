@@ -13,6 +13,8 @@ class Matcher:
         self.profile = config.get("user_profile", {})
         self.taxonomy = config.get("system_taxonomy", {})
         self.company_aliases = self.taxonomy.get("company_aliases", {})
+        self.role_groups = self._expand_role_groups()
+        self.must_watch_companies = self._expand_must_watch_companies()
 
     def match(self, job: Job) -> MatchResult:
         text = self._job_text(job)
@@ -122,15 +124,43 @@ class Matcher:
 
     def _must_watch_company_hit(self, job: Job) -> str:
         company = normalize_company(job.company_normalized or job.company, self.company_aliases)
-        return self._match_one(company, self.profile.get("must_watch_companies", [])) or ""
+        return self._match_one(company, self.must_watch_companies) or ""
 
     def _role_group_hit(self, text: str) -> tuple[str, list[str]]:
-        groups = self.taxonomy.get("role_groups", {})
-        for group in self.profile.get("role_groups", []):
-            hits = self._match_many(text, groups.get(group, []))
+        for group, keywords in self.role_groups:
+            hits = self._match_many(text, keywords)
             if hits:
                 return group, hits
         return "", []
+
+    def _expand_role_groups(self) -> list[tuple[str, list[str]]]:
+        groups = self.taxonomy.get("role_groups", {})
+        aliases = self.taxonomy.get("role_input_aliases", {})
+        expanded: list[tuple[str, list[str]]] = []
+        seen: set[str] = set()
+        for value in self.profile.get("role_groups", []):
+            requested = str(value).strip()
+            if not requested:
+                continue
+            canonical = aliases.get(requested.lower(), requested)
+            if canonical in seen:
+                continue
+            seen.add(canonical)
+            # Unknown user input remains a literal keyword instead of silently
+            # becoming an empty taxonomy group.
+            keywords = list(groups.get(canonical, [])) or [requested]
+            expanded.append((canonical, keywords))
+        return expanded
+
+    def _expand_must_watch_companies(self) -> list[str]:
+        company_groups = self.taxonomy.get("company_groups", {})
+        expanded: list[str] = []
+        for value in self.profile.get("must_watch_companies", []):
+            name = str(value).strip()
+            if not name:
+                continue
+            expanded.extend(company_groups.get(name, [name]))
+        return list(dict.fromkeys(expanded))
 
     def _target_industry_hit(self, job: Job, text: str) -> str:
         haystack = " ".join(part for part in [job.industry or "", text] if part)

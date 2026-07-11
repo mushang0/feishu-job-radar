@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import getpass
+import sys
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Callable
@@ -9,6 +10,13 @@ from urllib.parse import urlparse
 
 class ConfigError(ValueError):
     pass
+
+
+def _read_secret(prompt: str) -> str:
+    """Keep secrets hidden interactively, while allowing piped automation."""
+    if sys.stdin.isatty():
+        return getpass.getpass(prompt)
+    return input(prompt)
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,8 +58,9 @@ def parse_base_url(value: str) -> ParsedBaseUrl:
 def collect_missing_config(
     config: dict,
     *,
+    force_profile_prompts: bool = False,
     input_fn: Callable[[str], str] = input,
-    secret_input_fn: Callable[[str], str] = getpass.getpass,
+    secret_input_fn: Callable[[str], str] = _read_secret,
     output_fn: Callable[[str], None] = print,
 ) -> dict:
     collected = deepcopy(config)
@@ -67,7 +76,7 @@ def collect_missing_config(
         ("must_watch_companies", "重点公司（可留空）：", False),
     )
     for key, prompt, required in prompts:
-        if key in profile and (profile.get(key) or not required):
+        if not force_profile_prompts and key in profile and (profile.get(key) or not required):
             continue
         values = _split_values(input_fn(prompt))
         if required and not values:

@@ -1,4 +1,5 @@
 from pathlib import Path
+import gc
 
 from job_monitor.cli import main, _notification_rows, _run_enrich_official_urls, _run_reset
 from job_monitor.models import Job
@@ -48,6 +49,9 @@ def test_reset_keeps_local_state_when_delete_fails(tmp_path: Path, monkeypatch):
         def __init__(self, _config):
             pass
 
+        def list_tables(self):
+            return [{"table_id": "tbl-test", "name": "求职工作台"}]
+
         def delete_table(self, _table_id):
             raise RuntimeError("delete failed")
 
@@ -63,6 +67,8 @@ def test_reset_clears_sync_state_before_reinitializing(tmp_path: Path, monkeypat
     repo.init_schema()
     job = repo.upsert_job(Job(dedupe_key="reset:2", company="Replace", title="Engineer"))
     repo.mark_sync(job.job_id, "synced", record_id="rec-replace")
+    del repo
+    gc.collect()
     config = {
         "user_profile": {"graduate_years": ["2027"], "role_groups": ["hardware"]},
         "feishu": {"base_url": "https://example.feishu.cn/base/app", "app_id": "id", "app_secret": "secret", "workspace_table_id": "tbl-test", "workspace_schema_version": "2"},
@@ -72,6 +78,9 @@ def test_reset_clears_sync_state_before_reinitializing(tmp_path: Path, monkeypat
         def __init__(self, _config):
             pass
 
+        def list_tables(self):
+            return [{"table_id": "tbl-test", "name": "求职工作台"}]
+
         def delete_table(self, table_id):
             assert table_id == "tbl-test"
 
@@ -80,12 +89,13 @@ def test_reset_clears_sync_state_before_reinitializing(tmp_path: Path, monkeypat
     def reinitialize(updated_config, *_args, **kwargs):
         captured["config"] = updated_config
         assert kwargs["assume_yes"] is True
+        assert kwargs["seeded_from_reset"] is True
         return 0
 
     monkeypatch.setattr("job_monitor.cli.FeishuBitableClient", Client)
     monkeypatch.setattr("job_monitor.cli._run_init", reinitialize)
     assert _run_reset(config, str(db_path), str(tmp_path / "config.yaml"), "out.xlsx", confirmed=True) == 0
-    assert repo.sync_job_ids_by_record_id() == {}
+    assert JobRepository(db_path).sync_job_ids_by_record_id() == {}
     assert captured["config"]["feishu"]["workspace_table_id"] == ""
 
 
@@ -117,6 +127,30 @@ def test_reset_resolves_missing_base_url_and_table_id_from_configured_token(tmp_
 
     assert _run_reset(config, str(tmp_path / "jobs.sqlite"), str(tmp_path / "config.yaml"), "out.xlsx", confirmed=True) == 0
     assert events == ["list", "delete:tbl-discovered", "init"]
+
+
+def test_reset_recovers_when_saved_workspace_was_already_deleted(tmp_path: Path, monkeypatch):
+    config = {
+        "user_profile": {"graduate_years": ["2027"], "role_groups": ["hardware"]},
+        "feishu": {"base_url": "https://example.feishu.cn/base/app", "app_id": "id", "app_secret": "secret", "workspace_table_id": "tbl-missing"},
+    }
+    events = []
+
+    class Client:
+        def __init__(self, _config):
+            pass
+
+        def list_tables(self):
+            events.append("list")
+            return []
+
+    monkeypatch.setattr("job_monitor.cli.FeishuBitableClient", Client)
+    monkeypatch.setattr("job_monitor.cli.restore_seed_database", lambda *_args, **_kwargs: events.append("restore") or True)
+    monkeypatch.setattr("job_monitor.cli._run_init", lambda updated, *_args, **kwargs: events.append("init") or int(kwargs["seeded_from_reset"] is not True))
+
+    assert _run_reset(config, str(tmp_path / "jobs.sqlite"), str(tmp_path / "config.yaml"), "out.xlsx", confirmed=True) == 0
+    assert events == ["list", "restore", "init"]
+    assert config["feishu"]["workspace_table_id"] == ""
 
 
 def test_cli_rematch_backfills_recommendations(tmp_path: Path):

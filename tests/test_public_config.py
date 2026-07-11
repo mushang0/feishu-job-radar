@@ -79,6 +79,15 @@ def test_project_exposes_console_script_and_windows_ci_matrix():
     assert "3.12" in workflow
 
 
+def test_windows_daily_runner_uses_project_virtualenv_and_absolute_paths():
+    runner = (ROOT / "run_daily.bat").read_text(encoding="utf-8")
+
+    assert '.venv\\Scripts\\python.exe' in runner
+    assert '"%PYTHON_EXE%" -m job_monitor' in runner
+    assert '--config "%~dp0config.yaml"' in runner
+    assert '--db "%~dp0data\\jobs.sqlite"' in runner
+
+
 def test_init_help_describes_workspace_creation(capsys):
     from job_monitor.cli import main
 

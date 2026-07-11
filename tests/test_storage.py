@@ -77,17 +77,16 @@ def test_repository_updates_user_state(tmp_path: Path):
     assert saved["note"] == "测试备注"
 
 
-def test_repository_auto_copies_seed_if_missing(tmp_path: Path):
+def test_repository_does_not_implicitly_copy_seed_if_missing(tmp_path: Path):
     seed_file = tmp_path / "jobs_seed.sqlite"
     seed_file.write_text("dummy database content", encoding="utf-8")
 
     db_file = tmp_path / "jobs.sqlite"
     assert not db_file.exists()
 
-    # Instantiating the repo should trigger the copy
+    # Seed restoration is an explicit init/reset concern, not a repository side effect.
     repo = JobRepository(db_file)
-    
-    assert db_file.exists()
-    assert db_file.read_text(encoding="utf-8") == "dummy database content"
 
+    assert repo.db_path == db_file
+    assert not db_file.exists()
 

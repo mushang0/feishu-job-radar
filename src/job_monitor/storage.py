@@ -21,11 +21,6 @@ class JobRepository:
     def __init__(self, db_path: str | Path):
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        if not self.db_path.exists():
-            seed_path = self.db_path.parent / "jobs_seed.sqlite"
-            if seed_path.exists():
-                import shutil
-                shutil.copy2(seed_path, self.db_path)
 
     def connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)

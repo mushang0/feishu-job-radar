@@ -17,6 +17,8 @@ from .logging_utils import setup_logging
 from .onboarding import InitializationPreview, collect_missing_config, confirm_initialization
 from .official_search import OfficialUrlFinder
 from .pipeline import backfill_existing_job_details, enrich_official_urls, rematch_existing_jobs, run_daily_with_jobs, run_init_with_page_batches, pull_user_states_from_feishu
+from .seed import SeedDatabaseError, find_seed_database, restore_seed_database
+from .run_guard import DailyRunGuard, DailyRunInProgress
 from .storage import JobRepository
 from .wondercv import WonderCVCrawler
 from .workspace_provisioner import WorkspaceProvisioner
@@ -47,19 +49,19 @@ def main(argv: list[str] | None = None) -> int:
 
     init_parser = subparsers.add_parser(
         "init",
-        help="配置飞书工作台并完成首次扫描",
-        description="引导配置并自动创建或修复飞书求职工作台，然后完成首次扫描和同步。",
+        help="配置飞书工作台并从 seed 初始化岗位库",
+        description="引导配置并自动创建或修复飞书求职工作台，使用 seed 岗位库重新匹配并同步。",
     )
     init_parser.add_argument("--config", dest="command_config")
     init_parser.add_argument("--db", dest="command_db")
     init_parser.add_argument("--output", default="data/exports/all_jobs_initial.xlsx")
     init_parser.add_argument("--yes", action="store_true", help="验证配置后无需再次确认")
 
-    reset_parser = subparsers.add_parser("reset", help="删除当前测试工作台并重新初始化")
+    reset_parser = subparsers.add_parser("reset", help="删除当前测试工作台并从 seed 重新初始化")
     reset_parser.add_argument("--config", dest="command_config")
     reset_parser.add_argument("--db", dest="command_db")
     reset_parser.add_argument("--output", default="data/exports/all_jobs_initial.xlsx")
-    reset_parser.add_argument("--yes", action="store_true", help="确认删除当前飞书工作台")
+    reset_parser.add_argument("--yes", action="store_true", help="确认删除当前飞书工作台并恢复 seed 数据库")
 
     daily_parser = subparsers.add_parser("daily", help="每日增量扫描、飞书同步和提醒")
     daily_parser.add_argument("--config", dest="command_config")
@@ -147,9 +149,16 @@ def _run_init(
     output_path: str,
     *,
     assume_yes: bool = False,
+    seeded_from_reset: bool = False,
 ) -> int:
     try:
-        configured = collect_missing_config(config)
+        # ``load_config`` supplies non-empty defaults.  A missing config file is
+        # nevertheless a first-run experience and must collect the user's own
+        # profile instead of silently retaining those defaults.
+        configured = collect_missing_config(
+            config,
+            force_profile_prompts=not Path(config_path).exists(),
+        )
         if configured is not config:
             config.clear()
             config.update(configured)
@@ -161,6 +170,16 @@ def _run_init(
     except Exception as exc:
         logging.error("initial configuration failed: %s", exc)
         print(f"初始化配置失败：{exc}")
+        return 1
+
+    try:
+        seeded = restore_seed_database(db_path)
+    except SeedDatabaseError as exc:
+        print(f"seed 数据库初始化失败：{exc}")
+        return 1
+    except OSError as exc:
+        logging.error("seed database initialization failed: %s", exc)
+        print(f"seed 数据库初始化失败：{exc}")
         return 1
 
     repo = JobRepository(db_path)
@@ -206,26 +225,7 @@ def _run_init(
         return 1
 
     started_at = datetime.now().isoformat(timespec="seconds")
-    try:
-        crawler = WonderCVCrawler(config)
-        summary = run_init_with_page_batches(repo, crawler.crawl_pages(mode="init"), config)
-    except Exception as exc:
-        repo.record_scan_run(
-            {
-                "run_type": "init",
-                "started_at": started_at,
-                "finished_at": datetime.now().isoformat(timespec="seconds"),
-                "status": "partial",
-                "pages_scanned": 0,
-                "items_seen": 0,
-                "new_items": 0,
-                "updated_items": 0,
-                "error_message": str(exc),
-            }
-        )
-        logging.exception("initial scan failed")
-        print(f"首次扫描失败，工作台结构已保留，可修复后重试：{exc}")
-        return 1
+    summary = rematch_existing_jobs(repo, config)
 
     sync_summary = _sync_feishu(repo, config, repo.list_feishu_reconciliation_rows())
     export_jobs_to_excel(repo.list_all_jobs(), output_path)
@@ -235,21 +235,24 @@ def _run_init(
             "started_at": started_at,
             "finished_at": datetime.now().isoformat(timespec="seconds"),
             "status": "partial" if sync_summary.failed else "success",
-            "pages_scanned": summary.pages_scanned,
+            "pages_scanned": 0,
             "items_seen": summary.items_seen,
             "new_items": summary.new_items,
             "updated_items": summary.updated_items,
             "error_message": f"飞书同步失败 {sync_summary.failed} 条" if sync_summary.failed else None,
         }
     )
+    seed_origin = seeded or seeded_from_reset
+    source_label = "已从 seed 恢复本地岗位库" if seed_origin else "使用已有本地岗位库"
+    print(f"初始化数据：{source_label}；已重新匹配，不执行首次全量抓取。")
     print(_format_run_summary("init", summary, None, PullSummary(), sync_summary))
     if summary.items_seen == 0:
-        print("提示：本次扫描没有获取到岗位。请检查网络、来源页面是否变化，以及求职偏好是否过窄。")
+        print("提示：本地岗位库为空；请确认运行数据库未被错误替换，或运行 daily 获取新增岗位。")
     print(f"飞书工作台：{provisioning.workspace_url}")
     logging.info(
-        "init finished: seen=%s new=%s recommended=%s feishu_created=%s feishu_updated=%s feishu_failed=%s",
+        "init finished: seeded=%s seen=%s recommended=%s feishu_created=%s feishu_updated=%s feishu_failed=%s",
+        seed_origin,
         summary.items_seen,
-        summary.new_items,
         summary.recommended_items,
         sync_summary.created,
         sync_summary.updated,
@@ -269,7 +272,7 @@ def _run_reset(
 ) -> int:
     """Destructively replace the configured test table after explicit confirmation."""
     if not confirmed:
-        print("reset 是破坏性操作；请使用 reset --yes 确认删除当前飞书工作台。")
+        print("reset 是破坏性操作；请使用 reset --yes 确认删除当前飞书工作台并恢复 seed 数据库。")
         return 2
     errors = validate_config(config)
     if errors:
@@ -280,6 +283,12 @@ def _run_reset(
         print("配置检查失败：请填写飞书 App ID 和 App Secret。")
         return 1
     try:
+        find_seed_database()
+    except SeedDatabaseError as exc:
+        print(f"reset 失败：{exc}")
+        return 1
+    workspace_deleted = False
+    try:
         feishu_config = FeishuConfig.from_config(config)
         client = FeishuBitableClient(feishu_config)
         if not feishu_config.app_token:
@@ -287,38 +296,69 @@ def _run_reset(
             return 1
         if not feishu.get("base_url"):
             feishu["base_url"] = f"https://feishu.cn/base/{feishu_config.app_token}"
+        tables = client.list_tables()
         table_id = str(feishu.get("workspace_table_id") or feishu.get("table_id") or "")
-        if not table_id:
-            matches = [table for table in client.list_tables() if table.get("name") == desired_workspace().table_name]
+        if table_id:
+            if any(str(table.get("table_id") or "") == table_id for table in tables):
+                client.delete_table(table_id)
+                workspace_deleted = True
+            else:
+                logging.warning("configured workspace %s was already absent; continuing reset recovery", table_id)
+        else:
+            matches = [table for table in tables if table.get("name") == desired_workspace().table_name]
             if len(matches) != 1:
-                print(f"reset 失败：未能唯一定位“{desired_workspace().table_name}”数据表（找到 {len(matches)} 个）。")
-                return 1
-            table_id = str(matches[0].get("table_id") or "")
-            if not table_id:
-                print("reset 失败：飞书返回的数据表缺少 table_id。")
-                return 1
-            feishu["workspace_table_id"] = table_id
-        client.delete_table(table_id)
+                if matches:
+                    print(f"reset 失败：未能唯一定位“{desired_workspace().table_name}”数据表（找到 {len(matches)} 个）。")
+                    return 1
+                logging.info("no managed workspace found; continuing local reset recovery")
+            else:
+                table_id = str(matches[0].get("table_id") or "")
+                if not table_id:
+                    print("reset 失败：飞书返回的数据表缺少 table_id。")
+                    return 1
+                client.delete_table(table_id)
+                workspace_deleted = True
     except Exception as exc:
         logging.exception("Feishu workspace reset failed")
         print(f"飞书工作台删除失败，未修改本地配置：{exc}")
         return 1
 
-    repo = JobRepository(db_path)
-    repo.init_schema()
-    repo.clear_feishu_sync()
     config["feishu"]["workspace_table_id"] = ""
     config["feishu"]["table_id"] = ""
     config["feishu"]["workspace_schema_version"] = ""
     save_config(config, config_path)
-    print("已删除当前飞书工作台并清除本地同步关联，正在重新初始化。")
-    return _run_init(config, db_path, config_path, output_path, assume_yes=True)
+    try:
+        restore_seed_database(db_path, overwrite=True)
+    except (SeedDatabaseError, OSError) as exc:
+        logging.exception("seed database restore failed after workspace deletion")
+        print(f"seed 数据库恢复失败：{exc}。已清除失效工作台 ID，请在占用解除后直接重试 reset --yes。")
+        return 1
+    action = "已删除当前飞书工作台" if workspace_deleted else "未发现需要删除的受管工作台"
+    print(f"{action}，并从 seed 恢复本地岗位库，正在重新初始化。")
+    return _run_init(
+        config,
+        db_path,
+        config_path,
+        output_path,
+        assume_yes=True,
+        seeded_from_reset=True,
+    )
 
 
 def _run_daily(config: dict, db_path: str, skip_feishu: bool = False) -> int:
+    try:
+        with DailyRunGuard(db_path) as guard:
+            return _run_daily_guarded(config, db_path, skip_feishu, guard.cancelled.is_set)
+    except DailyRunInProgress as exc:
+        print(f"daily result: status=already_running message={exc}")
+        return 1
+
+
+def _run_daily_guarded(config: dict, db_path: str, skip_feishu: bool, cancel_check) -> int:
     repo = JobRepository(db_path)
     repo.init_schema()
     crawler = WonderCVCrawler(config)
+    crawler.cancel_check = cancel_check
     last_run_date = repo.get_last_successful_run_date("daily")
 
     def should_stop(page_jobs) -> bool:
@@ -348,6 +388,15 @@ def _run_daily(config: dict, db_path: str, skip_feishu: bool = False) -> int:
         return False
 
     crawl = crawler.crawl(mode="daily", should_stop=should_stop)
+    if getattr(crawl, "interrupted", False) or cancel_check():
+        repo.record_scan_run(
+            {"run_type": "daily", "started_at": datetime.now().isoformat(timespec="seconds"),
+             "finished_at": datetime.now().isoformat(timespec="seconds"), "status": "interrupted",
+             "pages_scanned": crawl.pages_scanned, "items_seen": 0, "new_items": 0,
+             "updated_items": 0, "error_message": crawl.error}
+        )
+        print("daily result: status=interrupted message=启动器已结束，已停止扫描且未同步数据")
+        return 1
     summary = run_daily_with_jobs(repo, crawl.jobs, config)
     enrich_summary = None
     sync_summary = SyncSummary()

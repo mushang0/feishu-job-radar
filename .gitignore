@@ -6,6 +6,7 @@ data/jobs.sqlite
 data/backups/
 data/logs/
 data/exports/
+*.daily.lock
 
 # Python temp files
 __pycache__/
