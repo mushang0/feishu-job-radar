@@ -291,7 +291,7 @@ def test_feishu_client_lists_all_records():
     assert mock_get.call_count == 2
 
 
-def test_sync_feishu_uses_remote_job_id_when_local_record_id_is_missing(tmp_path, monkeypatch):
+def test_sync_feishu_creates_when_local_record_id_is_missing(tmp_path, monkeypatch):
     repo = JobRepository(tmp_path / "jobs.sqlite")
     repo.init_schema()
     rows = [
@@ -309,20 +309,17 @@ def test_sync_feishu_uses_remote_job_id_when_local_record_id_is_missing(tmp_path
         def __init__(self, config):
             pass
 
-        def list_all_records(self):
-            return [{"record_id": "rec-remote", "fields": {"岗位ID": "7"}}]
-
         def batch_create_records(self, records):
-            raise AssertionError("remote record must prevent duplicate create")
+            captured["records"] = records
+            return type("Result", (), {"sent": True, "record_ids": ["rec-created"], "error": None})()
 
         def batch_update_records(self, records):
-            captured["records"] = records
-            return type("Result", (), {"sent": True, "error": None})()
+            raise AssertionError("update should not be called")
 
     monkeypatch.setattr("job_monitor.cli.FeishuBitableClient", Client)
 
     summary = _sync_feishu(repo, {"feishu": {"bitable_app_token": "base", "table_id": "tbl", "tenant_access_token": "token"}}, rows)
 
-    assert summary.updated == 1
-    assert captured["records"][0]["record_id"] == "rec-remote"
+    assert summary.created == 1
+    assert captured["records"][0]["fields"]["公司"] == "RemoteCo"
 

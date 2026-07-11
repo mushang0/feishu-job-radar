@@ -119,8 +119,9 @@ def test_provision_creates_and_verifies_complete_workspace():
     progress = next(view for view in client.views[result.table_id] if view["view_name"] == "投递进度")
     assert "hidden_fields" not in progress["property"]
     progress_filter = progress["property"]["filter_info"]
-    assert progress_filter["conjunction"] == "or"
-    assert len(progress_filter["conditions"]) == 6
+    assert progress_filter["conjunction"] == "and"
+    assert len(progress_filter["conditions"]) == 1
+    assert progress_filter["conditions"][0]["operator"] == "isNot"
     assert all(len(json.loads(condition["value"])) == 1 for condition in progress_filter["conditions"])
 
 
@@ -169,7 +170,7 @@ def test_provision_refuses_destructive_field_type_change():
 def test_verify_detects_remote_view_drift():
     client, table_id = _complete_workspace()
     pending = next(view for view in client.views[table_id] if view["view_name"] == "待处理")
-    pending["property"]["hidden_fields"] = []
+    pending["property"]["filter_info"]["conditions"] = []
 
     with pytest.raises(WorkspaceVerificationError, match="待处理"):
         WorkspaceProvisioner(client, desired_workspace()).verify(table_id)

@@ -30,7 +30,8 @@ class StateRecoveryResult:
 
 def audit_feishu_records(repo: JobRepository, records: Iterable[dict[str, Any]]) -> FeishuAuditReport:
     record_list = list(records)
-    local_ids = {int(row["id"]) for row in repo.list_stored_jobs()}
+    record_to_job = repo.sync_job_ids_by_record_id()
+    local_ids = set(record_to_job.values())
     matched_ids: set[int] = set()
     seen_ids: set[int] = set()
     duplicates: set[int] = set()
@@ -41,22 +42,18 @@ def audit_feishu_records(repo: JobRepository, records: Iterable[dict[str, Any]])
 
     for index, record in enumerate(record_list):
         record_id = str(record.get("record_id") or f"record-{index + 1}")
-        fields = _fields(record)
-        job_id = _job_id(fields.get("岗位ID"))
-        if fields.get("岗位ID") in (None, "", []):
+        if not record.get("record_id"):
             blank.append(record_id)
             continue
-        if job_id is None:
-            unmatched.append(record_id)
-            continue
+        job_id = record_to_job.get(record_id)
         if job_id in seen_ids:
             duplicates.add(job_id)
         seen_ids.add(job_id)
-        if job_id not in local_ids:
+        if job_id is None:
             only_remote.append(record_id)
         else:
             matched_ids.add(job_id)
-        status = _text(fields.get("求职状态")).strip()
+        status = _text(_fields(record).get("求职状态")).strip()
         if status and normalize_status(status) is None:
             unknown[record_id] = status
 
@@ -75,13 +72,14 @@ def audit_feishu_records(repo: JobRepository, records: Iterable[dict[str, Any]])
 def recover_user_states(repo: JobRepository, records: Iterable[dict[str, Any]]) -> StateRecoveryResult:
     record_list = list(records)
     report = audit_feishu_records(repo, record_list)
+    record_to_job = repo.sync_job_ids_by_record_id()
     skipped = set(report.only_remote_record_ids + report.blank_record_ids + report.unmatched_record_ids)
     duplicate_ids = set(report.duplicate_job_ids)
     updated = 0
     for index, record in enumerate(record_list):
         record_id = str(record.get("record_id") or f"record-{index + 1}")
         fields = _fields(record)
-        job_id = _job_id(fields.get("岗位ID"))
+        job_id = record_to_job.get(record_id)
         if job_id in duplicate_ids:
             skipped.add(record_id)
         if record_id in skipped or record_id in report.unknown_statuses:
@@ -94,7 +92,6 @@ def recover_user_states(repo: JobRepository, records: Iterable[dict[str, Any]]) 
             status,
             _text(fields.get("备注")),
             apply_url_manual=None,
-            next_action=_text(fields.get("下次行动")),
         )
         if record.get("record_id"):
             repo.mark_sync(job_id, "synced", record_id=str(record["record_id"]))
@@ -109,13 +106,6 @@ def normalize_status(value: str) -> str | None:
 def _fields(record: dict[str, Any]) -> dict[str, Any]:
     fields = record.get("fields", {})
     return fields if isinstance(fields, dict) else {}
-
-
-def _job_id(value: Any) -> int | None:
-    try:
-        return int(float(_text(value).strip()))
-    except (TypeError, ValueError):
-        return None
 
 
 def _text(value: Any) -> str:

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from job_monitor.cli import main, _notification_rows, _run_enrich_official_urls
+from job_monitor.cli import main, _notification_rows, _run_enrich_official_urls, _run_reset
 from job_monitor.models import Job
 from job_monitor.feishu import FeishuResult
 from job_monitor.storage import JobRepository
@@ -24,6 +24,69 @@ def test_cli_export_writes_excel_from_existing_database(tmp_path: Path):
 
     assert exit_code == 0
     assert output.exists()
+
+
+def test_reset_requires_explicit_confirmation(tmp_path: Path, capsys):
+    config = {"feishu": {"workspace_table_id": "tbl-test"}}
+
+    assert _run_reset(config, str(tmp_path / "jobs.sqlite"), str(tmp_path / "config.yaml"), "out.xlsx", confirmed=False) == 2
+    assert "--yes" in capsys.readouterr().out
+
+
+def test_reset_keeps_local_state_when_delete_fails(tmp_path: Path, monkeypatch):
+    db_path = tmp_path / "jobs.sqlite"
+    repo = JobRepository(db_path)
+    repo.init_schema()
+    job = repo.upsert_job(Job(dedupe_key="reset:1", company="Keep", title="Engineer"))
+    repo.mark_sync(job.job_id, "synced", record_id="rec-keep")
+    config = {
+        "user_profile": {"graduate_years": ["2027"], "role_groups": ["hardware"]},
+        "feishu": {"base_url": "https://example.feishu.cn/base/app", "app_id": "id", "app_secret": "secret", "workspace_table_id": "tbl-test"},
+    }
+
+    class Client:
+        def __init__(self, _config):
+            pass
+
+        def delete_table(self, _table_id):
+            raise RuntimeError("delete failed")
+
+    monkeypatch.setattr("job_monitor.cli.FeishuBitableClient", Client)
+    assert _run_reset(config, str(db_path), str(tmp_path / "config.yaml"), "out.xlsx", confirmed=True) == 1
+    assert config["feishu"]["workspace_table_id"] == "tbl-test"
+    assert repo.sync_job_ids_by_record_id() == {"rec-keep": job.job_id}
+
+
+def test_reset_clears_sync_state_before_reinitializing(tmp_path: Path, monkeypatch):
+    db_path = tmp_path / "jobs.sqlite"
+    repo = JobRepository(db_path)
+    repo.init_schema()
+    job = repo.upsert_job(Job(dedupe_key="reset:2", company="Replace", title="Engineer"))
+    repo.mark_sync(job.job_id, "synced", record_id="rec-replace")
+    config = {
+        "user_profile": {"graduate_years": ["2027"], "role_groups": ["hardware"]},
+        "feishu": {"base_url": "https://example.feishu.cn/base/app", "app_id": "id", "app_secret": "secret", "workspace_table_id": "tbl-test", "workspace_schema_version": "2"},
+    }
+
+    class Client:
+        def __init__(self, _config):
+            pass
+
+        def delete_table(self, table_id):
+            assert table_id == "tbl-test"
+
+    captured = {}
+
+    def reinitialize(updated_config, *_args, **kwargs):
+        captured["config"] = updated_config
+        assert kwargs["assume_yes"] is True
+        return 0
+
+    monkeypatch.setattr("job_monitor.cli.FeishuBitableClient", Client)
+    monkeypatch.setattr("job_monitor.cli._run_init", reinitialize)
+    assert _run_reset(config, str(db_path), str(tmp_path / "config.yaml"), "out.xlsx", confirmed=True) == 0
+    assert repo.sync_job_ids_by_record_id() == {}
+    assert captured["config"]["feishu"]["workspace_table_id"] == ""
 
 
 def test_cli_rematch_backfills_recommendations(tmp_path: Path):
@@ -338,7 +401,7 @@ def test_notification_rows_obeys_daily_push_limit_without_limiting_recommendatio
     assert [row["job_id"] for row in limited] == [1]
 
 
-def test_cli_rematch_deactivates_previously_synced_job_that_is_no_longer_recommended(tmp_path: Path, monkeypatch):
+def test_cli_rematch_keeps_previously_synced_job_that_is_no_longer_recommended(tmp_path: Path, monkeypatch):
     db_path = tmp_path / "jobs.sqlite"
     config_path = tmp_path / "config.yaml"
     repo = JobRepository(db_path)
@@ -376,7 +439,7 @@ feishu:
             pass
 
         def list_all_records(self):
-            return [{"record_id": "rec-stale", "fields": {"岗位ID": str(inserted.job_id), "求职状态": "待处理"}}]
+            return [{"record_id": "rec-stale", "fields": {"求职状态": "待处理"}}]
 
         def batch_create_records(self, records):
             raise AssertionError("inactive record already exists")
@@ -391,7 +454,7 @@ feishu:
 
     assert code == 0
     assert captured["records"][0]["record_id"] == "rec-stale"
-    assert captured["records"][0]["fields"]["推荐有效"] is False
+    assert "推荐有效" not in captured["records"][0]["fields"]
 
 
 def test_cli_pull_command(tmp_path, monkeypatch):

@@ -69,7 +69,7 @@ def test_run_init_orders_preflight_provision_scan_and_sync(tmp_path: Path, monke
     assert code == 0
     assert events.index("read-only-preflight") < events.index("confirm") < events.index("provision") < events.index("crawler") < events.index("scan") < events.index("sync")
     assert config["feishu"]["workspace_table_id"] == "tbl-managed"
-    assert config["feishu"]["workspace_schema_version"] == "1"
+    assert config["feishu"]["workspace_schema_version"] == "2"
 
 
 def test_run_init_stops_before_crawler_when_provisioning_fails(tmp_path: Path, monkeypatch):
