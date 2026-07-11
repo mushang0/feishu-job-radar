@@ -3,6 +3,7 @@ config.yaml
 
 # Database runs & logs
 data/jobs.sqlite
+data/backups/
 data/logs/
 data/exports/
 
