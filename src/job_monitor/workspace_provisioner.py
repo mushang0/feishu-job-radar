@@ -162,23 +162,20 @@ class WorkspaceProvisioner:
             }
             for status in view.status_values
         ]
+        conditions.extend(
+            {
+                "field_id": field_ids["求职状态"],
+                "operator": "isNot",
+                "value": json.dumps([status_option_ids[status]]),
+            }
+            for status in view.excluded_status_values
+        )
         conjunction = "or" if len(conditions) > 1 else "and"
-        if view.require_recommended:
-            if len(conditions) != 1:
-                raise WorkspaceVerificationError("推荐有效筛选只能与单一求职状态组合")
-            conditions.append(
-                {
-                    "field_id": field_ids["推荐有效"],
-                    "operator": "is",
-                    "value": json.dumps([True]),
-                }
-            )
+        if view.excluded_status_values:
             conjunction = "and"
         result = {
             "filter_info": {"conjunction": conjunction, "conditions": conditions},
         }
-        if view.view_type == "grid":
-            result["hidden_fields"] = [field_ids[name] for name in self.schema.field_names if name not in view.visible_fields]
         return result
 
     @staticmethod
