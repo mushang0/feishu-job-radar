@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from job_monitor.cli import main, _notification_rows
+from job_monitor.cli import main, _notification_rows, _run_enrich_official_urls
 from job_monitor.models import Job
 from job_monitor.feishu import FeishuResult
 from job_monitor.storage import JobRepository
@@ -58,7 +58,7 @@ system_taxonomy:
 
     assert exit_code == 0
     assert repo.list_recommended_jobs("2026-07-03")[0]["recommend_reason"] == "命中岗位方向：硬件/嵌入式"
-def test_cli_enrich_official_urls_runs_on_recommended_jobs(tmp_path: Path, monkeypatch):
+def test_internal_enrich_official_urls_runs_on_recommended_jobs(tmp_path: Path, monkeypatch):
     db_path = tmp_path / "jobs.sqlite"
     config_path = tmp_path / "config.yaml"
     repo = JobRepository(db_path)
@@ -83,15 +83,7 @@ def test_cli_enrich_official_urls_runs_on_recommended_jobs(tmp_path: Path, monke
 
     monkeypatch.setattr("job_monitor.cli.OfficialUrlFinder", Finder)
 
-    exit_code = main([
-        "--config",
-        str(config_path),
-        "--db",
-        str(db_path),
-        "enrich-official-urls",
-        "--limit",
-        "1",
-    ])
+    exit_code = _run_enrich_official_urls({"crawler": {}}, str(db_path), limit=1)
 
     assert exit_code == 0
     assert repo.list_all_jobs()[0]["official_url"] == "https://careers.example.com/target"
@@ -409,7 +401,11 @@ def test_cli_pull_command(tmp_path, monkeypatch):
 
     with patch("job_monitor.cli.FeishuBitableClient") as mock_client_cls, \
          patch("job_monitor.cli.pull_user_states_from_feishu") as mock_pull:
-        mock_pull.return_value = 5
+        mock_pull.return_value = type(
+            "Recovery",
+            (),
+            {"updated_count": 5, "skipped_record_ids": [], "unknown_statuses": {}},
+        )()
         code = main(["--db", str(db_file), "pull"])
         assert code == 0
         mock_pull.assert_called_once()

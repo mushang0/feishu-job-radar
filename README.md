@@ -119,7 +119,37 @@ python -m job_monitor rematch
 python -m job_monitor export --table all --output data/exports/all_jobs.xlsx
 ```
 
-`pull` 和 `check` 是排障用的高级命令，可通过 `--help` 查看。
+日常命令统一输出 `status` 以及抓取、推荐、回拉、创建、更新、跳过和失败数量：
+
+- `status=success`：本次主要流程完整完成；
+- `status=partial`：本地结果可能已经保存，但回拉、抓取或同步有异常；命令返回非零退出码；
+- 出现“恢复建议”时，先按提示运行 `check` 或修复权限，再重复原命令。重复运行不会重复创建工作台或岗位。
+
+只读检查本地与飞书差异：
+
+```powershell
+python -m job_monitor check
+```
+
+仅回收飞书中的求职状态、下次行动和备注：
+
+```powershell
+python -m job_monitor pull
+```
+
+页面详情回填和官方链接补充属于内部维护能力，不作为公共命令提供。
+
+### Windows 自动运行
+
+建议先手工确认 `daily` 成功，再配置“任务计划程序”：
+
+1. “程序或脚本”填写项目虚拟环境中 `python.exe` 的绝对路径；
+2. “参数”填写 `-m job_monitor --config <config.yaml绝对路径> --db <jobs.sqlite绝对路径> daily`；
+3. “起始于”填写项目根目录的绝对路径；
+4. 使用有权读写项目数据目录并能访问 `open.feishu.cn` 的 Windows 用户运行；
+5. 首次计划运行后检查 `data/logs` 和任务退出码。
+
+不要依赖任务计划程序的默认工作目录，否则程序可能找不到配置或创建另一份数据库。
 
 ## 配置与凭据安全
 
@@ -149,6 +179,8 @@ python -m job_monitor export --table all --output data/exports/all_jobs.xlsx
 
 命令会返回非零退出码，并在摘要中显示失败数量。保留日志后重试；限流和短暂写冲突会自动退避，权限或字段冲突需要先按错误提示修复。
 
+如果 `check` 报告重复岗位 ID、空白岗位 ID、未知岗位或非法求职状态，程序会停止自动同步这些记录，避免用不确定的远端数据覆盖本地状态。修复飞书中的异常行后重新运行即可。
+
 ### 不想调用飞书
 
 日常或重新匹配时可使用 `--no-feishu`，数据仍会写入本地 SQLite。
@@ -160,6 +192,14 @@ python -m job_monitor export --table all --output data/exports/all_jobs.xlsx
 - 投递入口优先使用已识别的企业页面，无法确认时回退到来源详情；
 - 岗位内容、截止时间和链接可能发生变化，投递前请以企业官方招聘信息为准；
 - 项目不上传你的求职状态，飞书和本地文件的数据安全由你自己的账号、设备和权限配置负责。
+
+## 备份、恢复与升级
+
+- `data/jobs.sqlite` 是本地岗位与同步状态的主要数据文件；升级、换机或排障前请连同 `config.yaml` 一起备份；
+- 飞书中的求职状态、下次行动和备注由 `pull` 回收到本地，但飞书不能替代本地数据库备份；
+- 恢复时先关闭正在运行的任务，恢复数据库与配置，再运行 `check`，确认岗位 ID 没有重复或缺失后执行 `pull`；
+- 不要把开发者旧表、试验表或历史 JSON 直接导入“求职工作台”。旧数据恢复是独立的受控任务，不属于公共初始化流程；
+- 当前版本不提供 OAuth、SaaS、多用户、网页配置、多数据源聚合或通用旧表迁移。
 
 ## 开发验证
 

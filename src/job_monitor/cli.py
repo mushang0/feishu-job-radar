@@ -31,6 +31,14 @@ class SyncSummary:
     failed: int = 0
 
 
+@dataclass(frozen=True, slots=True)
+class PullSummary:
+    updated: int = 0
+    skipped: int = 0
+    unknown: int = 0
+    failed: int = 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="feishu-job-radar")
     parser.add_argument("--config", default="config.yaml")
@@ -60,18 +68,6 @@ def main(argv: list[str] | None = None) -> int:
     rematch_parser.add_argument("--no-enrich-official", action="store_true", help="跳过官方链接补充")
 
     export_parser = subparsers.add_parser("export", help="从 SQLite 导出 Excel")
-    backfill_parser = subparsers.add_parser("backfill-details", help="Backfill WonderCV detail pages and rematch")
-    backfill_parser.add_argument("--config", dest="command_config")
-    backfill_parser.add_argument("--db", dest="command_db")
-    backfill_parser.add_argument("--date")
-    backfill_parser.add_argument("--min-raw-text-length", type=int, default=500)
-
-    official_parser = subparsers.add_parser("enrich-official-urls", help="Search and fill official recruiting URLs")
-    official_parser.add_argument("--config", dest="command_config")
-    official_parser.add_argument("--db", dest="command_db")
-    official_parser.add_argument("--all", action="store_true", help="Process all jobs instead of recommended jobs only")
-    official_parser.add_argument("--limit", type=int)
-
     export_parser.add_argument("--db", dest="command_db")
     export_parser.add_argument("--output", default="data/exports/all_jobs.xlsx")
     export_parser.add_argument("--table", choices=["all", "recommended", "daily-new", "raw"], default="all")
@@ -109,10 +105,6 @@ def main(argv: list[str] | None = None) -> int:
             skip_feishu=args.no_feishu,
             skip_enrich_official=args.no_enrich_official,
         )
-    if args.command == "backfill-details":
-        return _run_backfill_details(config, db_path, args.date, args.min_raw_text_length)
-    if args.command == "enrich-official-urls":
-        return _run_enrich_official_urls(config, db_path, only_recommended=not args.all, limit=args.limit)
     if args.command == "pull":
         return _run_pull(config, db_path)
     if args.command == "check":
@@ -173,6 +165,7 @@ def _run_init(
     try:
         client = FeishuBitableClient(FeishuConfig.from_config(config))
         client.get_app()
+        _read_only_workspace_preflight(client, config)
     except Exception as exc:
         logging.error("Feishu read-only preflight failed: %s", exc)
         print(f"飞书连接检查失败：{exc}")
@@ -241,7 +234,9 @@ def _run_init(
             "error_message": f"飞书同步失败 {sync_summary.failed} 条" if sync_summary.failed else None,
         }
     )
-    print(_format_run_summary("init", summary, None, sync_summary))
+    print(_format_run_summary("init", summary, None, PullSummary(), sync_summary))
+    if summary.items_seen == 0:
+        print("提示：本次扫描没有获取到岗位。请检查网络、来源页面是否变化，以及求职偏好是否过窄。")
     print(f"飞书工作台：{provisioning.workspace_url}")
     logging.info(
         "init finished: seen=%s new=%s recommended=%s feishu_created=%s feishu_updated=%s feishu_failed=%s",
@@ -292,20 +287,24 @@ def _run_daily(config: dict, db_path: str, skip_feishu: bool = False) -> int:
     summary = run_daily_with_jobs(repo, crawl.jobs, config)
     enrich_summary = None
     sync_summary = SyncSummary()
+    pull_summary = PullSummary()
     rows = repo.list_all_jobs()
     recommended_rows = _notification_rows(rows, config)
 
-    if not skip_feishu:
+    if not skip_feishu and _feishu_is_configured(config):
         try:
             logging.info("Pulling latest user states from Feishu before sync...")
             pull_client = FeishuBitableClient(FeishuConfig.from_config(config))
-            pull_user_states_from_feishu(repo, pull_client)
+            pull_summary = _pull_summary(pull_user_states_from_feishu(repo, pull_client))
         except Exception as exc:
             logging.warning("Failed to pull latest user states from Feishu: %s", exc)
 
-        enrich_summary = enrich_official_urls(repo, OfficialUrlFinder(), only_recommended=True)
-        rows = repo.list_feishu_sync_candidates()
-        sync_summary = _sync_feishu(repo, config, rows)
+        if not _pull_has_anomalies(pull_summary):
+            enrich_summary = enrich_official_urls(repo, OfficialUrlFinder(), only_recommended=True)
+            rows = repo.list_feishu_sync_candidates()
+            sync_summary = _sync_feishu(repo, config, rows)
+        else:
+            logging.error("Feishu sync blocked because user-state reconciliation was not clean")
         message = build_daily_message(summary.new_items, recommended_rows, crawl.error)
         bot = FeishuBot(FeishuConfig.from_config(config).webhook_url)
         bot_result = bot.send_text(message)
@@ -317,12 +316,12 @@ def _run_daily(config: dict, db_path: str, skip_feishu: bool = False) -> int:
             "run_type": "daily",
             "started_at": datetime.now().isoformat(timespec="seconds"),
             "finished_at": datetime.now().isoformat(timespec="seconds"),
-            "status": "partial" if crawl.error or sync_summary.failed else "success",
+            "status": "partial" if crawl.error or sync_summary.failed or _pull_has_anomalies(pull_summary) else "success",
             "pages_scanned": crawl.pages_scanned,
             "items_seen": summary.items_seen,
             "new_items": summary.new_items,
             "updated_items": summary.updated_items,
-            "error_message": crawl.error or (f"飞书同步失败 {sync_summary.failed} 条" if sync_summary.failed else None),
+            "error_message": crawl.error or _run_error_message(pull_summary, sync_summary),
         }
     )
     logging.info(
@@ -336,9 +335,12 @@ def _run_daily(config: dict, db_path: str, skip_feishu: bool = False) -> int:
         sync_summary.updated,
         sync_summary.failed,
     )
-    print(_format_run_summary("daily", summary, enrich_summary, sync_summary))
+    print(_format_run_summary("daily", summary, enrich_summary, pull_summary, sync_summary, partial=bool(crawl.error)))
+    if summary.items_seen == 0:
+        print("提示：本次没有获取到新页面岗位；如连续发生，请运行 check 并查看日志中的页面解析或网络错误。")
+    _print_recovery_advice(pull_summary, sync_summary)
     repo.vacuum()
-    return 1 if (crawl.error and not crawl.jobs) or sync_summary.failed else 0
+    return 1 if (crawl.error and not crawl.jobs) or sync_summary.failed or _pull_has_anomalies(pull_summary) else 0
 
 
 def _run_rematch(
@@ -353,16 +355,23 @@ def _run_rematch(
     repo.init_schema()
     enrich_summary = None
     sync_summary = SyncSummary()
-    if not skip_feishu:
+    pull_summary = PullSummary()
+    if not skip_feishu and _feishu_is_configured(config):
         try:
             logging.info("Pulling latest user states from Feishu before rematch sync...")
             pull_client = FeishuBitableClient(FeishuConfig.from_config(config))
-            pull_user_states_from_feishu(repo, pull_client)
+            pull_summary = _pull_summary(pull_user_states_from_feishu(repo, pull_client))
         except Exception as exc:
-            logging.warning("Failed to pull latest user states from Feishu: %s", exc)
+            logging.exception("Failed to pull latest user states from Feishu")
+            pull_summary = PullSummary(failed=1)
+
+    if _pull_has_anomalies(pull_summary):
+        print(_format_pull_summary("rematch", pull_summary))
+        _print_recovery_advice(pull_summary, sync_summary)
+        return 1
 
     summary = rematch_existing_jobs(repo, config, recommendation_date)
-    if not skip_feishu:
+    if not skip_feishu and _feishu_is_configured(config):
         if not skip_enrich_official:
             enrich_summary = enrich_official_urls(repo, OfficialUrlFinder(), only_recommended=True)
         sync_summary = _sync_feishu(repo, config, repo.list_feishu_reconciliation_rows())
@@ -389,7 +398,8 @@ def _run_rematch(
         sync_summary.updated,
         sync_summary.failed,
     )
-    print(_format_run_summary("rematch", summary, enrich_summary, sync_summary))
+    print(_format_run_summary("rematch", summary, enrich_summary, pull_summary, sync_summary))
+    _print_recovery_advice(pull_summary, sync_summary)
     repo.vacuum()
     return 1 if sync_summary.failed else 0
 
@@ -462,23 +472,29 @@ def _run_pull(config: dict, db_path: str) -> int:
     repo.init_schema()
     client = FeishuBitableClient(FeishuConfig.from_config(config))
     try:
-        updated = pull_user_states_from_feishu(repo, client)
+        pull_summary = _pull_summary(pull_user_states_from_feishu(repo, client))
         repo.record_scan_run(
             {
                 "run_type": "pull",
                 "started_at": datetime.now().isoformat(timespec="seconds"),
                 "finished_at": datetime.now().isoformat(timespec="seconds"),
-                "status": "success",
+                "status": "partial" if _pull_has_anomalies(pull_summary) else "success",
                 "pages_scanned": 0,
                 "items_seen": 0,
                 "new_items": 0,
-                "updated_items": updated,
-                "error_message": None,
+                "updated_items": pull_summary.updated,
+                "error_message": _run_error_message(pull_summary, SyncSummary()),
             }
         )
-        logging.info("pull finished: updated %d user states", updated)
-        print(f"pull finished: updated {updated} user states")
-        return 0
+        logging.info(
+            "pull finished: updated=%d skipped=%d unknown=%d",
+            pull_summary.updated,
+            pull_summary.skipped,
+            pull_summary.unknown,
+        )
+        print(_format_pull_summary("pull", pull_summary))
+        _print_recovery_advice(pull_summary, SyncSummary())
+        return 1 if _pull_has_anomalies(pull_summary) else 0
     except Exception as exc:
         logging.exception("Failed to pull from Feishu")
         print(f"Error pulling from Feishu: {exc}")
@@ -503,7 +519,16 @@ def _run_check(config: dict, db_path: str) -> int:
         f"duplicates={len(report.duplicate_job_ids)} blank={len(report.blank_record_ids)} "
         f"unmatched={len(report.unmatched_record_ids)} unknown_statuses={len(report.unknown_statuses)}"
     )
-    return 0
+    has_anomalies = bool(
+        report.only_remote_record_ids
+        or report.duplicate_job_ids
+        or report.blank_record_ids
+        or report.unmatched_record_ids
+        or report.unknown_statuses
+    )
+    if has_anomalies:
+        print("检测到远端异常记录；已保持只读。请先修复重复、空白、未知岗位或非法状态后再同步。")
+    return 1 if has_anomalies else 0
 
 
 def _sync_feishu(repo: JobRepository, config: dict, rows: list[dict]) -> SyncSummary:
@@ -614,10 +639,79 @@ def _notification_limit(config: dict) -> int | None:
     return max(int(value), 0)
 
 
-def _format_run_summary(command: str, summary, enrich_summary, sync_summary: SyncSummary) -> str:
+def _pull_summary(recovery) -> PullSummary:
+    return PullSummary(
+        updated=int(recovery.updated_count),
+        skipped=len(recovery.skipped_record_ids),
+        unknown=len(recovery.unknown_statuses),
+    )
+
+
+def _read_only_workspace_preflight(client, config: dict) -> None:
+    """Verify every safe read needed before the user approves remote changes."""
+    tables = client.list_tables()
+    table_id = str(config.get("feishu", {}).get("workspace_table_id") or "")
+    if not table_id:
+        return
+    if not any(str(table.get("table_id") or "") == table_id for table in tables):
+        raise RuntimeError("配置中的求职工作台不存在；请检查 Base 链接，或清空 workspace_table_id 后重新初始化")
+    client.list_fields(table_id)
+    client.list_views(table_id)
+    client.list_all_records(table_id)
+
+
+def _feishu_is_configured(config: dict) -> bool:
+    feishu = FeishuConfig.from_config(config)
+    has_auth = bool(feishu.tenant_access_token or (feishu.app_id and feishu.app_secret))
+    return bool(feishu.app_token and feishu.table_id and has_auth)
+
+
+def _pull_has_anomalies(summary: PullSummary) -> bool:
+    return bool(summary.skipped or summary.unknown or summary.failed)
+
+
+def _run_error_message(pull_summary: PullSummary, sync_summary: SyncSummary) -> str | None:
+    if pull_summary.failed:
+        return "飞书用户字段回拉失败"
+    if pull_summary.skipped or pull_summary.unknown:
+        return f"飞书异常记录 skipped={pull_summary.skipped} unknown={pull_summary.unknown}"
+    if sync_summary.failed:
+        return f"飞书同步失败 {sync_summary.failed} 条"
+    return None
+
+
+def _format_pull_summary(command: str, summary: PullSummary) -> str:
+    status = "partial" if _pull_has_anomalies(summary) else "success"
     return (
-        f"{command} summary: seen={summary.items_seen} new={summary.new_items} "
+        f"{command} result: status={status} pull_updated={summary.updated} "
+        f"pull_skipped={summary.skipped} pull_unknown={summary.unknown} pull_failed={summary.failed}"
+    )
+
+
+def _print_recovery_advice(pull_summary: PullSummary, sync_summary: SyncSummary) -> None:
+    if pull_summary.failed:
+        print("恢复建议：检查网络、飞书凭据和记录读取权限，然后安全重试；本次未执行后续同步。")
+    elif pull_summary.skipped or pull_summary.unknown:
+        print("恢复建议：先运行 check，修复重复/空白岗位ID或非法求职状态；异常记录未写入本地，后续同步已停止。")
+    elif sync_summary.failed:
+        print("恢复建议：远端已有数据未被清空；检查同步错误后重新运行同一命令即可安全重试。")
+
+
+def _format_run_summary(
+    command: str,
+    summary,
+    enrich_summary,
+    pull_summary: PullSummary,
+    sync_summary: SyncSummary,
+    *,
+    partial: bool = False,
+) -> str:
+    status = "partial" if partial or _pull_has_anomalies(pull_summary) or sync_summary.failed else "success"
+    return (
+        f"{command} result: status={status} seen={summary.items_seen} new={summary.new_items} "
         f"recommended={summary.recommended_items} "
+        f"pull_updated={pull_summary.updated} pull_skipped={pull_summary.skipped} "
+        f"pull_unknown={pull_summary.unknown} pull_failed={pull_summary.failed} "
         f"official_seen={enrich_summary.items_seen if enrich_summary else 0} "
         f"official_updated={enrich_summary.updated_items if enrich_summary else 0} "
         f"feishu_created={sync_summary.created} feishu_updated={sync_summary.updated} feishu_skipped={sync_summary.skipped} "

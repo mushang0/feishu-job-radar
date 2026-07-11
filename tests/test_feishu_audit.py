@@ -72,6 +72,30 @@ def test_legacy_personal_table_statuses_are_not_silently_migrated():
     assert normalize_status("已收藏") is None
 
 
+def test_recovery_quarantines_every_record_for_a_duplicate_job_id(tmp_path: Path):
+    from job_monitor.audit import recover_user_states
+
+    repository = JobRepository(tmp_path / "jobs.sqlite")
+    repository.init_schema()
+    job = repository.upsert_job(Job(dedupe_key="source:duplicate", company="Safe", title="Engineer"))
+    repository.update_user_state(job.job_id, "收藏", "keep me", next_action="2026-08-01")
+
+    result = recover_user_states(
+        repository,
+        [
+            {"record_id": "rec-a", "fields": {"岗位ID": str(job.job_id), "求职状态": "不合适"}},
+            {"record_id": "rec-b", "fields": {"岗位ID": str(job.job_id), "求职状态": "已结束"}},
+        ],
+    )
+
+    saved = repository.get_job_with_match(job.job_id)
+    assert result.updated_count == 0
+    assert result.skipped_record_ids == ["rec-a", "rec-b"]
+    assert saved["user_status"] == "收藏"
+    assert saved["note"] == "keep me"
+    assert saved["next_action"] == "2026-08-01"
+
+
 def test_check_command_only_reads_feishu_records(tmp_path: Path, monkeypatch, capsys):
     from job_monitor.cli import main
 

@@ -84,8 +84,8 @@ def test_pipeline_pulls_from_feishu(tmp_path: Path):
         }
     ]
 
-    count = pull_user_states_from_feishu(repo, mock_client)
-    assert count == 1
+    result = pull_user_states_from_feishu(repo, mock_client)
+    assert result.updated_count == 1
 
     saved = repo.list_all_jobs()[0]
     assert saved["user_status"] == "收藏"

@@ -103,11 +103,51 @@ def test_feishu_client_fetches_tenant_access_token_from_app_credentials():
     assert create_call[1]["headers"]["Authorization"] == "Bearer tenant-token"
 
 
+def test_feishu_client_retries_transient_auth_network_failure():
+    mock_post = Mock()
+    token_response = Mock()
+    token_response.json.return_value = {"code": 0, "tenant_access_token": "tenant-token"}
+    api_response = Mock()
+    api_response.json.return_value = {"code": 0, "data": {"app": {"name": "Base"}}}
+    mock_post.side_effect = [requests.exceptions.SSLError("temporary TLS EOF"), token_response]
+    mock_get = Mock(return_value=api_response)
+    sleeps = []
+
+    client = FeishuBitableClient(
+        FeishuConfig(app_token="base", app_id="cli_app", app_secret="secret"),
+        post=mock_post,
+        get=mock_get,
+        sleep=sleeps.append,
+    )
+
+    assert client.get_app() == {"name": "Base"}
+    assert mock_post.call_count == 2
+    assert sleeps == [0.25]
+
+
+def test_feishu_client_retries_record_list_network_failure():
+    mock_get = Mock()
+    response = Mock()
+    response.json.return_value = {"code": 0, "data": {"has_more": False, "items": []}}
+    mock_get.side_effect = [requests.ConnectionError("temporary disconnect"), response]
+    sleeps = []
+    client = FeishuBitableClient(
+        FeishuConfig(app_token="app", table_id="tbl", tenant_access_token="token"),
+        get=mock_get,
+        sleep=sleeps.append,
+    )
+
+    assert client.list_all_records() == []
+    assert mock_get.call_count == 2
+    assert sleeps == [0.25]
+
+
 def test_feishu_client_returns_error_result_for_http_failure():
     mock_post = Mock()
     mock_response = Mock()
     mock_response.status_code = 403
     mock_response.text = '{"code":91403,"msg":"Forbidden"}'
+    mock_response.json.return_value = {"code": 91403, "msg": "Forbidden"}
     mock_response.raise_for_status.side_effect = requests.HTTPError("403 Client Error: Forbidden", response=mock_response)
     mock_post.return_value = mock_response
 

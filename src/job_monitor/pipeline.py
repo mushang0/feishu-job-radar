@@ -237,5 +237,6 @@ def _split(value: str | None) -> list[str]:
     return [part for part in str(value).split(";") if part]
 
 
-def pull_user_states_from_feishu(repo: JobRepository, client: "FeishuBitableClient") -> int:
-    return recover_user_states(repo, client.list_all_records()).updated_count
+def pull_user_states_from_feishu(repo: JobRepository, client: "FeishuBitableClient"):
+    """Pull user-owned fields and return the complete, auditable result."""
+    return recover_user_states(repo, client.list_all_records())

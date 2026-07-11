@@ -181,9 +181,19 @@ class FeishuBitableClient:
             except requests.RequestException as exc:
                 response = getattr(exc, "response", None)
                 status_code = getattr(response, "status_code", None)
-                retryable = status_code == 429 or (isinstance(status_code, int) and status_code >= 500)
+                api_code = None
+                if response is not None:
+                    try:
+                        payload = response.json()
+                        api_code = payload.get("code") if isinstance(payload, dict) else None
+                    except (TypeError, ValueError):
+                        api_code = None
+                retryable = status_code is None or status_code == 429 or (isinstance(status_code, int) and status_code >= 500)
                 last_error = FeishuApiError(
-                    f"Feishu HTTP request failed{f' ({status_code})' if status_code else ''}",
+                    "Feishu HTTP request failed"
+                    + (f" ({status_code}" if status_code else "")
+                    + (f", code {api_code}" if api_code not in (None, "") else "")
+                    + (")" if status_code else ""),
                     retryable=retryable,
                 )
                 if not retryable or attempt >= self.max_retries:
@@ -199,8 +209,7 @@ class FeishuBitableClient:
     def batch_create_records(self, records: list[dict[str, Any]]) -> FeishuResult:
         if not records:
             return FeishuResult(sent=False, error="no records to send")
-        token = self._tenant_access_token()
-        if not (self.config.app_token and self.config.table_id and token):
+        if not (self.config.app_token and self.config.table_id):
             return FeishuResult(sent=False, error="feishu credentials are not configured")
 
         url = (
@@ -210,23 +219,21 @@ class FeishuBitableClient:
         record_ids = []
         for i in range(0, len(records), 500):
             batch = records[i : i + 500]
-            response = self.post(
-                url,
-                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-                json={"records": batch},
-                timeout=30,
+            try:
+                data = self._request_json("POST", url, json={"records": batch})
+            except FeishuApiError as exc:
+                return FeishuResult(sent=False, error=str(exc))
+            record_ids.extend(
+                str(record.get("record_id"))
+                for record in data.get("records", [])
+                if isinstance(record, dict) and record.get("record_id")
             )
-            res = self._records_result(response)
-            if not res.sent:
-                return res
-            record_ids.extend(res.record_ids)
         return FeishuResult(sent=True, record_ids=record_ids)
 
     def batch_update_records(self, records: list[dict[str, Any]]) -> FeishuResult:
         if not records:
             return FeishuResult(sent=False, error="no records to send")
-        token = self._tenant_access_token()
-        if not (self.config.app_token and self.config.table_id and token):
+        if not (self.config.app_token and self.config.table_id):
             return FeishuResult(sent=False, error="feishu credentials are not configured")
 
         url = (
@@ -235,15 +242,10 @@ class FeishuBitableClient:
         )
         for i in range(0, len(records), 500):
             batch = records[i : i + 500]
-            response = self.post(
-                url,
-                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-                json={"records": batch},
-                timeout=30,
-            )
-            res = self._records_result(response)
-            if not res.sent:
-                return res
+            try:
+                self._request_json("POST", url, json={"records": batch})
+            except FeishuApiError as exc:
+                return FeishuResult(sent=False, error=str(exc))
         return FeishuResult(sent=True)
 
     def _tenant_access_token(self) -> str:
@@ -253,17 +255,37 @@ class FeishuBitableClient:
             return self._cached_tenant_access_token
         if not (self.config.app_id and self.config.app_secret):
             return ""
-        response = self.post(
-            "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
-            json={"app_id": self.config.app_id, "app_secret": self.config.app_secret},
-            timeout=20,
-        )
-        response.raise_for_status()
-        payload = response.json()
-        if payload.get("code") not in (0, None):
-            return ""
-        self._cached_tenant_access_token = str(payload.get("tenant_access_token") or "")
-        return self._cached_tenant_access_token
+        last_error: FeishuApiError | None = None
+        for attempt in range(self.max_retries + 1):
+            try:
+                response = self.post(
+                    "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+                    json={"app_id": self.config.app_id, "app_secret": self.config.app_secret},
+                    timeout=20,
+                )
+                response.raise_for_status()
+                payload = response.json()
+                if payload.get("code") not in (0, None):
+                    code = payload.get("code")
+                    raise FeishuApiError(f"飞书身份认证失败（错误码 {code}）", code=code if isinstance(code, int) else None)
+                self._cached_tenant_access_token = str(payload.get("tenant_access_token") or "")
+                if not self._cached_tenant_access_token:
+                    raise FeishuApiError("飞书身份认证成功但未返回访问凭证")
+                return self._cached_tenant_access_token
+            except FeishuApiError:
+                raise
+            except requests.RequestException as exc:
+                response = getattr(exc, "response", None)
+                status_code = getattr(response, "status_code", None)
+                retryable = status_code is None or status_code == 429 or (isinstance(status_code, int) and status_code >= 500)
+                last_error = FeishuApiError(
+                    f"飞书身份认证网络请求失败{f'（HTTP {status_code}）' if status_code else ''}",
+                    retryable=retryable,
+                )
+                if not retryable or attempt >= self.max_retries:
+                    raise last_error from exc
+                self.sleep(0.25 * (2**attempt))
+        raise last_error or FeishuApiError("飞书身份认证失败")
 
     @staticmethod
     def _records_result(response: Any) -> FeishuResult:
@@ -279,39 +301,15 @@ class FeishuBitableClient:
         return FeishuResult(sent=True, record_ids=[record_id for record_id in record_ids if record_id])
 
     def list_all_records(self, table_id: str | None = None) -> list[dict[str, Any]]:
-        token = self._tenant_access_token()
         target_table_id = table_id or self.config.table_id
-        if not (self.config.app_token and target_table_id and token):
+        if not (self.config.app_token and target_table_id):
             raise ValueError("feishu credentials are not configured")
 
         url = (
             "https://open.feishu.cn/open-apis/bitable/v1/apps/"
             f"{self.config.app_token}/tables/{target_table_id}/records"
         )
-        records = []
-        page_token = None
-        has_more = True
-        while has_more:
-            params: dict[str, Any] = {"page_size": 500}
-            if page_token:
-                params["page_token"] = page_token
-
-            response = self.get(
-                url,
-                headers={"Authorization": f"Bearer {token}"},
-                params=params,
-                timeout=30,
-            )
-            response.raise_for_status()
-            payload = response.json()
-            if payload.get("code") not in (0, None):
-                raise ValueError(f"Feishu API error: {payload}")
-
-            data = payload.get("data", {})
-            records.extend(data.get("items", []))
-            has_more = data.get("has_more", False)
-            page_token = data.get("page_token")
-        return records
+        return self._list_items(url, page_size=500)
 
 
 class FeishuBot:

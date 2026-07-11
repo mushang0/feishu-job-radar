@@ -30,6 +30,10 @@ def test_run_init_orders_preflight_provision_scan_and_sync(tmp_path: Path, monke
             events.append("read-only-preflight")
             return {"name": "Base"}
 
+        def list_tables(self):
+            events.append("list-tables")
+            return []
+
     class Provisioner:
         def __init__(self, client, schema):
             pass
@@ -78,6 +82,9 @@ def test_run_init_stops_before_crawler_when_provisioning_fails(tmp_path: Path, m
         def get_app(self):
             return {"name": "Base"}
 
+        def list_tables(self):
+            return []
+
     class Provisioner:
         def __init__(self, client, schema):
             pass
@@ -111,6 +118,9 @@ def test_run_init_decline_performs_no_remote_write(tmp_path: Path, monkeypatch):
         def get_app(self):
             return {"name": "Base"}
 
+        def list_tables(self):
+            return []
+
     class Provisioner:
         def __init__(self, client, schema):
             raise AssertionError("provisioner must not be constructed")
@@ -122,3 +132,33 @@ def test_run_init_decline_performs_no_remote_write(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("job_monitor.cli.WorkspaceProvisioner", Provisioner)
 
     assert _run_init(config, str(tmp_path / "jobs.sqlite"), str(tmp_path / "config.yaml"), str(tmp_path / "export.xlsx"), assume_yes=False) == 0
+
+
+def test_read_only_preflight_checks_saved_workspace_resources():
+    from job_monitor.cli import _read_only_workspace_preflight
+
+    calls = []
+
+    class Client:
+        def list_tables(self):
+            return [{"table_id": "tbl-managed", "name": "求职工作台"}]
+
+        def list_fields(self, table_id):
+            calls.append(("fields", table_id))
+            return []
+
+        def list_views(self, table_id):
+            calls.append(("views", table_id))
+            return []
+
+        def list_all_records(self, table_id):
+            calls.append(("records", table_id))
+            return []
+
+    _read_only_workspace_preflight(Client(), {"feishu": {"workspace_table_id": "tbl-managed"}})
+
+    assert calls == [
+        ("fields", "tbl-managed"),
+        ("views", "tbl-managed"),
+        ("records", "tbl-managed"),
+    ]

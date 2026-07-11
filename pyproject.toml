@@ -1,7 +1,9 @@
 [project]
 name = "feishu-job-radar"
 version = "0.1.0"
-description = "秋招信息自动监控与飞书提醒系统"
+description = "面向个人求职者的本地岗位发现与飞书进度管理工具"
+readme = "README.md"
+license = {text = "MIT"}
 requires-python = ">=3.11"
 dependencies = [
     "beautifulsoup4>=4.12",

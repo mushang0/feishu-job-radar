@@ -73,15 +73,19 @@ def audit_feishu_records(repo: JobRepository, records: Iterable[dict[str, Any]])
 
 
 def recover_user_states(repo: JobRepository, records: Iterable[dict[str, Any]]) -> StateRecoveryResult:
-    report = audit_feishu_records(repo, records)
+    record_list = list(records)
+    report = audit_feishu_records(repo, record_list)
     skipped = set(report.only_remote_record_ids + report.blank_record_ids + report.unmatched_record_ids)
+    duplicate_ids = set(report.duplicate_job_ids)
     updated = 0
-    for index, record in enumerate(records):
+    for index, record in enumerate(record_list):
         record_id = str(record.get("record_id") or f"record-{index + 1}")
-        if record_id in skipped or record_id in report.unknown_statuses:
-            continue
         fields = _fields(record)
         job_id = _job_id(fields.get("岗位ID"))
+        if job_id in duplicate_ids:
+            skipped.add(record_id)
+        if record_id in skipped or record_id in report.unknown_statuses:
+            continue
         status = normalize_status(_text(fields.get("求职状态")).strip())
         if job_id is None or status is None:
             continue
