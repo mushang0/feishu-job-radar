@@ -271,16 +271,33 @@ def _run_reset(
     if not confirmed:
         print("reset 是破坏性操作；请使用 reset --yes 确认删除当前飞书工作台。")
         return 2
-    errors = validate_config(config, require_feishu=True)
+    errors = validate_config(config)
     if errors:
         print("配置检查失败：" + "；".join(errors))
         return 1
-    table_id = str(config.get("feishu", {}).get("workspace_table_id") or config.get("feishu", {}).get("table_id") or "")
-    if not table_id:
-        print("reset 失败：未找到已配置的飞书工作台 ID。")
+    feishu = config.setdefault("feishu", {})
+    if not feishu.get("app_id") or not feishu.get("app_secret"):
+        print("配置检查失败：请填写飞书 App ID 和 App Secret。")
         return 1
     try:
-        client = FeishuBitableClient(FeishuConfig.from_config(config))
+        feishu_config = FeishuConfig.from_config(config)
+        client = FeishuBitableClient(feishu_config)
+        if not feishu_config.app_token:
+            print("配置检查失败：请填写飞书 Base 链接或 Base App Token。")
+            return 1
+        if not feishu.get("base_url"):
+            feishu["base_url"] = f"https://feishu.cn/base/{feishu_config.app_token}"
+        table_id = str(feishu.get("workspace_table_id") or feishu.get("table_id") or "")
+        if not table_id:
+            matches = [table for table in client.list_tables() if table.get("name") == desired_workspace().table_name]
+            if len(matches) != 1:
+                print(f"reset 失败：未能唯一定位“{desired_workspace().table_name}”数据表（找到 {len(matches)} 个）。")
+                return 1
+            table_id = str(matches[0].get("table_id") or "")
+            if not table_id:
+                print("reset 失败：飞书返回的数据表缺少 table_id。")
+                return 1
+            feishu["workspace_table_id"] = table_id
         client.delete_table(table_id)
     except Exception as exc:
         logging.exception("Feishu workspace reset failed")
