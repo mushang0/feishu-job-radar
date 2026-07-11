@@ -136,6 +136,7 @@ def _config_for_storage(config: dict[str, Any]) -> dict[str, Any]:
     )
     feishu_keys = (
         "base_url",
+        "bitable_app_token",
         "app_id",
         "app_secret",
         "webhook_url",

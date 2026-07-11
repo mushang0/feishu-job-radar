@@ -58,7 +58,7 @@ def test_save_config_is_utf8_atomic_and_drops_tenant_token(tmp_path: Path):
     save_config(
         {
             "user_profile": {"role_groups": ["硬件/嵌入式"]},
-            "feishu": {"app_secret": "keep-locally", "tenant_access_token": "temporary-token"},
+            "feishu": {"app_secret": "keep-locally", "bitable_app_token": "app-token", "tenant_access_token": "temporary-token"},
         },
         path,
     )
@@ -67,5 +67,6 @@ def test_save_config_is_utf8_atomic_and_drops_tenant_token(tmp_path: Path):
     saved = yaml.safe_load(text)
     assert "硬件/嵌入式" in text
     assert saved["feishu"]["app_secret"] == "keep-locally"
+    assert saved["feishu"]["bitable_app_token"] == "app-token"
     assert "tenant_access_token" not in saved["feishu"]
     assert list(tmp_path.glob("*.tmp")) == []

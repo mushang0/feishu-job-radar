@@ -89,6 +89,36 @@ def test_reset_clears_sync_state_before_reinitializing(tmp_path: Path, monkeypat
     assert captured["config"]["feishu"]["workspace_table_id"] == ""
 
 
+def test_reset_resolves_missing_base_url_and_table_id_from_configured_token(tmp_path: Path, monkeypatch):
+    config = {
+        "user_profile": {"graduate_years": ["2027"], "role_groups": ["hardware"]},
+        "feishu": {"bitable_app_token": "app-token", "app_id": "id", "app_secret": "secret"},
+    }
+    events = []
+
+    class Client:
+        def __init__(self, _config):
+            pass
+
+        def list_tables(self):
+            events.append("list")
+            return [{"name": "求职工作台", "table_id": "tbl-discovered"}]
+
+        def delete_table(self, table_id):
+            events.append(f"delete:{table_id}")
+
+    def reinitialize(updated_config, *_args, **_kwargs):
+        events.append("init")
+        assert updated_config["feishu"]["base_url"] == "https://feishu.cn/base/app-token"
+        return 0
+
+    monkeypatch.setattr("job_monitor.cli.FeishuBitableClient", Client)
+    monkeypatch.setattr("job_monitor.cli._run_init", reinitialize)
+
+    assert _run_reset(config, str(tmp_path / "jobs.sqlite"), str(tmp_path / "config.yaml"), "out.xlsx", confirmed=True) == 0
+    assert events == ["list", "delete:tbl-discovered", "init"]
+
+
 def test_cli_rematch_backfills_recommendations(tmp_path: Path):
     db_path = tmp_path / "jobs.sqlite"
     config_path = tmp_path / "config.yaml"
