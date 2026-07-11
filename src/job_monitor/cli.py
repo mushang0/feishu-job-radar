@@ -55,6 +55,12 @@ def main(argv: list[str] | None = None) -> int:
     init_parser.add_argument("--output", default="data/exports/all_jobs_initial.xlsx")
     init_parser.add_argument("--yes", action="store_true", help="验证配置后无需再次确认")
 
+    reset_parser = subparsers.add_parser("reset", help="删除当前测试工作台并重新初始化")
+    reset_parser.add_argument("--config", dest="command_config")
+    reset_parser.add_argument("--db", dest="command_db")
+    reset_parser.add_argument("--output", default="data/exports/all_jobs_initial.xlsx")
+    reset_parser.add_argument("--yes", action="store_true", help="确认删除当前飞书工作台")
+
     daily_parser = subparsers.add_parser("daily", help="每日增量扫描、飞书同步和提醒")
     daily_parser.add_argument("--config", dest="command_config")
     daily_parser.add_argument("--db", dest="command_db")
@@ -95,6 +101,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "init":
         return _run_init(config, db_path, config_path, args.output, assume_yes=args.yes)
+    if args.command == "reset":
+        return _run_reset(config, db_path, config_path, args.output, confirmed=args.yes)
     if args.command == "daily":
         return _run_daily(config, db_path, skip_feishu=args.no_feishu)
     if args.command == "rematch":
@@ -249,6 +257,45 @@ def _run_init(
     )
     repo.vacuum()
     return 1 if sync_summary.failed else 0
+
+
+def _run_reset(
+    config: dict,
+    db_path: str,
+    config_path: str,
+    output_path: str,
+    *,
+    confirmed: bool,
+) -> int:
+    """Destructively replace the configured test table after explicit confirmation."""
+    if not confirmed:
+        print("reset 是破坏性操作；请使用 reset --yes 确认删除当前飞书工作台。")
+        return 2
+    errors = validate_config(config, require_feishu=True)
+    if errors:
+        print("配置检查失败：" + "；".join(errors))
+        return 1
+    table_id = str(config.get("feishu", {}).get("workspace_table_id") or config.get("feishu", {}).get("table_id") or "")
+    if not table_id:
+        print("reset 失败：未找到已配置的飞书工作台 ID。")
+        return 1
+    try:
+        client = FeishuBitableClient(FeishuConfig.from_config(config))
+        client.delete_table(table_id)
+    except Exception as exc:
+        logging.exception("Feishu workspace reset failed")
+        print(f"飞书工作台删除失败，未修改本地配置：{exc}")
+        return 1
+
+    repo = JobRepository(db_path)
+    repo.init_schema()
+    repo.clear_feishu_sync()
+    config["feishu"]["workspace_table_id"] = ""
+    config["feishu"]["table_id"] = ""
+    config["feishu"]["workspace_schema_version"] = ""
+    save_config(config, config_path)
+    print("已删除当前飞书工作台并清除本地同步关联，正在重新初始化。")
+    return _run_init(config, db_path, config_path, output_path, assume_yes=True)
 
 
 def _run_daily(config: dict, db_path: str, skip_feishu: bool = False) -> int:

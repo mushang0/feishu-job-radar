@@ -71,13 +71,13 @@ def test_pipeline_pulls_from_feishu(tmp_path: Path):
             title="软件研发",
         )
     )
+    repo.mark_sync(inserted.job_id, "synced", record_id="rec-123")
 
     mock_client = Mock()
     mock_client.list_all_records.return_value = [
         {
             "record_id": "rec-123",
                 "fields": {
-                    "岗位ID": str(inserted.job_id),
                     "求职状态": "收藏",
                     "备注": [{"text": "希望很大"}]  # 支持段结构
                 }
