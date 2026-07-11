@@ -559,6 +559,17 @@ class JobRepository:
                 (job_id, record_id, status, error),
             )
 
+    def sync_job_ids_by_record_id(self) -> dict[str, int]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT job_id, feishu_record_id FROM feishu_sync WHERE feishu_record_id IS NOT NULL AND feishu_record_id != ''"
+            ).fetchall()
+        return {str(row["feishu_record_id"]): int(row["job_id"]) for row in rows}
+
+    def clear_feishu_sync(self) -> None:
+        with self.connect() as conn:
+            conn.execute("DELETE FROM feishu_sync")
+
     def update_user_state(
         self,
         job_id: int,

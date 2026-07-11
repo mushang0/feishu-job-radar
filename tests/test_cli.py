@@ -338,7 +338,7 @@ def test_notification_rows_obeys_daily_push_limit_without_limiting_recommendatio
     assert [row["job_id"] for row in limited] == [1]
 
 
-def test_cli_rematch_deactivates_previously_synced_job_that_is_no_longer_recommended(tmp_path: Path, monkeypatch):
+def test_cli_rematch_keeps_previously_synced_job_that_is_no_longer_recommended(tmp_path: Path, monkeypatch):
     db_path = tmp_path / "jobs.sqlite"
     config_path = tmp_path / "config.yaml"
     repo = JobRepository(db_path)
@@ -376,7 +376,7 @@ feishu:
             pass
 
         def list_all_records(self):
-            return [{"record_id": "rec-stale", "fields": {"岗位ID": str(inserted.job_id), "求职状态": "待处理"}}]
+            return [{"record_id": "rec-stale", "fields": {"求职状态": "待处理"}}]
 
         def batch_create_records(self, records):
             raise AssertionError("inactive record already exists")
@@ -391,7 +391,7 @@ feishu:
 
     assert code == 0
     assert captured["records"][0]["record_id"] == "rec-stale"
-    assert captured["records"][0]["fields"]["推荐有效"] is False
+    assert "推荐有效" not in captured["records"][0]["fields"]
 
 
 def test_cli_pull_command(tmp_path, monkeypatch):

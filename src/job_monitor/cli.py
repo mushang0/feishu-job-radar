@@ -12,7 +12,7 @@ from .config import load_config, save_config, validate_config
 from .diagnostics import preflight_check
 from .exporters import export_jobs_to_excel
 from .feishu import FeishuBitableClient, FeishuBot, FeishuConfig
-from .feishu_records import build_create_fields, build_update_fields, index_remote_records
+from .feishu_records import build_create_fields, build_update_fields
 from .logging_utils import setup_logging
 from .onboarding import InitializationPreview, collect_missing_config, confirm_initialization
 from .official_search import OfficialUrlFinder
@@ -538,7 +538,6 @@ def _sync_feishu(repo: JobRepository, config: dict, rows: list[dict]) -> SyncSum
         logging.info("feishu sync skipped: workspace credentials are not configured")
         return SyncSummary(skipped=len(rows))
     client = FeishuBitableClient(feishu_config)
-    remote_index = index_remote_records(client.list_all_records())
     tracked_statuses = {"收藏", "已投递", "笔试中", "面试中", "Offer", "已结束"}
     to_create: list[dict] = []
     to_update: list[tuple[dict, str]] = []
@@ -549,14 +548,10 @@ def _sync_feishu(repo: JobRepository, config: dict, rows: list[dict]) -> SyncSum
 
     for row in rows:
         job_id = int(row.get("job_id", row.get("id")))
-        if job_id in remote_index.duplicate_job_ids:
-            repo.mark_sync(job_id, "failed", error="飞书存在重复岗位ID，已停止自动更新")
-            failed += 1
-            continue
-        remote_record_id = remote_index.by_job_id.get(job_id)
+        remote_record_id = str(row.get("feishu_record_id") or "")
         should_exist = bool(row.get("recommendation_active")) or row.get("user_status") in tracked_statuses
         if remote_record_id:
-            if row.get("sync_status") in (None, "pending", "pending_update", "failed") or row.get("feishu_record_id") != remote_record_id:
+            if row.get("sync_status") in (None, "pending", "pending_update", "failed"):
                 to_update.append((row, remote_record_id))
             else:
                 skipped += 1
@@ -570,22 +565,13 @@ def _sync_feishu(repo: JobRepository, config: dict, rows: list[dict]) -> SyncSum
     if to_create:
         create_result = client.batch_create_records([{"fields": build_create_fields(row)} for row in to_create])
         if not create_result.sent:
-            reconciled = index_remote_records(client.list_all_records())
             for row in to_create:
                 job_id = int(row.get("job_id", row.get("id")))
-                record_id = reconciled.by_job_id.get(job_id)
-                if record_id:
-                    repo.mark_sync(job_id, "synced", record_id=record_id)
-                    created += 1
-                else:
-                    repo.mark_sync(job_id, "failed", error=getattr(create_result, "error", None))
-                    failed += 1
-            logging.info("feishu bitable create failed and was reconciled: %s", getattr(create_result, "error", None))
+                repo.mark_sync(job_id, "failed", error=getattr(create_result, "error", None))
+                failed += 1
+            logging.info("feishu bitable create failed: %s", getattr(create_result, "error", None))
         else:
             returned_ids = list(getattr(create_result, "record_ids", []) or [])
-            if len(returned_ids) != len(to_create):
-                reconciled = index_remote_records(client.list_all_records())
-                returned_ids = [reconciled.by_job_id.get(int(row.get("job_id", row.get("id"))), "") for row in to_create]
             for row, record_id in zip(to_create, returned_ids):
                 job_id = int(row.get("job_id", row.get("id")))
                 if record_id:
