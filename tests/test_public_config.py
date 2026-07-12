@@ -81,17 +81,19 @@ def test_project_exposes_console_script_and_windows_ci_matrix():
 
 def test_windows_launchers_keep_results_visible_and_use_project_paths():
     runner = (ROOT / "run_daily.bat").read_text(encoding="utf-8")
-    launcher = (ROOT / "start.bat").read_text(encoding="utf-8")
+    launcher = (ROOT / "start.bat").read_text(encoding="ascii")
+    menu = (ROOT / "start.ps1").read_text(encoding="utf-8-sig")
 
     assert 'call "%~dp0start.bat"' in runner
     assert '--config "%~dp0config.yaml"' in runner
     assert '--db "%~dp0data\\jobs.sqlite"' in runner
-    assert '.venv\\Scripts\\python.exe' in launcher
-    assert '首次配置 / 修复飞书工作台' in launcher
-    assert '开始每日扫描' in launcher
-    assert '查看健康检查' in launcher
-    assert '打开飞书工作台' in launcher
-    assert 'pause' in launcher
+    assert 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File' in launcher
+    assert '.venv\\Scripts\\python.exe' in menu
+    assert '首次配置 / 修复飞书工作台' in menu
+    assert '开始每日扫描' in menu
+    assert '查看健康检查' in menu
+    assert '打开飞书工作台' in menu
+    assert (ROOT / 'start.ps1').read_bytes().startswith(b'\xef\xbb\xbf')
 
 
 def test_init_help_describes_workspace_creation(capsys):
