@@ -1,4 +1,4 @@
-from .desktop import main
+from job_monitor.desktop import main
 
 
 if __name__ == "__main__":
