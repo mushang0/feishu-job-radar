@@ -79,13 +79,19 @@ def test_project_exposes_console_script_and_windows_ci_matrix():
     assert "3.12" in workflow
 
 
-def test_windows_daily_runner_uses_project_virtualenv_and_absolute_paths():
+def test_windows_launchers_keep_results_visible_and_use_project_paths():
     runner = (ROOT / "run_daily.bat").read_text(encoding="utf-8")
+    launcher = (ROOT / "start.bat").read_text(encoding="utf-8")
 
-    assert '.venv\\Scripts\\python.exe' in runner
-    assert '"%PYTHON_EXE%" -m job_monitor' in runner
+    assert 'call "%~dp0start.bat"' in runner
     assert '--config "%~dp0config.yaml"' in runner
     assert '--db "%~dp0data\\jobs.sqlite"' in runner
+    assert '.venv\\Scripts\\python.exe' in launcher
+    assert '首次配置 / 修复飞书工作台' in launcher
+    assert '开始每日扫描' in launcher
+    assert '查看健康检查' in launcher
+    assert '打开飞书工作台' in launcher
+    assert 'pause' in launcher
 
 
 def test_init_help_describes_workspace_creation(capsys):

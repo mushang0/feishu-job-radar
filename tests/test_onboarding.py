@@ -149,7 +149,7 @@ def test_secret_reader_uses_plain_input_only_when_stdin_is_not_a_tty(monkeypatch
 
 
 def test_confirm_initialization_requires_explicit_yes_unless_flag_is_set():
-    preview = InitializationPreview(base_url="https://example.feishu.cn/base/token", table_name="求职工作台", pending_candidates=12)
+    preview = InitializationPreview(base_url="https://example.feishu.cn/base/token", table_name="求职工作台", baseline_items=12)
 
     assert confirm_initialization(preview, assume_yes=False, input_fn=lambda _: "no", output_fn=lambda _: None) is False
     assert confirm_initialization(preview, assume_yes=False, input_fn=lambda _: "是", output_fn=lambda _: None) is True
@@ -157,7 +157,7 @@ def test_confirm_initialization_requires_explicit_yes_unless_flag_is_set():
 
 
 def test_preview_redacts_credentials():
-    preview = InitializationPreview(base_url="https://example.feishu.cn/base/token", table_name="求职工作台", pending_candidates=3)
+    preview = InitializationPreview(base_url="https://example.feishu.cn/base/token", table_name="求职工作台", baseline_items=3)
 
     text = preview.render()
 

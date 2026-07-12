@@ -29,14 +29,15 @@ class ParsedBaseUrl:
 class InitializationPreview:
     base_url: str
     table_name: str
-    pending_candidates: int
+    baseline_items: int
 
     def render(self) -> str:
         return (
             "首次初始化预览\n"
             f"- 目标多维表格：{self.base_url}\n"
             f"- 创建或修复数据表：{self.table_name}\n"
-            f"- 当前待同步候选：{self.pending_candidates} 条"
+            f"- 本地岗位基线：{self.baseline_items} 条\n"
+            "- 尚未根据你的偏好匹配；确认后将计算推荐并同步到飞书"
         )
 
 

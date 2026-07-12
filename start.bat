@@ -3,10 +3,6 @@ setlocal
 chcp 65001 >nul
 set "PYTHONUTF8=1"
 set "JOB_MONITOR_WATCH_PARENT=1"
-set "_PARENT_PID_FILE=%TEMP%\feishu-job-radar-parent-%RANDOM%.txt"
-powershell.exe -NoProfile -Command "[Console]::Write((Get-CimInstance Win32_Process -Filter ('ProcessId=' + $PID)).ParentProcessId)" > "%_PARENT_PID_FILE%"
-set /p JOB_MONITOR_PARENT_PID=<"%_PARENT_PID_FILE%"
-del "%_PARENT_PID_FILE%" >nul 2>&1
 cd /d "%~dp0"
 
 set "PYTHON_EXE=%~dp0.venv\Scripts\python.exe"
@@ -23,17 +19,44 @@ if errorlevel 1 (
     if errorlevel 1 goto :install_error
 )
 
-if "%~1"=="" (
-    "%PYTHON_EXE%" -m job_monitor init
-) else (
-    "%PYTHON_EXE%" -m job_monitor %*
-)
-exit /b %ERRORLEVEL%
+if not "%~1"=="" goto :run_command
+
+:menu
+cls
+echo ======================================
+echo        飞书求职雷达
+echo ======================================
+echo  1. 首次配置 / 修复飞书工作台
+echo  2. 开始每日扫描
+echo  3. 查看健康检查
+echo  4. 打开飞书工作台
+echo  5. 退出
+echo.
+set /p CHOICE=请输入选项 [1-5]：
+if "%CHOICE%"=="1" "%PYTHON_EXE%" -m job_monitor --config "%~dp0config.yaml" --db "%~dp0data\jobs.sqlite" init
+if "%CHOICE%"=="2" "%PYTHON_EXE%" -m job_monitor --config "%~dp0config.yaml" --db "%~dp0data\jobs.sqlite" daily
+if "%CHOICE%"=="3" "%PYTHON_EXE%" -m job_monitor --config "%~dp0config.yaml" --db "%~dp0data\jobs.sqlite" check
+if "%CHOICE%"=="4" "%PYTHON_EXE%" -m job_monitor --config "%~dp0config.yaml" open-workspace
+if "%CHOICE%"=="5" exit /b 0
+echo.
+if not "%CHOICE%"=="1" if not "%CHOICE%"=="2" if not "%CHOICE%"=="3" if not "%CHOICE%"=="4" echo 请输入 1 到 5 之间的数字。
+echo.
+pause
+goto :menu
+
+:run_command
+"%PYTHON_EXE%" -m job_monitor %*
+set "EXIT_CODE=%ERRORLEVEL%"
+echo.
+pause
+exit /b %EXIT_CODE%
 
 :python_error
-echo 未找到可用的 Python 3.11。请先安装 Python 3.11 后重新运行 start.bat。
+echo 未找到可用的 Python 3.11。请先安装后重新运行 start.bat。
+pause
 exit /b 1
 
 :install_error
 echo 依赖安装失败。请检查网络连接后重新运行 start.bat。
+pause
 exit /b 1

@@ -19,6 +19,7 @@ from .official_search import OfficialUrlFinder
 from .pipeline import backfill_existing_job_details, enrich_official_urls, rematch_existing_jobs, run_daily_with_jobs, run_init_with_page_batches, pull_user_states_from_feishu
 from .seed import SeedDatabaseError, find_seed_database, restore_seed_database
 from .run_guard import DailyRunGuard, DailyRunInProgress
+from .runtime import RunReport, RunReporter, console_event, console_report
 from .storage import JobRepository
 from .wondercv import EXTRACTION_VERSION, WonderCVCrawler
 from .workspace_provisioner import WorkspaceProvisioner
@@ -41,7 +42,7 @@ class PullSummary:
     failed: int = 0
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, reporter: RunReporter | None = None) -> int:
     parser = argparse.ArgumentParser(prog="feishu-job-radar")
     parser.add_argument("--config", default="config.yaml")
     parser.add_argument("--db", default="data/jobs.sqlite")
@@ -88,6 +89,8 @@ def main(argv: list[str] | None = None) -> int:
     check_parser = subparsers.add_parser("check", help="只读检查飞书记录与本地岗位差异")
     check_parser.add_argument("--config", dest="command_config")
     check_parser.add_argument("--db", dest="command_db")
+    open_parser = subparsers.add_parser("open-workspace", help="在浏览器中打开飞书求职工作台")
+    open_parser.add_argument("--config", dest="command_config")
 
     args = parser.parse_args(argv)
     db_path = args.command_db or args.db
@@ -100,13 +103,14 @@ def main(argv: list[str] | None = None) -> int:
     log_name = f"{args.command}-{datetime.now().date().isoformat()}.log"
     log_dir = os.environ.get("JOB_MONITOR_LOG_DIR", "data/logs")
     setup_logging(Path(log_dir) / log_name)
+    reporter = reporter or RunReporter(console_event, console_report)
 
     if args.command == "init":
-        return _run_init(config, db_path, config_path, args.output, assume_yes=args.yes)
+        return _run_init(config, db_path, config_path, args.output, assume_yes=args.yes, reporter=reporter)
     if args.command == "reset":
         return _run_reset(config, db_path, config_path, args.output, confirmed=args.yes)
     if args.command == "daily":
-        return _run_daily(config, db_path, skip_feishu=args.no_feishu)
+        return _run_daily(config, db_path, skip_feishu=args.no_feishu, reporter=reporter)
     if args.command == "rematch":
         return _run_rematch(
             config,
@@ -114,11 +118,14 @@ def main(argv: list[str] | None = None) -> int:
             args.date,
             skip_feishu=args.no_feishu,
             skip_enrich_official=args.no_enrich_official,
+            reporter=reporter,
         )
     if args.command == "pull":
-        return _run_pull(config, db_path)
+        return _run_pull(config, db_path, reporter=reporter)
     if args.command == "check":
-        return _run_check(config, db_path)
+        return _run_check(config, db_path, reporter=reporter)
+    if args.command == "open-workspace":
+        return _run_open_workspace(config)
     return 2
 
 
@@ -150,7 +157,9 @@ def _run_init(
     *,
     assume_yes: bool = False,
     seeded_from_reset: bool = False,
+    reporter: RunReporter | None = None,
 ) -> int:
+    reporter = reporter or RunReporter()
     try:
         # ``load_config`` supplies non-empty defaults.  A missing config file is
         # nevertheless a first-run experience and must collect the user's own
@@ -184,15 +193,18 @@ def _run_init(
 
     repo = JobRepository(db_path)
     repo.init_schema()
+    reporter.stage("init", 1, 5, "恢复本地岗位基线", "done", f"{len(repo.list_stored_jobs())} 条")
     local_preflight = preflight_check(config, db_path)
     if not local_preflight.ok:
         print("运行前检查失败：" + "；".join(local_preflight.errors))
         return 1
 
     try:
+        reporter.stage("init", 2, 5, "检查飞书连接与权限")
         client = FeishuBitableClient(FeishuConfig.from_config(config))
         client.get_app()
         _read_only_workspace_preflight(client, config)
+        reporter.stage("init", 2, 5, "检查飞书连接与权限", "done")
     except Exception as exc:
         logging.error("Feishu read-only preflight failed: %s", exc)
         print(f"飞书连接检查失败：{exc}")
@@ -201,13 +213,14 @@ def _run_init(
     preview = InitializationPreview(
         base_url=str(config["feishu"]["base_url"]),
         table_name=desired_workspace().table_name,
-        pending_candidates=len(repo.list_feishu_sync_candidates()),
+        baseline_items=len(repo.list_stored_jobs()),
     )
     if not confirm_initialization(preview, assume_yes=assume_yes):
         print("已取消初始化，未修改飞书结构。")
         return 0
 
     try:
+        reporter.stage("init", 3, 5, "创建或修复飞书工作台")
         def persist_table_id(table_id: str) -> None:
             config["feishu"]["workspace_table_id"] = table_id
             save_config(config, config_path)
@@ -219,16 +232,21 @@ def _run_init(
         config["feishu"]["workspace_table_id"] = provisioning.table_id
         config["feishu"]["workspace_schema_version"] = WORKSPACE_SCHEMA_VERSION
         save_config(config, config_path)
+        reporter.stage("init", 3, 5, "创建或修复飞书工作台", "done")
     except Exception as exc:
         logging.exception("Feishu workspace provisioning failed")
         print(f"飞书工作台初始化失败：{exc}")
         return 1
 
     started_at = datetime.now().isoformat(timespec="seconds")
+    reporter.stage("init", 4, 5, "根据偏好筛选岗位")
     summary = rematch_existing_jobs(repo, config)
+    reporter.stage("init", 4, 5, "根据偏好筛选岗位", "done", f"推荐 {summary.recommended_items} 条")
 
+    reporter.stage("init", 5, 5, "同步到飞书")
     sync_summary = _sync_feishu(repo, config, repo.list_feishu_reconciliation_rows())
     export_jobs_to_excel(repo.list_all_jobs(), output_path)
+    reporter.stage("init", 5, 5, "同步到飞书", "done", f"新建 {sync_summary.created} 条")
     repo.record_scan_run(
         {
             "run_type": "init",
@@ -249,6 +267,7 @@ def _run_init(
     if summary.items_seen == 0:
         print("提示：本地岗位库为空；请确认运行数据库未被错误替换，或运行 daily 获取新增岗位。")
     print(f"飞书工作台：{provisioning.workspace_url}")
+    reporter.finish(RunReport("init", "partial" if sync_summary.failed else "success", items_seen=summary.items_seen, recommended_items=summary.recommended_items, baseline_items=summary.items_seen, current_workspace_items=len(repo.list_feishu_sync_candidates()), feishu_created=sync_summary.created, feishu_updated=sync_summary.updated, feishu_skipped=sync_summary.skipped, feishu_failed=sync_summary.failed, workspace_url=provisioning.workspace_url, advice="请运行“每日扫描”以发现新增岗位。" if not sync_summary.failed else "飞书同步有失败项，请检查错误后安全重试。"))
     logging.info(
         "init finished: seeded=%s seen=%s recommended=%s feishu_created=%s feishu_updated=%s feishu_failed=%s",
         seed_origin,
@@ -345,16 +364,18 @@ def _run_reset(
     )
 
 
-def _run_daily(config: dict, db_path: str, skip_feishu: bool = False) -> int:
+def _run_daily(config: dict, db_path: str, skip_feishu: bool = False, reporter: RunReporter | None = None) -> int:
+    reporter = reporter or RunReporter()
     try:
         with DailyRunGuard(db_path) as guard:
-            return _run_daily_guarded(config, db_path, skip_feishu, guard.cancelled.is_set)
+            return _run_daily_guarded(config, db_path, skip_feishu, guard.cancelled.is_set, reporter)
     except DailyRunInProgress as exc:
         print(f"daily result: status=already_running message={exc}")
         return 1
 
 
-def _run_daily_guarded(config: dict, db_path: str, skip_feishu: bool, cancel_check) -> int:
+def _run_daily_guarded(config: dict, db_path: str, skip_feishu: bool, cancel_check, reporter: RunReporter | None = None) -> int:
+    reporter = reporter or RunReporter()
     repo = JobRepository(db_path)
     repo.init_schema()
     crawler = WonderCVCrawler(config)
@@ -390,7 +411,9 @@ def _run_daily_guarded(config: dict, db_path: str, skip_feishu: bool, cancel_che
 
         return False
 
+    reporter.stage("daily", 1, 5, "扫描 WonderCV 新岗位")
     crawl = crawler.crawl(mode="daily", should_stop=should_stop)
+    reporter.stage("daily", 1, 5, "扫描 WonderCV 新岗位", "done", f"抓取 {len(crawl.jobs)} 条")
     if getattr(crawl, "interrupted", False) or cancel_check():
         repo.record_scan_run(
             {"run_type": "daily", "started_at": datetime.now().isoformat(timespec="seconds"),
@@ -400,7 +423,9 @@ def _run_daily_guarded(config: dict, db_path: str, skip_feishu: bool, cancel_che
         )
         print("daily result: status=interrupted message=启动器已结束，已停止扫描且未同步数据")
         return 1
+    reporter.stage("daily", 2, 5, "匹配岗位偏好")
     summary = run_daily_with_jobs(repo, crawl.jobs, config)
+    reporter.stage("daily", 2, 5, "匹配岗位偏好", "done", f"新推荐 {summary.recommended_items} 条")
     enrich_summary = None
     sync_summary = SyncSummary()
     pull_summary = PullSummary()
@@ -409,16 +434,22 @@ def _run_daily_guarded(config: dict, db_path: str, skip_feishu: bool, cancel_che
 
     if not skip_feishu and _feishu_is_configured(config):
         try:
+            reporter.stage("daily", 3, 5, "回收飞书求职状态")
             logging.info("Pulling latest user states from Feishu before sync...")
             pull_client = FeishuBitableClient(FeishuConfig.from_config(config))
             pull_summary = _pull_summary(pull_user_states_from_feishu(repo, pull_client))
+            reporter.stage("daily", 3, 5, "回收飞书求职状态", "done", f"更新 {pull_summary.updated} 条")
         except Exception as exc:
             logging.warning("Failed to pull latest user states from Feishu: %s", exc)
 
         if not _pull_has_anomalies(pull_summary):
+            reporter.stage("daily", 4, 5, "补全官方投递链接")
             enrich_summary = enrich_official_urls(repo, OfficialUrlFinder(), only_recommended=True)
+            reporter.stage("daily", 4, 5, "补全官方投递链接", "done", f"更新 {enrich_summary.updated_items} 条")
             rows = repo.list_feishu_sync_candidates()
+            reporter.stage("daily", 5, 5, "同步到飞书")
             sync_summary = _sync_feishu(repo, config, rows)
+            reporter.stage("daily", 5, 5, "同步到飞书", "done", f"新建 {sync_summary.created} 条，更新 {sync_summary.updated} 条")
         else:
             logging.error("Feishu sync blocked because user-state reconciliation was not clean")
         message = build_daily_message(summary.new_items, recommended_rows, crawl.error)
@@ -455,6 +486,8 @@ def _run_daily_guarded(config: dict, db_path: str, skip_feishu: bool, cancel_che
     if summary.items_seen == 0:
         print("提示：本次没有获取到新页面岗位；如连续发生，请运行 check 并查看日志中的页面解析或网络错误。")
     _print_recovery_advice(pull_summary, sync_summary)
+    advice = "本次没有新的匹配岗位，飞书无需更新。" if not summary.recommended_items and not sync_summary.failed else ("飞书同步有失败项，请检查错误后安全重试。" if sync_summary.failed else "已同步本次匹配到的岗位。")
+    reporter.finish(RunReport("daily", "partial" if crawl.error or sync_summary.failed or _pull_has_anomalies(pull_summary) else "success", items_seen=summary.items_seen, new_items=summary.new_items, recommended_items=summary.recommended_items, current_workspace_items=len(repo.list_feishu_sync_candidates()), feishu_created=sync_summary.created, feishu_updated=sync_summary.updated, feishu_skipped=sync_summary.skipped, feishu_failed=sync_summary.failed, workspace_url=str(config.get("feishu", {}).get("base_url") or ""), advice=advice))
     repo.vacuum()
     return 1 if (crawl.error and not crawl.jobs) or sync_summary.failed or _pull_has_anomalies(pull_summary) else 0
 
@@ -466,7 +499,9 @@ def _run_rematch(
     *,
     skip_feishu: bool = False,
     skip_enrich_official: bool = False,
+    reporter: RunReporter | None = None,
 ) -> int:
+    reporter = reporter or RunReporter()
     repo = JobRepository(db_path)
     repo.init_schema()
     enrich_summary = None
@@ -486,7 +521,9 @@ def _run_rematch(
         _print_recovery_advice(pull_summary, sync_summary)
         return 1
 
+    reporter.stage("rematch", 1, 2, "按当前偏好重新匹配岗位")
     summary = rematch_existing_jobs(repo, config, recommendation_date)
+    reporter.stage("rematch", 1, 2, "按当前偏好重新匹配岗位", "done", f"推荐 {summary.recommended_items} 条")
     if not skip_feishu and _feishu_is_configured(config):
         if not skip_enrich_official:
             enrich_summary = enrich_official_urls(repo, OfficialUrlFinder(), only_recommended=True)
@@ -515,6 +552,7 @@ def _run_rematch(
         sync_summary.failed,
     )
     print(_format_run_summary("rematch", summary, enrich_summary, pull_summary, sync_summary))
+    reporter.finish(RunReport("rematch", "partial" if sync_summary.failed else "success", items_seen=summary.items_seen, recommended_items=summary.recommended_items, current_workspace_items=len(repo.list_feishu_sync_candidates()), feishu_created=sync_summary.created, feishu_updated=sync_summary.updated, feishu_skipped=sync_summary.skipped, feishu_failed=sync_summary.failed, workspace_url=str(config.get("feishu", {}).get("base_url") or ""), advice="偏好匹配已刷新。"))
     _print_recovery_advice(pull_summary, sync_summary)
     repo.vacuum()
     return 1 if sync_summary.failed else 0
@@ -583,7 +621,8 @@ def _run_enrich_official_urls(
     return 0
 
 
-def _run_pull(config: dict, db_path: str) -> int:
+def _run_pull(config: dict, db_path: str, reporter: RunReporter | None = None) -> int:
+    reporter = reporter or RunReporter()
     repo = JobRepository(db_path)
     repo.init_schema()
     client = FeishuBitableClient(FeishuConfig.from_config(config))
@@ -609,6 +648,7 @@ def _run_pull(config: dict, db_path: str) -> int:
             pull_summary.unknown,
         )
         print(_format_pull_summary("pull", pull_summary))
+        reporter.finish(RunReport("pull", "partial" if _pull_has_anomalies(pull_summary) else "success", feishu_updated=pull_summary.updated, advice="已回收飞书中的求职状态。"))
         _print_recovery_advice(pull_summary, SyncSummary())
         return 1 if _pull_has_anomalies(pull_summary) else 0
     except Exception as exc:
@@ -617,8 +657,9 @@ def _run_pull(config: dict, db_path: str) -> int:
         return 1
 
 
-def _run_check(config: dict, db_path: str) -> int:
+def _run_check(config: dict, db_path: str, reporter: RunReporter | None = None) -> int:
     """Report Feishu/local reconciliation facts without modifying either side."""
+    reporter = reporter or RunReporter()
     repo = JobRepository(db_path)
     repo.init_schema()
     client = FeishuBitableClient(FeishuConfig.from_config(config))
@@ -644,7 +685,20 @@ def _run_check(config: dict, db_path: str) -> int:
     )
     if has_anomalies:
         print("检测到远端异常记录；已保持只读。请先修复重复、空白、未知岗位或非法状态后再同步。")
+    reporter.finish(RunReport("check", "partial" if has_anomalies else "success", items_seen=report.local_job_count, current_workspace_items=report.remote_record_count, advice="检测到远端异常记录；已保持只读。" if has_anomalies else "本地与飞书记录健康。"))
     return 1 if has_anomalies else 0
+
+
+def _run_open_workspace(config: dict) -> int:
+    import webbrowser
+
+    url = str(config.get("feishu", {}).get("base_url") or "")
+    if not url:
+        print("尚未配置飞书 Base 链接；请先运行首次配置。")
+        return 1
+    webbrowser.open(url)
+    print(f"已请求在浏览器中打开飞书工作台：{url}")
+    return 0
 
 
 def _sync_feishu(repo: JobRepository, config: dict, rows: list[dict]) -> SyncSummary:
