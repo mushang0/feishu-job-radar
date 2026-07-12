@@ -54,6 +54,25 @@ python -m job_monitor --help
 feishu-job-radar --help
 ```
 
+### 本地桌面控制台
+
+桌面控制台提供配置表单、每日扫描、健康检查、实时阶段进度和结果报告；它仍在本机使用同一份 SQLite、`config.yaml` 和飞书连接，不会启动网页服务或上传数据。
+
+从源码启动：
+
+```powershell
+python -m pip install -e ".[desktop]"
+feishu-job-radar-desktop
+```
+
+Windows 发行包使用 PyInstaller 构建：
+
+```powershell
+pyinstaller --noconfirm packaging/feishu-job-radar.spec
+```
+
+生成的 `dist\FeishuJobRadar.exe` 可直接双击运行。CLI 入口仍建议用于任务计划程序。
+
 ## 准备飞书
 
 ### 1. 创建企业自建应用

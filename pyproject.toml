@@ -12,8 +12,15 @@ dependencies = [
     "requests>=2.31",
 ]
 
+[project.optional-dependencies]
+desktop = [
+    "PySide6>=6.7",
+    "PyInstaller>=6.0",
+]
+
 [project.scripts]
 feishu-job-radar = "job_monitor.cli:main"
+feishu-job-radar-desktop = "job_monitor.desktop:main"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
