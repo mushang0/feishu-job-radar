@@ -20,7 +20,7 @@ from .pipeline import backfill_existing_job_details, enrich_official_urls, remat
 from .seed import SeedDatabaseError, find_seed_database, restore_seed_database
 from .run_guard import DailyRunGuard, DailyRunInProgress
 from .storage import JobRepository
-from .wondercv import WonderCVCrawler
+from .wondercv import EXTRACTION_VERSION, WonderCVCrawler
 from .workspace_provisioner import WorkspaceProvisioner
 from .workspace_schema import WORKSPACE_SCHEMA_VERSION, desired_workspace
 
@@ -367,7 +367,10 @@ def _run_daily_guarded(config: dict, db_path: str, skip_feishu: bool, cancel_che
         # 1. Stop if all jobs on this page already exist in the database
         all_exist = True
         for job in page_jobs:
-            if not repo.job_exists(job.dedupe_key):
+            if (
+                not repo.job_exists(job.dedupe_key)
+                or repo.job_requires_detail_enrichment(job.dedupe_key, EXTRACTION_VERSION)
+            ):
                 all_exist = False
                 break
         if all_exist:

@@ -92,3 +92,23 @@ def test_pipeline_pulls_from_feishu(tmp_path: Path):
     assert saved["note"] == "希望很大"
     assert saved["feishu_record_id"] == "rec-123"
 
+
+def test_daily_pipeline_stores_detail_failure_without_recommendation(tmp_path: Path, mock_config):
+    repo = JobRepository(tmp_path / "jobs.sqlite")
+    repo.init_schema()
+    job = Job(
+        source="WonderCV",
+        dedupe_key="WonderCV:id:detail-failed",
+        company="TargetCo",
+        title="2027届 FPGA 工程师",
+        batch="秋招",
+        target_graduate_year="2027届",
+        parse_status="detail_failed",
+    )
+
+    summary = run_daily_with_jobs(repo, [job], mock_config(), run_date="2026-07-03")
+
+    assert summary.new_items == 1
+    assert summary.recommended_items == 0
+    assert repo.list_recommended_jobs("2026-07-03") == []
+

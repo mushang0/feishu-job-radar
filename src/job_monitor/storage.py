@@ -15,6 +15,7 @@ from .models import Job, MatchResult
 class UpsertResult:
     job_id: int
     created: bool
+    changed: bool = False
 
 
 class JobRepository:
@@ -42,6 +43,7 @@ class JobRepository:
                     detail_url TEXT,
                     dedupe_key TEXT UNIQUE NOT NULL,
                     company TEXT,
+                    raw_company TEXT,
                     company_normalized TEXT,
                     title TEXT,
                     raw_title TEXT,
@@ -61,6 +63,11 @@ class JobRepository:
                     special_marks TEXT,
                     raw_tags TEXT,
                     raw_text TEXT,
+                    role_text TEXT,
+                    announcement_text TEXT,
+                    role_signals TEXT,
+                    field_evidence TEXT,
+                    extraction_version TEXT,
                     apply_url TEXT,
                     official_url TEXT,
                     parse_status TEXT,
@@ -137,6 +144,7 @@ class JobRepository:
             )
             self._ensure_columns(conn, "jobs", {
                 "raw_title": "TEXT",
+                "raw_company": "TEXT",
                 "clean_title": "TEXT",
                 "summary": "TEXT",
                 "location_text": "TEXT",
@@ -146,6 +154,11 @@ class JobRepository:
                 "raw_tags": "TEXT",
                 "parse_status": "TEXT",
                 "parse_note": "TEXT",
+                "role_text": "TEXT",
+                "announcement_text": "TEXT",
+                "role_signals": "TEXT",
+                "field_evidence": "TEXT",
+                "extraction_version": "TEXT",
             })
             self._ensure_columns(conn, "job_matches", {
                 "matched_strong_keywords": "TEXT",
@@ -194,7 +207,24 @@ class JobRepository:
         )
         update_clause = ", ".join(update_assignments)
         with self.connect() as conn:
-            before = conn.execute("SELECT id, summary, city, apply_url, official_url, collected_date FROM jobs WHERE dedupe_key = ?", (values["dedupe_key"],)).fetchone()
+            before = conn.execute("SELECT * FROM jobs WHERE dedupe_key = ?", (values["dedupe_key"],)).fetchone()
+            if before and before["parse_status"] == "detail_ready" and values.get("parse_status") != "detail_ready":
+                # A failed retry only carries list-page data.  Never let it erase a
+                # previously parsed detail record.
+                protected = {
+                    "company", "company_normalized", "title", "raw_title", "clean_title", "summary",
+                    "batch", "target_graduate_year", "degree", "city", "location_text", "deadline",
+                    "job_tags", "raw_text", "role_text", "announcement_text", "role_signals",
+                    "field_evidence", "extraction_version", "apply_url", "parse_status", "parse_note",
+                    "content_hash",
+                }
+                for field in protected:
+                    values[field] = before[field]
+            elif before and values.get("parse_status") != "detail_ready" and len(before["raw_text"] or "") > len(values.get("raw_text") or ""):
+                # Legacy rows may still be marked `ok`, but their archived
+                # detail body is valuable input for the migration/backfill.
+                for field in ("raw_text", "role_text", "announcement_text", "role_signals", "field_evidence", "content_hash", "extraction_version"):
+                    values[field] = before[field]
             conn.execute(
                 f"""
                 INSERT INTO jobs ({", ".join(columns)})
@@ -205,20 +235,16 @@ class JobRepository:
             )
             row = conn.execute("SELECT id FROM jobs WHERE dedupe_key = ?", (values["dedupe_key"],)).fetchone()
             job_id = int(row["id"])
+            changed = before is None
             if before:
-                changed = (
-                    before["summary"] != values.get("summary") or
-                    before["city"] != values.get("city") or
-                    before["apply_url"] != values.get("apply_url") or
-                    (
-                        not before["official_url"]
-                        and bool(values.get("official_url"))
-                    ) or
-                    before["collected_date"] != values.get("collected_date")
+                visible_fields = (
+                    "company", "title", "clean_title", "summary", "batch", "target_graduate_year",
+                    "degree", "city", "deadline", "apply_url", "official_url",
                 )
+                changed = any(before[field] != values.get(field) for field in visible_fields)
                 if changed:
                     conn.execute("UPDATE feishu_sync SET sync_status = 'pending' WHERE job_id = ?", (job_id,))
-            return UpsertResult(job_id=job_id, created=before is None)
+            return UpsertResult(job_id=job_id, created=before is None, changed=changed)
 
     def save_match(self, job_id: int, match: MatchResult | dict[str, Any]) -> None:
         data = asdict(match) if isinstance(match, MatchResult) else dict(match)
@@ -493,6 +519,20 @@ class JobRepository:
         with self.connect() as conn:
             row = conn.execute("SELECT 1 FROM jobs WHERE dedupe_key = ?", (dedupe_key,)).fetchone()
             return row is not None
+
+    def job_requires_detail_enrichment(self, dedupe_key: str, extraction_version: str) -> bool:
+        """Whether a known list card must still be fetched instead of triggering early stop."""
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT parse_status, extraction_version FROM jobs WHERE dedupe_key = ?", (dedupe_key,)
+            ).fetchone()
+        return bool(
+            row
+            and (
+                row["parse_status"] != "detail_ready"
+                or row["extraction_version"] != extraction_version
+            )
+        )
 
     def update_official_url_if_empty(self, job_id: int, official_url: str) -> bool:
         with self.connect() as conn:

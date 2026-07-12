@@ -199,21 +199,17 @@ class Matcher:
 
     @staticmethod
     def _job_text(job: Job) -> str:
+        # Role relevance must come from a role section, never from generic
+        # company/announcement prose.  Structured fields remain available for
+        # hard filters above.
+        role_text = job.role_text or (job.raw_text if not job.extraction_version else "")
         return " ".join(
             part
             for part in [
-                job.company,
-                job.company_normalized or "",
                 job.clean_title or job.title,
-                job.summary or "",
-                job.batch or "",
-                job.city or "",
-                job.industry or "",
-                job.company_type or "",
-                " ".join(job.tags),
                 " ".join(job.job_tags),
-                " ".join(job.special_marks),
-                job.raw_text or "",
+                " ".join(job.role_signals),
+                role_text or "",
             ]
             if part
         )
@@ -225,6 +221,8 @@ class Matcher:
             for part in [
                 job.clean_title or job.title,
                 " ".join(job.job_tags),
+                " ".join(job.role_signals),
+                job.role_text or "",
             ]
             if part
         )

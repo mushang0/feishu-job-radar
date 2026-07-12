@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from html.parser import HTMLParser
 import random
 import re
@@ -16,6 +17,7 @@ from .normalizer import build_dedupe_key, infer_batch, infer_city, infer_graduat
 
 
 WONDERCV_URL = "https://www.wondercv.com/xiaozhao/"
+EXTRACTION_VERSION = "detail-structure-v1"
 
 
 def _print_progress(message: str) -> None:
@@ -45,6 +47,11 @@ class DetailParseResult:
     degree: str | None = None
     deadline: str | None = None
     batch: str | None = None
+    graduate_year: str | None = None
+    role_text: str = ""
+    announcement_text: str = ""
+    role_signals: list[str] | None = None
+    field_evidence: dict[str, dict[str, object]] | None = None
 
 
 def parse_wondercv_list(html: str, page_url: str, aliases: dict[str, list[str]] | None = None) -> list[Job]:
@@ -94,6 +101,7 @@ def parse_wondercv_list(html: str, page_url: str, aliases: dict[str, list[str]] 
                 detail_url=detail_url,
                 dedupe_key=dedupe_key,
                 company=company,
+                raw_company=company,
                 company_normalized=company_normalized,
                 title=title,
                 raw_title=raw_title,
@@ -111,7 +119,7 @@ def parse_wondercv_list(html: str, page_url: str, aliases: dict[str, list[str]] 
                 special_marks=parsed["special_marks"],
                 raw_tags=parsed["raw_tags"],
                 raw_text=raw_title,
-                parse_status="ok" if title else "partial",
+                parse_status="list_only",
                 parse_note="" if title else "clean title missing",
             )
         )
@@ -122,19 +130,38 @@ def parse_wondercv_detail(html: str) -> DetailParseResult:
     html_without_noise = _remove_noise_blocks(html)
     text = _trim_detail_tail(_focus_detail_body(_strip_tags(html_without_noise)))
     important_text = _extract_detail_signal_text(text)
-    keywords = _extract_detail_keywords(important_text or text)
+    role_text = important_text or ""
+    keywords = _extract_detail_keywords(role_text)
     apply_url = _extract_apply_url(html)
     summary_source = _clean(f"{text[:220]} {important_text}") if important_text else text
     summary = _clean(summary_source[:500])
+    city = infer_city(role_text or text)
+    degree = _extract_degree(role_text or text)
+    deadline = _extract_deadline(text)
+    batch = infer_batch(text)
+    graduate_year = infer_graduate_year(text)
+    evidence = _field_evidence(
+        city=city,
+        degree=degree,
+        deadline=deadline,
+        batch=batch,
+        graduate_year=graduate_year,
+        role_text=role_text,
+    )
     return DetailParseResult(
         raw_text=text,
         apply_url=apply_url,
         keywords=keywords,
         summary=summary,
-        city=infer_city(text),
-        degree=_extract_degree(text),
-        deadline=_extract_deadline(text),
-        batch=infer_batch(text),
+        city=city,
+        degree=degree,
+        deadline=deadline,
+        batch=batch,
+        graduate_year=graduate_year,
+        role_text=role_text,
+        announcement_text=text,
+        role_signals=keywords,
+        field_evidence=evidence,
     )
 
 
@@ -152,7 +179,7 @@ class WonderCVCrawler:
         self.sleep = sleep
         self.progress = progress
         self.cancel_check = cancel_check or (lambda: False)
-        self.aliases = config.get("companies", {}).get("aliases", {})
+        self.aliases = config.get("system_taxonomy", {}).get("company_aliases", {})
 
     def crawl(self, mode: str = "daily", should_stop: Callable[[list[Job]], bool] | None = None) -> CrawlResult:
         jobs: list[Job] = []
@@ -201,7 +228,7 @@ class WonderCVCrawler:
                     self.progress(f"详情回填：第 {page} 页 {index}/{len(page_jobs)} - {label}")
                     enriched = self.enrich_detail(job)
                     self._ensure_not_cancelled()
-                    state = "完成" if enriched.parse_status == "ok" else "未完整"
+                    state = "完成" if enriched.parse_status == "detail_ready" else "未完整"
                     self.progress(f"详情回填：第 {page} 页 {index}/{len(page_jobs)} - {state}")
                     enriched_jobs.append(enriched)
                 page_jobs = enriched_jobs
@@ -223,30 +250,17 @@ class WonderCVCrawler:
             response.raise_for_status()
             detail = parse_wondercv_detail(response.text)
         except Exception as exc:
-            job.parse_status = "partial"
+            job.parse_status = "detail_failed"
             note = f"detail fetch failed: {exc}"
             job.parse_note = "; ".join(part for part in [job.parse_note, note] if part)
             return job
         if not detail.raw_text:
-            job.parse_status = "partial"
+            job.parse_status = "detail_failed"
             job.parse_note = "; ".join(part for part in [job.parse_note, "detail fetch empty"] if part)
             return job
-        job.raw_text = detail.raw_text
-        job.apply_url = urljoin(job.detail_url, detail.apply_url) if detail.apply_url else job.apply_url
-        job.content_hash = hashlib.sha256(detail.raw_text.encode("utf-8")).hexdigest()
-        job.job_tags = _merge_unique(_non_detail_tags(job.job_tags), detail.keywords or [])
-        if detail.summary:
-            job.summary = detail.summary
-        if detail.city:
-            job.city = job.city or detail.city
-            job.location_text = job.location_text or detail.city
-        job.degree = job.degree or detail.degree
-        job.deadline = job.deadline or detail.deadline
-        job.batch = job.batch or detail.batch
-        job.parse_status = "ok"
+        merge_detail_into_job(job, detail)
         self._detail_pause()
         return job
-
     def _page_url(self, page: int) -> str:
         if page <= 1:
             return WONDERCV_URL
@@ -267,6 +281,34 @@ class WonderCVCrawler:
     def _enrich_details_enabled(self) -> bool:
         value = self.config.get("crawler", {}).get("enrich_details", True)
         return value not in (False, "false", "False", 0, "0")
+
+
+def merge_detail_into_job(job: Job, detail: DetailParseResult) -> Job:
+    """Apply one successful detail parse using the authoritative field policy."""
+    job.raw_text = detail.raw_text
+    job.apply_url = urljoin(job.detail_url, detail.apply_url) if detail.apply_url else job.apply_url
+    job.content_hash = hashlib.sha256(detail.raw_text.encode("utf-8")).hexdigest()
+    job.role_text = detail.role_text
+    job.announcement_text = detail.announcement_text
+    job.role_signals = detail.role_signals or []
+    job.field_evidence = json.dumps(detail.field_evidence or {}, ensure_ascii=False, sort_keys=True)
+    job.extraction_version = EXTRACTION_VERSION
+    job.job_tags = _non_detail_tags(job.job_tags)
+    if detail.summary:
+        job.summary = detail.summary
+    if detail.graduate_year:
+        job.target_graduate_year = detail.graduate_year
+    if detail.city:
+        job.city = detail.city
+        job.location_text = detail.city
+    if detail.degree:
+        job.degree = detail.degree
+    if detail.deadline:
+        job.deadline = detail.deadline
+    if detail.batch:
+        job.batch = detail.batch
+    job.parse_status = "detail_ready"
+    return job
 
 
 def _clean(text: str) -> str:
@@ -366,6 +408,36 @@ def _extract_detail_keywords(text: str) -> list[str]:
         if _detail_keyword_in_text(text, keyword):
             hits.append(keyword)
     return hits
+
+
+def _field_evidence(
+    *,
+    city: str | None,
+    degree: str | None,
+    deadline: str | None,
+    batch: str | None,
+    graduate_year: str | None,
+    role_text: str,
+) -> dict[str, dict[str, object]]:
+    """Record enough provenance to explain why detail values win over card values."""
+    values = {
+        "city": (city, "detail_role_text" if city and city in role_text else "detail_body"),
+        "degree": (degree, "detail_role_text" if degree and degree in role_text else "detail_body"),
+        "deadline": (deadline, "detail_body"),
+        "batch": (batch, "detail_body"),
+        "target_graduate_year": (graduate_year, "detail_body"),
+    }
+    evidence: dict[str, dict[str, object]] = {}
+    for name, (value, source) in values.items():
+        if value:
+            text = role_text if source == "detail_role_text" else "详情页正文"
+            evidence[name] = {
+                "value": value,
+                "source": source,
+                "evidence": text[:240],
+                "confidence": 0.95 if source == "detail_role_text" else 0.9,
+            }
+    return evidence
 
 
 def _detail_keyword_in_text(text: str, keyword: str) -> bool:

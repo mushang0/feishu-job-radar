@@ -13,6 +13,7 @@ class Job:
     detail_url: str | None = None
     dedupe_key: str | None = None
     company: str = ""
+    raw_company: str | None = None
     company_normalized: str | None = None
     title: str = ""
     raw_title: str | None = None
@@ -32,9 +33,16 @@ class Job:
     special_marks: list[str] = field(default_factory=list)
     raw_tags: list[str] = field(default_factory=list)
     raw_text: str | None = None
+    role_text: str | None = None
+    announcement_text: str | None = None
+    role_signals: list[str] = field(default_factory=list)
+    field_evidence: str | None = None
+    extraction_version: str | None = None
     apply_url: str | None = None
     official_url: str | None = None
-    parse_status: str = "ok"
+    # Directly constructed jobs (tests/imports) are treated as complete; the
+    # WonderCV list parser explicitly marks discovery records as list_only.
+    parse_status: str = "detail_ready"
     parse_note: str | None = None
     first_seen: str | None = None
     last_seen: str | None = None
@@ -51,6 +59,7 @@ class Job:
             "detail_url": self.detail_url,
             "dedupe_key": self.dedupe_key,
             "company": self.company,
+            "raw_company": self.raw_company or self.company,
             "company_normalized": self.company_normalized or self.company,
             "title": self.title,
             "raw_title": self.raw_title,
@@ -70,6 +79,11 @@ class Job:
             "special_marks": ";".join(self.special_marks),
             "raw_tags": ";".join(self.raw_tags),
             "raw_text": self.raw_text,
+            "role_text": self.role_text,
+            "announcement_text": self.announcement_text,
+            "role_signals": ";".join(self.role_signals),
+            "field_evidence": self.field_evidence,
+            "extraction_version": self.extraction_version,
             "apply_url": self.apply_url,
             "official_url": self.official_url,
             "parse_status": self.parse_status,

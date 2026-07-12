@@ -52,7 +52,7 @@ def test_parser_separates_clean_title_from_raw_text_and_tags():
     assert job.special_marks == ["有内推"]
     assert job.job_tags == ["芯片"]
     assert job.raw_tags
-    assert job.parse_status == "ok"
+    assert job.parse_status == "list_only"
 
 
 def test_matcher_keeps_debug_fields_internal_while_deciding_push_binary():

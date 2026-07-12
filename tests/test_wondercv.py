@@ -185,5 +185,42 @@ def test_enrich_detail_failure_keeps_list_job():
 
     assert enriched is job
     assert enriched.raw_text == "大疆27秋招 技术岗"
-    assert enriched.parse_status == "partial"
+    assert enriched.parse_status == "detail_failed"
     assert "detail fetch failed" in (enriched.parse_note or "")
+
+
+def test_detail_enrichment_overrides_card_fields_and_keeps_role_evidence():
+    class Response:
+        text = """
+        <main>
+          <h2>招聘岗位</h2>
+          <p>嵌入式工程师（上海）：负责 BSP 和驱动开发。</p>
+          <p>要求本科及以上，面向2027届，秋招。</p>
+        </main>
+        """
+
+        def raise_for_status(self):
+            return None
+
+    crawler = WonderCVCrawler(
+        {"crawler": {"enrich_details": True}, "system_taxonomy": {"company_aliases": {}}},
+        get=lambda *args, **kwargs: Response(),
+        sleep=lambda _: None,
+    )
+    job = Job(
+        detail_url="https://www.wondercv.com/xiaozhao/acme-1/",
+        company="示例公司",
+        title="示例公司 2027 校招",
+        city="北京",
+        batch="春招",
+        parse_status="list_only",
+    )
+
+    enriched = crawler.enrich_detail(job)
+
+    assert enriched.parse_status == "detail_ready"
+    assert enriched.city == "上海市"
+    assert enriched.batch == "秋招"
+    assert "嵌入式" in enriched.role_signals
+    assert enriched.role_text and "BSP" in enriched.role_text
+    assert '"city"' in (enriched.field_evidence or "")

@@ -4,6 +4,7 @@ from datetime import date
 from .matcher import Matcher
 from .models import Job
 from .storage import JobRepository
+from .wondercv import merge_detail_into_job, parse_wondercv_detail
 from .audit import recover_user_states
 
 
@@ -38,14 +39,17 @@ def run_daily_with_jobs(repo: JobRepository, jobs: list[Job], config: dict, run_
         result = repo.upsert_job(job)
         if result.created:
             new_items += 1
+        else:
+            updated_items += 1
+        # List-page candidates are stored for retry, but never become ordinary
+        # recommendations until the detail extractor has produced role evidence.
+        if job.parse_status == "detail_ready" and (result.created or result.changed):
             match = matcher.match(job)
             repo.save_match(result.job_id, match)
             if match.is_relevant:
                 relevant_items += 1
             if match.should_push:
                 recommendations.append({"job_id": result.job_id, "recommend_reason": match.recommend_reason})
-        else:
-            updated_items += 1
 
     repo.append_recommendations(recommendation_date, recommendations)
     return DailySummary(
@@ -96,7 +100,11 @@ def backfill_existing_job_details(
         row
         for row in rows
         if row.get("detail_url")
-        and (not row.get("content_hash") or len(row.get("raw_text") or "") < min_raw_text_length)
+        and (
+            row.get("parse_status") != "detail_ready"
+            or not row.get("content_hash")
+            or len(row.get("raw_text") or "") < min_raw_text_length
+        )
     ]
     recommendations: list[dict] = []
     relevant_items = 0
@@ -104,7 +112,13 @@ def backfill_existing_job_details(
 
     for row in candidates:
         job = _job_from_row(row)
-        enriched = crawler.enrich_detail(job)
+        # Existing detail text can be safely re-analysed without another
+        # network request.  Short list-card text still goes through the crawler.
+        if len(job.raw_text or "") >= min_raw_text_length:
+            detail = parse_wondercv_detail(job.raw_text or "")
+            enriched = merge_detail_into_job(job, detail) if detail.raw_text else crawler.enrich_detail(job)
+        else:
+            enriched = crawler.enrich_detail(job)
         result = repo.upsert_job(enriched)
         match = matcher.match(enriched)
         repo.save_match(result.job_id, match)
@@ -200,6 +214,7 @@ def _job_from_row(row: dict) -> Job:
         detail_url=row.get("detail_url"),
         dedupe_key=row.get("dedupe_key"),
         company=row.get("company") or "",
+        raw_company=row.get("raw_company"),
         company_normalized=row.get("company_normalized"),
         title=row.get("title") or "",
         raw_title=row.get("raw_title"),
@@ -219,6 +234,11 @@ def _job_from_row(row: dict) -> Job:
         special_marks=_split(row.get("special_marks")),
         raw_tags=_split(row.get("raw_tags")),
         raw_text=row.get("raw_text"),
+        role_text=row.get("role_text"),
+        announcement_text=row.get("announcement_text"),
+        role_signals=_split(row.get("role_signals")),
+        field_evidence=row.get("field_evidence"),
+        extraction_version=row.get("extraction_version"),
         apply_url=row.get("apply_url"),
         official_url=row.get("official_url"),
         parse_status=row.get("parse_status") or "ok",
