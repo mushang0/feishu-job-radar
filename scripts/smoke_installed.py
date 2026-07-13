@@ -100,18 +100,18 @@ def main() -> int:
                     process.wait(timeout=5)
             if process.returncode not in (0, None):
                 stdout, stderr = process.communicate()
-                windows_graceful_break = (
-                    os.name == "nt"
-                    and process.returncode == 3
+                expected_signal_exit = 3 if os.name == "nt" else -signal.SIGTERM
+                graceful_signal_shutdown = (
+                    process.returncode == expected_signal_exit
                     and "Application shutdown complete" in stderr
                     and "Finished server process" in stderr
                 )
-                if not windows_graceful_break:
+                if not graceful_signal_shutdown:
                     raise RuntimeError(
                         f"installed WebUI did not exit cleanly: exit={process.returncode}; "
                         f"stdout={stdout!r}; stderr={stderr!r}"
                     )
-                print("installed WebUI completed graceful Windows CTRL_BREAK shutdown")
+                print("installed WebUI completed graceful signal shutdown")
 
 
 if __name__ == "__main__":
