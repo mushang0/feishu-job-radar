@@ -1,16 +1,16 @@
-# Feishu Job Radar 开发须知
+# JobPicky 开发须知
 
 本文只记录当前仓库仍然有效的开发约束、容易踩坑的地方和验收命令。产品使用说明以 `README.md` 为准。
 
 ## 当前结构
 
-- `src/job_monitor/`：应用源码；使用 `src` layout。
+- `src/jobpicky/`：应用源码；使用 `src` layout。
 - `tests/`：pytest 测试。
 - `scripts/release_check.py`：发布前的干净安装验收入口。
 - `pyproject.toml`：依赖、Python 版本、构建和 pytest 配置。
-- `src/job_monitor/resources/`：必须随 wheel 发布的资源，例如 seed SQLite 数据库和 WebUI 模板。
+- `src/jobpicky/resources/`：必须随 wheel 发布的资源，例如 seed SQLite 数据库和 WebUI 模板。
 
-项目要求 Python `>=3.11`。应用是本地 WebUI，用户数据默认位于 Windows 的 `%LOCALAPPDATA%\FeishuJobRadar\`；测试可以使用 `FEISHU_JOB_RADAR_HOME` 指向临时目录。
+项目要求 Python `>=3.11`。应用是本地 WebUI，用户数据默认位于 Windows 的 `%LOCALAPPDATA%\JobPicky\`；测试可以使用 `JOBPICKY_HOME` 指向临时目录。
 
 ## 源码安装
 
@@ -40,7 +40,7 @@ python -m venv .venv
 
 ### 路径和进程
 
-- 不要假设当前工作目录是仓库根目录；应用路径通过 `AppPaths` 管理，测试用 `tmp_path` 或 `FEISHU_JOB_RADAR_HOME` 隔离。
+- 不要假设当前工作目录是仓库根目录；应用路径通过 `AppPaths` 管理，测试用 `tmp_path` 或 `JOBPICKY_HOME` 隔离。
 - WebUI 测试必须禁用浏览器自动打开，并在临时端口、临时数据目录中启动服务。
 - 修改 launcher、资源打包、依赖或 `pyproject.toml` 后，必须做一次干净 wheel 安装验收；仅通过源码路径运行不能证明安装包正确。
 - `release_check.py` 会清理并重新生成 `dist/`，不要在脚本运行期间依赖旧构建产物。
@@ -112,6 +112,6 @@ git status --short
 python scripts/release_check.py
 ```
 
-发布 PyPI 时更新 `pyproject.toml`、`src/job_monitor/__init__.py` 和 tag 的版本号，然后推送形如 `v0.2.0` 的 tag。GitHub Actions 会先运行测试和 Windows 发布验收，再使用 PyPI Trusted Publishing 上传 wheel 和 sdist。
+发布 PyPI 时更新 `pyproject.toml`、`src/jobpicky/__init__.py` 和 tag 的版本号，然后推送形如 `v0.2.0` 的 tag。GitHub Actions 会先运行测试和 Windows 发布验收，再使用 PyPI Trusted Publishing 上传 wheel 和 sdist。
 
 提交前确认没有凭据、运行数据、临时目录或无关格式化变更。GitHub Actions 的普通测试和发布验收应复用上述入口；不要重新在 workflow 中堆叠独立的 wheel 构建、venv 安装、`pip check` 或 smoke 命令。

@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from job_monitor.models import Job
-from job_monitor.storage import JobRepository
+from jobpicky.models import Job
+from jobpicky.storage import JobRepository
 
 
 def test_feishu_sync_candidates_include_recommendations_and_tracked_jobs_only(tmp_path: Path):

@@ -1,4 +1,4 @@
-from job_monitor.wondercv import WonderCVCrawler, _print_progress
+from jobpicky.wondercv import WonderCVCrawler, _print_progress
 
 
 def test_wondercv_crawler_fetches_multiple_pages_when_configured():

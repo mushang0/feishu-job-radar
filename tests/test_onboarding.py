@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from job_monitor.onboarding import (
+from jobpicky.onboarding import (
     ConfigError,
     InitializationPreview,
     collect_missing_config,
@@ -136,7 +136,7 @@ def test_collect_missing_config_prompts_for_profile_on_first_run_even_when_defau
 
 
 def test_secret_reader_uses_plain_input_only_when_stdin_is_not_a_tty(monkeypatch):
-    from job_monitor import onboarding
+    from jobpicky import onboarding
 
     class InputStream:
         def isatty(self):

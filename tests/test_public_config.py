@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from job_monitor.config import load_config, save_config
+from jobpicky.config import load_config, save_config
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -52,7 +52,7 @@ def test_saving_config_preserves_only_changed_advanced_overrides(tmp_path: Path)
 def test_readme_describes_automatic_workspace_setup_without_old_migration():
     text = (ROOT / "README.md").read_text(encoding="utf-8")
 
-    assert "uvx --python 3.12 feishu-job-radar" in text
+    assert "uvx --python 3.12 jobpicky" in text
     assert "自动创建" in text
     assert "git clone" not in text
     assert "python -m venv" not in text
@@ -70,7 +70,7 @@ def test_project_exposes_launcher_and_builds_without_desktop_path():
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     workflow = (ROOT / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8")
 
-    assert 'feishu-job-radar = "job_monitor.launcher:main"' in pyproject
+    assert 'jobpicky = "jobpicky.launcher:main"' in pyproject
     assert "python scripts/release_check.py" in workflow
     assert "runs-on: windows-latest" in workflow
     assert "3.12" in workflow
@@ -86,7 +86,7 @@ def test_legacy_desktop_and_script_paths_are_removed():
 
 
 def test_init_help_describes_workspace_creation(capsys):
-    from job_monitor.cli import main
+    from jobpicky.cli import main
 
     with pytest.raises(SystemExit) as exit_info:
         main(["init", "--help"])

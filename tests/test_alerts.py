@@ -1,4 +1,4 @@
-from job_monitor.alerts import build_daily_message
+from jobpicky.alerts import build_daily_message
 
 
 def test_build_daily_message_includes_recommended_jobs_and_reason():

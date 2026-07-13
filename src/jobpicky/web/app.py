@@ -139,7 +139,7 @@ def create_app(paths: AppPaths | None = None) -> FastAPI:
     state = WebStateService(paths)
     initialization = InitializationService(paths)
     tasks = TaskManager(paths)
-    app = FastAPI(title="Feishu Job Radar", version=__version__)
+    app = FastAPI(title="JobPicky", version=__version__)
     app.state.paths = paths
     app.state.tasks = tasks
 

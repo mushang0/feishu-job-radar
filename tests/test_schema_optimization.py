@@ -1,10 +1,10 @@
 from pathlib import Path
 
-from job_monitor.exporters import build_feishu_record, export_jobs_to_excel
-from job_monitor.matcher import Matcher
-from job_monitor.models import Job
-from job_monitor.storage import JobRepository
-from job_monitor.wondercv import parse_wondercv_list
+from jobpicky.exporters import build_feishu_record, export_jobs_to_excel
+from jobpicky.matcher import Matcher
+from jobpicky.models import Job
+from jobpicky.storage import JobRepository
+from jobpicky.wondercv import parse_wondercv_list
 
 
 def _config():

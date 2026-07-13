@@ -1,4 +1,4 @@
-from job_monitor.runtime import RunEvent, RunReport, RunReporter
+from jobpicky.runtime import RunEvent, RunReport, RunReporter
 
 
 def test_run_report_explains_no_new_recommendations():

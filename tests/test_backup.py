@@ -3,9 +3,9 @@ import json
 import sqlite3
 from pathlib import Path
 
-from job_monitor.backup import BackupService, write_feishu_backup
-from job_monitor.models import Job
-from job_monitor.storage import JobRepository
+from jobpicky.backup import BackupService, write_feishu_backup
+from jobpicky.models import Job
+from jobpicky.storage import JobRepository
 
 
 def test_schema_upgrade_backs_up_existing_database_before_adding_user_fields(tmp_path: Path):

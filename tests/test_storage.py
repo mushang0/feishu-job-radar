@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from job_monitor.models import Job
-from job_monitor.storage import JobRepository
+from jobpicky.models import Job
+from jobpicky.storage import JobRepository
 
 
 def test_repository_upserts_new_job_and_does_not_duplicate(tmp_path: Path):

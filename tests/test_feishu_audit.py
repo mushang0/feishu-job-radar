@@ -1,11 +1,11 @@
 from pathlib import Path
 
-from job_monitor.models import Job
-from job_monitor.storage import JobRepository
+from jobpicky.models import Job
+from jobpicky.storage import JobRepository
 
 
 def test_audit_classifies_records_by_local_record_id_and_reports_discrepancies(tmp_path: Path):
-    from job_monitor.audit import audit_feishu_records
+    from jobpicky.audit import audit_feishu_records
 
     repository = JobRepository(tmp_path / "jobs.sqlite")
     repository.init_schema()
@@ -30,7 +30,7 @@ def test_audit_classifies_records_by_local_record_id_and_reports_discrepancies(t
 
 
 def test_recovery_normalizes_known_statuses_and_preserves_unknown_statuses(tmp_path: Path):
-    from job_monitor.audit import recover_user_states
+    from jobpicky.audit import recover_user_states
 
     repository = JobRepository(tmp_path / "jobs.sqlite")
     repository.init_schema()
@@ -67,14 +67,14 @@ def test_recovery_normalizes_known_statuses_and_preserves_unknown_statuses(tmp_p
 
 
 def test_legacy_personal_table_statuses_are_not_silently_migrated():
-    from job_monitor.audit import normalize_status
+    from jobpicky.audit import normalize_status
 
     assert normalize_status("未看") is None
     assert normalize_status("已收藏") is None
 
 
 def test_recovery_quarantines_unknown_record_ids(tmp_path: Path):
-    from job_monitor.audit import recover_user_states
+    from jobpicky.audit import recover_user_states
 
     repository = JobRepository(tmp_path / "jobs.sqlite")
     repository.init_schema()
@@ -98,7 +98,7 @@ def test_recovery_quarantines_unknown_record_ids(tmp_path: Path):
 
 
 def test_check_command_only_reads_feishu_records(tmp_path: Path, monkeypatch, capsys):
-    from job_monitor.cli import main
+    from jobpicky.cli import main
 
     database = tmp_path / "jobs.sqlite"
     repository = JobRepository(database)
@@ -115,6 +115,6 @@ def test_check_command_only_reads_feishu_records(tmp_path: Path, monkeypatch, ca
         def list_all_records(self):
             return [{"record_id": "rec-check", "fields": {"求职状态": "待处理"}}]
 
-    monkeypatch.setattr("job_monitor.cli.FeishuBitableClient", Client)
+    monkeypatch.setattr("jobpicky.cli.FeishuBitableClient", Client)
     assert main(["--config", str(config), "--db", str(database), "check"]) == 0
     assert "remote_record_count=1" in capsys.readouterr().out

@@ -5,13 +5,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-APP_HOME_ENV = "FEISHU_JOB_RADAR_HOME"
-APP_DIRECTORY_NAME = "FeishuJobRadar"
+APP_HOME_ENV = "JOBPICKY_HOME"
+APP_DIRECTORY_NAME = "JobPicky"
 
 
 @dataclass(frozen=True, slots=True)
 class AppPaths:
-    """Filesystem locations owned by one local Feishu Job Radar profile.
+    """Filesystem locations owned by one local JobPicky profile.
 
     The explicit ``root`` makes services deterministic in tests and keeps them
     independent from the process working directory.  The launcher will use

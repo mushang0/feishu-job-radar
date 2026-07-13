@@ -1,8 +1,8 @@
 from pathlib import Path
 
-from job_monitor.models import Job
-from job_monitor.pipeline import rematch_existing_jobs
-from job_monitor.storage import JobRepository
+from jobpicky.models import Job
+from jobpicky.pipeline import rematch_existing_jobs
+from jobpicky.storage import JobRepository
 
 
 def test_rematch_replaces_recommendations_for_target_date(tmp_path: Path):

@@ -109,9 +109,9 @@ class DailyRunGuard:
         else:
             raise DailyRunInProgress("无法获取日常扫描运行锁")
 
-        if os.environ.get("JOB_MONITOR_WATCH_PARENT") == "1":
+        if os.environ.get("JOBPICKY_WATCH_PARENT") == "1":
             try:
-                parent_pid = int(os.environ.get("JOB_MONITOR_PARENT_PID", ""))
+                parent_pid = int(os.environ.get("JOBPICKY_PARENT_PID", ""))
             except ValueError:
                 parent_pid = None
             parent_pid = parent_pid or _windows_shell_ancestor()

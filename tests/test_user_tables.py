@@ -2,10 +2,10 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
-from job_monitor.exporters import build_feishu_record, export_jobs_to_excel
-from job_monitor.models import Job
-from job_monitor.pipeline import run_daily_with_jobs
-from job_monitor.storage import JobRepository
+from jobpicky.exporters import build_feishu_record, export_jobs_to_excel
+from jobpicky.models import Job
+from jobpicky.pipeline import run_daily_with_jobs
+from jobpicky.storage import JobRepository
 
 
 

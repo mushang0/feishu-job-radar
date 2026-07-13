@@ -1,4 +1,4 @@
-from job_monitor.workspace_schema import WORKSPACE_SCHEMA_VERSION, desired_workspace
+from jobpicky.workspace_schema import WORKSPACE_SCHEMA_VERSION, desired_workspace
 
 
 def test_desired_workspace_uses_company_as_primary_field_and_declares_user_views():

@@ -1,5 +1,5 @@
-from job_monitor.normalizer import infer_city
-from job_monitor.wondercv import parse_wondercv_list
+from jobpicky.normalizer import infer_city
+from jobpicky.wondercv import parse_wondercv_list
 
 
 def test_infer_city_extracts_city_names_from_text():

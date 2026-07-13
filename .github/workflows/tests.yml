@@ -54,7 +54,7 @@ jobs:
       id-token: write
     environment:
       name: pypi
-      url: https://pypi.org/p/feishu-job-radar
+      url: https://pypi.org/p/jobpicky
     steps:
       - uses: actions/download-artifact@v8
         with:

@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from job_monitor.workspace_provisioner import WorkspaceConflictError, WorkspaceProvisioner, WorkspaceVerificationError
-from job_monitor.workspace_schema import desired_workspace
+from jobpicky.workspace_provisioner import WorkspaceConflictError, WorkspaceProvisioner, WorkspaceVerificationError
+from jobpicky.workspace_schema import desired_workspace
 
 
 class FakeWorkspaceClient:

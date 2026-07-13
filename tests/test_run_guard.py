@@ -2,8 +2,8 @@ import os
 
 import pytest
 
-from job_monitor.run_guard import DailyRunGuard, DailyRunInProgress
-from job_monitor.wondercv import WonderCVCrawler
+from jobpicky.run_guard import DailyRunGuard, DailyRunInProgress
+from jobpicky.wondercv import WonderCVCrawler
 
 
 def test_daily_run_guard_rejects_a_second_live_run(tmp_path):

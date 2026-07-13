@@ -1,8 +1,8 @@
 from pathlib import Path
 
-from job_monitor.models import Job
-from job_monitor.pipeline import backfill_existing_job_details, rematch_existing_jobs, run_daily_with_jobs
-from job_monitor.storage import JobRepository
+from jobpicky.models import Job
+from jobpicky.pipeline import backfill_existing_job_details, rematch_existing_jobs, run_daily_with_jobs
+from jobpicky.storage import JobRepository
 
 
 def test_daily_pipeline_stores_all_jobs_but_recommends_only_push_jobs(tmp_path: Path, mock_config):
@@ -59,7 +59,7 @@ def test_rematch_existing_jobs_backfills_new_recommendations(tmp_path: Path, moc
 
 def test_pipeline_pulls_from_feishu(tmp_path: Path):
     from unittest.mock import Mock
-    from job_monitor.pipeline import pull_user_states_from_feishu
+    from jobpicky.pipeline import pull_user_states_from_feishu
 
     repo = JobRepository(tmp_path / "jobs.sqlite")
     repo.init_schema()

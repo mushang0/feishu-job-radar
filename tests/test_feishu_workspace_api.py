@@ -2,7 +2,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from job_monitor.feishu import FeishuApiError, FeishuBitableClient, FeishuConfig
+from jobpicky.feishu import FeishuApiError, FeishuBitableClient, FeishuConfig
 
 
 def _response(payload, *, status_code=200, text=""):

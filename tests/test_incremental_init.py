@@ -1,6 +1,6 @@
-from job_monitor.models import Job
-from job_monitor.pipeline import InitSummary, run_init_with_page_batches
-from job_monitor.storage import JobRepository
+from jobpicky.models import Job
+from jobpicky.pipeline import InitSummary, run_init_with_page_batches
+from jobpicky.storage import JobRepository
 
 
 def test_init_pipeline_saves_each_page_batch_incrementally(tmp_path):

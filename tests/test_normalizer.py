@@ -1,4 +1,4 @@
-from job_monitor.normalizer import (
+from jobpicky.normalizer import (
     build_dedupe_key,
     normalize_company,
     normalize_date,

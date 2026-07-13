@@ -4,7 +4,7 @@ import pytest
 @pytest.fixture(autouse=True, scope="session")
 def redirect_logging(tmp_path_factory):
     tmp_log_dir = tmp_path_factory.mktemp("logs")
-    os.environ["JOB_MONITOR_LOG_DIR"] = str(tmp_log_dir)
+    os.environ["JOBPICKY_LOG_DIR"] = str(tmp_log_dir)
 
 @pytest.fixture
 def mock_config():

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from job_monitor.diagnostics import preflight_check
+from jobpicky.diagnostics import preflight_check
 
 
 def test_preflight_reports_configuration_errors_and_database_availability(tmp_path: Path):

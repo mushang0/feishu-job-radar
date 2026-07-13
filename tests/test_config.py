@@ -2,7 +2,7 @@ from pathlib import Path
 
 import yaml
 
-from job_monitor.config import load_config, save_config
+from jobpicky.config import load_config, save_config
 
 
 def test_load_config_merges_user_yaml_with_defaults(tmp_path: Path):
@@ -32,7 +32,7 @@ feishu:
 
 
 def test_validate_config_reports_missing_required_user_inputs():
-    from job_monitor.config import validate_config
+    from jobpicky.config import validate_config
 
     errors = validate_config({"user_profile": {}, "feishu": {}})
 
@@ -41,7 +41,7 @@ def test_validate_config_reports_missing_required_user_inputs():
 
 
 def test_validate_config_can_require_first_run_feishu_inputs():
-    from job_monitor.config import validate_config
+    from jobpicky.config import validate_config
 
     errors = validate_config(
         {"user_profile": {"graduate_years": ["2027届"], "role_groups": ["硬件/嵌入式"]}, "feishu": {}},

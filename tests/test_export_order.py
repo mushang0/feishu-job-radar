@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from job_monitor.models import Job
-from job_monitor.storage import JobRepository
+from jobpicky.models import Job
+from jobpicky.storage import JobRepository
 
 
 def test_list_jobs_with_matches_orders_by_collected_date_newest_first(tmp_path: Path):

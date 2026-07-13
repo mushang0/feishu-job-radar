@@ -1,10 +1,10 @@
 from pathlib import Path
 import gc
 
-from job_monitor.cli import main, _notification_rows, _run_enrich_official_urls, _run_reset
-from job_monitor.models import Job
-from job_monitor.feishu import FeishuResult
-from job_monitor.storage import JobRepository
+from jobpicky.cli import main, _notification_rows, _run_enrich_official_urls, _run_reset
+from jobpicky.models import Job
+from jobpicky.feishu import FeishuResult
+from jobpicky.storage import JobRepository
 
 
 def test_cli_export_writes_excel_from_existing_database(tmp_path: Path):
@@ -55,7 +55,7 @@ def test_reset_keeps_local_state_when_delete_fails(tmp_path: Path, monkeypatch):
         def delete_table(self, _table_id):
             raise RuntimeError("delete failed")
 
-    monkeypatch.setattr("job_monitor.cli.FeishuBitableClient", Client)
+    monkeypatch.setattr("jobpicky.cli.FeishuBitableClient", Client)
     assert _run_reset(config, str(db_path), str(tmp_path / "config.yaml"), "out.xlsx", confirmed=True) == 1
     assert config["feishu"]["workspace_table_id"] == "tbl-test"
     assert repo.sync_job_ids_by_record_id() == {"rec-keep": job.job_id}
@@ -92,8 +92,8 @@ def test_reset_clears_sync_state_before_reinitializing(tmp_path: Path, monkeypat
         assert kwargs["seeded_from_reset"] is True
         return 0
 
-    monkeypatch.setattr("job_monitor.cli.FeishuBitableClient", Client)
-    monkeypatch.setattr("job_monitor.cli._run_init", reinitialize)
+    monkeypatch.setattr("jobpicky.cli.FeishuBitableClient", Client)
+    monkeypatch.setattr("jobpicky.cli._run_init", reinitialize)
     assert _run_reset(config, str(db_path), str(tmp_path / "config.yaml"), "out.xlsx", confirmed=True) == 0
     assert JobRepository(db_path).sync_job_ids_by_record_id() == {}
     assert captured["config"]["feishu"]["workspace_table_id"] == ""
@@ -122,8 +122,8 @@ def test_reset_resolves_missing_base_url_and_table_id_from_configured_token(tmp_
         assert updated_config["feishu"]["base_url"] == "https://feishu.cn/base/app-token"
         return 0
 
-    monkeypatch.setattr("job_monitor.cli.FeishuBitableClient", Client)
-    monkeypatch.setattr("job_monitor.cli._run_init", reinitialize)
+    monkeypatch.setattr("jobpicky.cli.FeishuBitableClient", Client)
+    monkeypatch.setattr("jobpicky.cli._run_init", reinitialize)
 
     assert _run_reset(config, str(tmp_path / "jobs.sqlite"), str(tmp_path / "config.yaml"), "out.xlsx", confirmed=True) == 0
     assert events == ["list", "delete:tbl-discovered", "init"]
@@ -144,9 +144,9 @@ def test_reset_recovers_when_saved_workspace_was_already_deleted(tmp_path: Path,
             events.append("list")
             return []
 
-    monkeypatch.setattr("job_monitor.cli.FeishuBitableClient", Client)
-    monkeypatch.setattr("job_monitor.cli.restore_seed_database", lambda *_args, **_kwargs: events.append("restore") or True)
-    monkeypatch.setattr("job_monitor.cli._run_init", lambda updated, *_args, **kwargs: events.append("init") or int(kwargs["seeded_from_reset"] is not True))
+    monkeypatch.setattr("jobpicky.cli.FeishuBitableClient", Client)
+    monkeypatch.setattr("jobpicky.cli.restore_seed_database", lambda *_args, **_kwargs: events.append("restore") or True)
+    monkeypatch.setattr("jobpicky.cli._run_init", lambda updated, *_args, **kwargs: events.append("init") or int(kwargs["seeded_from_reset"] is not True))
 
     assert _run_reset(config, str(tmp_path / "jobs.sqlite"), str(tmp_path / "config.yaml"), "out.xlsx", confirmed=True) == 0
     assert events == ["list", "restore", "init"]
@@ -208,7 +208,7 @@ def test_internal_enrich_official_urls_runs_on_recommended_jobs(tmp_path: Path, 
         def find_best(self, job: Job) -> str:
             return "https://careers.example.com/target"
 
-    monkeypatch.setattr("job_monitor.cli.OfficialUrlFinder", Finder)
+    monkeypatch.setattr("jobpicky.cli.OfficialUrlFinder", Finder)
 
     exit_code = _run_enrich_official_urls({"crawler": {}}, str(db_path), limit=1)
 
@@ -279,8 +279,8 @@ feishu:
             captured["records"] = records
             return FeishuResult(sent=True)
 
-    monkeypatch.setattr("job_monitor.cli.OfficialUrlFinder", Finder)
-    monkeypatch.setattr("job_monitor.cli.FeishuBitableClient", Client)
+    monkeypatch.setattr("jobpicky.cli.OfficialUrlFinder", Finder)
+    monkeypatch.setattr("jobpicky.cli.FeishuBitableClient", Client)
 
     exit_code = main(["--config", str(config_path), "--db", str(db_path), "rematch", "--date", "2026-07-09"])
 
@@ -336,8 +336,8 @@ system_taxonomy:
         def __init__(self, config):
             raise AssertionError("feishu sync should not run")
 
-    monkeypatch.setattr("job_monitor.cli.OfficialUrlFinder", Finder)
-    monkeypatch.setattr("job_monitor.cli.FeishuBitableClient", Client)
+    monkeypatch.setattr("jobpicky.cli.OfficialUrlFinder", Finder)
+    monkeypatch.setattr("jobpicky.cli.FeishuBitableClient", Client)
 
     exit_code = main([
         "--config",
@@ -438,10 +438,10 @@ feishu:
             captured["message"] = text
             return FeishuResult(sent=True)
 
-    monkeypatch.setattr("job_monitor.services.scanning.WonderCVCrawler", Crawler)
-    monkeypatch.setattr("job_monitor.services.scanning.OfficialUrlFinder", Finder)
-    monkeypatch.setattr("job_monitor.services.scanning.FeishuBitableClient", Client)
-    monkeypatch.setattr("job_monitor.services.scanning.FeishuBot", Bot)
+    monkeypatch.setattr("jobpicky.services.scanning.WonderCVCrawler", Crawler)
+    monkeypatch.setattr("jobpicky.services.scanning.OfficialUrlFinder", Finder)
+    monkeypatch.setattr("jobpicky.services.scanning.FeishuBitableClient", Client)
+    monkeypatch.setattr("jobpicky.services.scanning.FeishuBot", Bot)
 
     exit_code = main(["--config", str(config_path), "--db", str(db_path), "daily"])
 
@@ -512,7 +512,7 @@ feishu:
             captured["records"] = records
             return FeishuResult(sent=True)
 
-    monkeypatch.setattr("job_monitor.cli.FeishuBitableClient", Client)
+    monkeypatch.setattr("jobpicky.cli.FeishuBitableClient", Client)
 
     code = main(["--config", str(config_path), "--db", str(db_path), "rematch", "--no-enrich-official"])
 
@@ -523,11 +523,11 @@ feishu:
 
 def test_cli_pull_command(tmp_path, monkeypatch):
     from unittest.mock import patch
-    from job_monitor.cli import main
+    from jobpicky.cli import main
     db_file = tmp_path / "jobs.sqlite"
 
-    with patch("job_monitor.cli.FeishuBitableClient") as mock_client_cls, \
-         patch("job_monitor.cli.pull_user_states_from_feishu") as mock_pull:
+    with patch("jobpicky.cli.FeishuBitableClient") as mock_client_cls, \
+         patch("jobpicky.cli.pull_user_states_from_feishu") as mock_pull:
         mock_pull.return_value = type(
             "Recovery",
             (),

@@ -8,18 +8,18 @@ import pytest
 from pathlib import Path
 from types import SimpleNamespace
 
-from job_monitor import cli
-from job_monitor.feishu import FeishuResult
-from job_monitor.models import Job
-from job_monitor.paths import AppPaths
-from job_monitor.error_safety import redact_text, safe_exception_detail
-from job_monitor.logging_utils import SensitiveDataFilter
-from job_monitor.services import scanning
-from job_monitor.services.scanning import DailyStageError, DailyWorkflowResult, run_daily_workflow
-from job_monitor.services.synchronization import SyncSummary
-from job_monitor.storage import JobRepository
-from job_monitor.web import app as web_app
-from job_monitor.wondercv import WonderCVCrawler
+from jobpicky import cli
+from jobpicky.feishu import FeishuResult
+from jobpicky.models import Job
+from jobpicky.paths import AppPaths
+from jobpicky.error_safety import redact_text, safe_exception_detail
+from jobpicky.logging_utils import SensitiveDataFilter
+from jobpicky.services import scanning
+from jobpicky.services.scanning import DailyStageError, DailyWorkflowResult, run_daily_workflow
+from jobpicky.services.synchronization import SyncSummary
+from jobpicky.storage import JobRepository
+from jobpicky.web import app as web_app
+from jobpicky.wondercv import WonderCVCrawler
 
 
 def _config(*, feishu: bool = True, webhook: bool = True) -> dict:

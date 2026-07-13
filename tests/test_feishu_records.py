@@ -1,4 +1,4 @@
-from job_monitor.feishu_records import build_create_fields, build_update_fields
+from jobpicky.feishu_records import build_create_fields, build_update_fields
 
 
 def _row(**overrides):

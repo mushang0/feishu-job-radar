@@ -1,7 +1,7 @@
 import pytest
 
-from job_monitor.models import Job
-from job_monitor.wondercv import WonderCVCrawler, parse_wondercv_detail, parse_wondercv_list
+from jobpicky.models import Job
+from jobpicky.wondercv import WonderCVCrawler, parse_wondercv_detail, parse_wondercv_list
 
 
 def test_parse_wondercv_list_extracts_public_cards():

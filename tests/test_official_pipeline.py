@@ -1,8 +1,8 @@
 from pathlib import Path
 
-from job_monitor.models import Job, MatchResult
-from job_monitor.pipeline import enrich_official_urls
-from job_monitor.storage import JobRepository
+from jobpicky.models import Job, MatchResult
+from jobpicky.pipeline import enrich_official_urls
+from jobpicky.storage import JobRepository
 
 
 def _push_match() -> MatchResult:

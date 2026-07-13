@@ -1,9 +1,9 @@
 from unittest.mock import Mock
 import requests
-from job_monitor.cli import _sync_feishu
-from job_monitor.feishu import FeishuBitableClient, FeishuConfig
-from job_monitor.models import Job
-from job_monitor.storage import JobRepository
+from jobpicky.cli import _sync_feishu
+from jobpicky.feishu import FeishuBitableClient, FeishuConfig
+from jobpicky.models import Job
+from jobpicky.storage import JobRepository
 
 
 def test_feishu_client_skips_when_credentials_are_missing():
@@ -197,7 +197,7 @@ def test_sync_feishu_updates_official_url_but_not_manual_fields(tmp_path, monkey
             captured["records"] = records
             return type("Result", (), {"sent": True})()
 
-    monkeypatch.setattr("job_monitor.cli.FeishuBitableClient", Client)
+    monkeypatch.setattr("jobpicky.cli.FeishuBitableClient", Client)
 
     _sync_feishu(repo, {"feishu": {"bitable_app_token": "base", "table_id": "tbl", "tenant_access_token": "token"}}, rows)
 
@@ -246,7 +246,7 @@ def test_sync_feishu_updates_records_by_record_id_not_row_order(tmp_path, monkey
             captured["records"] = records
             return type("Result", (), {"sent": True})()
 
-    monkeypatch.setattr("job_monitor.cli.FeishuBitableClient", Client)
+    monkeypatch.setattr("jobpicky.cli.FeishuBitableClient", Client)
 
     _sync_feishu(repo, {"feishu": {"bitable_app_token": "base", "table_id": "tbl", "tenant_access_token": "token"}}, rows)
 
@@ -317,7 +317,7 @@ def test_sync_feishu_creates_when_local_record_id_is_missing(tmp_path, monkeypat
         def batch_update_records(self, records):
             raise AssertionError("update should not be called")
 
-    monkeypatch.setattr("job_monitor.cli.FeishuBitableClient", Client)
+    monkeypatch.setattr("jobpicky.cli.FeishuBitableClient", Client)
 
     summary = _sync_feishu(repo, {"feishu": {"bitable_app_token": "base", "table_id": "tbl", "tenant_access_token": "token"}}, rows)
 
@@ -345,7 +345,7 @@ def test_sync_feishu_marks_records_without_create_receipts_as_failed(tmp_path, m
         def batch_update_records(self, records):
             raise AssertionError("update should not be called for new records")
 
-    monkeypatch.setattr("job_monitor.cli.FeishuBitableClient", Client)
+    monkeypatch.setattr("jobpicky.cli.FeishuBitableClient", Client)
 
     summary = _sync_feishu(
         repo,

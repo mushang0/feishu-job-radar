@@ -1,8 +1,8 @@
 from pathlib import Path
 
-from job_monitor.models import Job
-from job_monitor.pipeline import backfill_existing_job_details
-from job_monitor.storage import JobRepository
+from jobpicky.models import Job
+from jobpicky.pipeline import backfill_existing_job_details
+from jobpicky.storage import JobRepository
 
 
 def test_backfill_details_enriches_short_historical_job_and_recommends(tmp_path: Path):

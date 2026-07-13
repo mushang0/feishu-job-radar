@@ -7,12 +7,12 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from job_monitor import cli
-from job_monitor.error_safety import safe_exception_detail
-from job_monitor.logging_utils import SensitiveDataFilter
-from job_monitor.seed import SeedDatabaseError
-from job_monitor.web import app as web_app
-from job_monitor.paths import AppPaths
+from jobpicky import cli
+from jobpicky.error_safety import safe_exception_detail
+from jobpicky.logging_utils import SensitiveDataFilter
+from jobpicky.seed import SeedDatabaseError
+from jobpicky.web import app as web_app
+from jobpicky.paths import AppPaths
 
 
 RAW_SECRET_ERROR = (
@@ -92,7 +92,7 @@ def test_real_cli_pull_error_is_stable_and_redacted(
     config_path = tmp_path / "config.yaml"
     log_dir = tmp_path / "logs"
     _write_cli_config(config_path)
-    monkeypatch.setenv("JOB_MONITOR_LOG_DIR", str(log_dir))
+    monkeypatch.setenv("JOBPICKY_LOG_DIR", str(log_dir))
     monkeypatch.setattr(cli, "FeishuBitableClient", lambda config: object())
     monkeypatch.setattr(
         cli,
@@ -116,7 +116,7 @@ def test_real_cli_check_error_is_stable_and_redacted(
     config_path = tmp_path / "config.yaml"
     log_dir = tmp_path / "logs"
     _write_cli_config(config_path)
-    monkeypatch.setenv("JOB_MONITOR_LOG_DIR", str(log_dir))
+    monkeypatch.setenv("JOBPICKY_LOG_DIR", str(log_dir))
 
     class Client:
         def __init__(self, config):
@@ -143,7 +143,7 @@ def test_real_cli_init_error_is_stable_and_redacted(
     config_path = tmp_path / "config.yaml"
     log_dir = tmp_path / "logs"
     _write_cli_config(config_path)
-    monkeypatch.setenv("JOB_MONITOR_LOG_DIR", str(log_dir))
+    monkeypatch.setenv("JOBPICKY_LOG_DIR", str(log_dir))
     monkeypatch.setattr(
         cli,
         "collect_missing_config",
@@ -176,7 +176,7 @@ def test_real_cli_reset_error_is_stable_and_redacted(
     config_path = tmp_path / "config.yaml"
     log_dir = tmp_path / "logs"
     _write_cli_config(config_path)
-    monkeypatch.setenv("JOB_MONITOR_LOG_DIR", str(log_dir))
+    monkeypatch.setenv("JOBPICKY_LOG_DIR", str(log_dir))
     monkeypatch.setattr(
         cli,
         "find_seed_database",
@@ -213,7 +213,7 @@ def test_real_cli_invalid_yaml_is_caught_before_command_dispatch(
         "feishu:\n  app_secret: VERY-SECRET\n  invalid: [\n",
         encoding="utf-8",
     )
-    monkeypatch.setenv("JOB_MONITOR_LOG_DIR", str(log_dir))
+    monkeypatch.setenv("JOBPICKY_LOG_DIR", str(log_dir))
 
     code = cli.main(["--config", str(config_path), "pull"])
 

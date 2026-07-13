@@ -1,11 +1,11 @@
 from pathlib import Path
 
-from job_monitor.paths import AppPaths
-from job_monitor.seed import find_seed_database
+from jobpicky.paths import AppPaths
+from jobpicky.seed import find_seed_database
 
 
 def test_default_paths_use_explicit_home_override(monkeypatch, tmp_path: Path):
-    monkeypatch.setenv("FEISHU_JOB_RADAR_HOME", str(tmp_path / "profile"))
+    monkeypatch.setenv("JOBPICKY_HOME", str(tmp_path / "profile"))
 
     paths = AppPaths.default()
 
@@ -28,5 +28,5 @@ def test_runtime_directories_are_created_under_profile_root(tmp_path: Path):
 def test_seed_is_available_as_a_packaged_resource():
     seed = find_seed_database()
 
-    assert seed.as_posix().endswith("job_monitor/resources/jobs_seed.sqlite")
+    assert seed.as_posix().endswith("jobpicky/resources/jobs_seed.sqlite")
     assert seed.stat().st_size > 1_000_000

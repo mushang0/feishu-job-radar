@@ -1,10 +1,10 @@
 [project]
-name = "feishu-job-radar"
+name = "jobpicky"
 version = "0.2.0"
-description = "面向个人求职者的本地岗位发现与飞书进度管理工具"
+description = "JobPicky - Your personalized job radar"
 readme = "README.md"
 license = "MIT"
-keywords = ["job-search", "feishu", "career", "招聘", "求职"]
+keywords = ["job-search", "personalized-job-search", "feishu", "career", "招聘", "求职"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
@@ -28,11 +28,11 @@ test = [
 ]
 
 [project.scripts]
-feishu-job-radar = "job_monitor.launcher:main"
+jobpicky = "jobpicky.launcher:main"
 
 [project.urls]
-Homepage = "https://github.com/mushang0/feishu-job-radar"
-Repository = "https://github.com/mushang0/feishu-job-radar"
+Homepage = "https://github.com/mushang0/JobPicky"
+Repository = "https://github.com/mushang0/JobPicky"
 
 [build-system]
 requires = ["setuptools>=77"]
@@ -42,7 +42,7 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.setuptools.package-data]
-job_monitor = [
+jobpicky = [
     "resources/*.sqlite",
     "resources/defaults/*",
     "web/templates/**/*",

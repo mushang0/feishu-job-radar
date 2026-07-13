@@ -80,7 +80,7 @@ def _report_cli_exception(
 def _configure_cli_logging(command: str, config: dict | None = None) -> None:
     """Configure filtered logging before config parsing and after secrets load."""
     log_name = f"{command}-{datetime.now().date().isoformat()}.log"
-    log_dir = os.environ.get("JOB_MONITOR_LOG_DIR", "data/logs")
+    log_dir = os.environ.get("JOBPICKY_LOG_DIR", "data/logs")
     try:
         setup_logging(Path(log_dir) / log_name, secrets=known_secrets(config))
     except Exception:
@@ -98,7 +98,7 @@ def _configure_cli_logging(command: str, config: dict | None = None) -> None:
 
 
 def main(argv: list[str] | None = None, reporter: RunReporter | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="feishu-job-radar")
+    parser = argparse.ArgumentParser(prog="jobpicky")
     parser.add_argument("--config", default="config.yaml")
     parser.add_argument("--db", default="data/jobs.sqlite")
     subparsers = parser.add_subparsers(dest="command", required=True)

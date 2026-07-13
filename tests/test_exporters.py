@@ -2,7 +2,7 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
-from job_monitor.exporters import build_feishu_record, export_jobs_to_excel
+from jobpicky.exporters import build_feishu_record, export_jobs_to_excel
 
 
 def test_build_feishu_record_uses_alljobs_field_names():
@@ -50,7 +50,7 @@ def test_export_jobs_to_excel_writes_headers_and_rows(tmp_path: Path):
 
 
 def test_normalize_uses_user_status_field():
-    from job_monitor.exporters import _normalize_all_job_row
+    from jobpicky.exporters import _normalize_all_job_row
     row = {
         "id": 12,
         "company": "TargetCo",

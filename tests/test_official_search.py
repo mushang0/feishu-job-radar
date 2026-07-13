@@ -1,5 +1,5 @@
-from job_monitor.models import Job
-from job_monitor.official_search import OfficialCandidate, OfficialUrlFinder, build_search_queries, parse_search_results, score_candidate
+from jobpicky.models import Job
+from jobpicky.official_search import OfficialCandidate, OfficialUrlFinder, build_search_queries, parse_search_results, score_candidate
 
 
 def test_score_candidate_prefers_official_recruiting_page_over_wondercv():

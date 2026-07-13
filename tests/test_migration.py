@@ -2,8 +2,8 @@ import json
 import sqlite3
 from pathlib import Path
 
-from job_monitor.paths import AppPaths
-from job_monitor.services.migration import migrate_legacy_project
+from jobpicky.paths import AppPaths
+from jobpicky.services.migration import migrate_legacy_project
 
 
 def test_migration_copies_legacy_config_and_database_without_deleting_source(tmp_path: Path):

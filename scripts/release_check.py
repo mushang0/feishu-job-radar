@@ -37,16 +37,16 @@ STAGES = (
 
 
 REQUIRED_WHEEL_ENTRIES = {
-    "job_monitor/resources/jobs_seed.sqlite",
-    "job_monitor/web/templates/index.html",
-    "job_monitor/launcher.py",
-    "job_monitor/web/app.py",
+    "jobpicky/resources/jobs_seed.sqlite",
+    "jobpicky/web/templates/index.html",
+    "jobpicky/launcher.py",
+    "jobpicky/web/app.py",
 }
 
 FORBIDDEN_WHEEL_PARTS = {
     "desktop.py",
     "desktop_entry.py",
-    "feishu-job-radar.spec",
+    "jobpicky.spec",
     "start.bat",
     "start.ps1",
     "run_daily.bat",
@@ -73,11 +73,11 @@ def verify_wheel(wheel: Path) -> WheelVerification:
     with zipfile.ZipFile(wheel) as archive:
         entries = set(archive.namelist())
         try:
-            seed = archive.getinfo("job_monitor/resources/jobs_seed.sqlite")
+            seed = archive.getinfo("jobpicky/resources/jobs_seed.sqlite")
         except KeyError as exc:
             raise ValueError(
                 "wheel is missing required resources: "
-                "['job_monitor/resources/jobs_seed.sqlite']"
+                "['jobpicky/resources/jobs_seed.sqlite']"
             ) from exc
 
     missing = sorted(REQUIRED_WHEEL_ENTRIES - entries)
@@ -207,7 +207,7 @@ class ReleaseCheck:
             raise ReleaseCheckError(str(exc)) from exc
 
     def create_clean_environment(self) -> None:
-        self.temporary_directory = tempfile.TemporaryDirectory(prefix="feishu-job-radar-release-")
+        self.temporary_directory = tempfile.TemporaryDirectory(prefix="jobpicky-release-")
         self.temporary_root = Path(self.temporary_directory.name).resolve()
         self.outside_directory = self.temporary_root / "outside"
         self.venv_dir = self.temporary_root / "venv"
@@ -246,7 +246,7 @@ class ReleaseCheck:
         environment = os.environ.copy()
         environment.pop("PYTHONPATH", None)
         environment.pop("PYTHONHOME", None)
-        environment["FEISHU_JOB_RADAR_HOME"] = str(self.default_profile_directory)
+        environment["JOBPICKY_HOME"] = str(self.default_profile_directory)
         return environment
 
     def launch_outside_repository(self) -> None:
@@ -257,8 +257,8 @@ class ReleaseCheck:
             str(self.venv_python),
             "-c",
             (
-                "import pathlib, sys, job_monitor; "
-                "package = pathlib.Path(job_monitor.__file__).resolve(); "
+                "import pathlib, sys, jobpicky; "
+                "package = pathlib.Path(jobpicky.__file__).resolve(); "
                 "repository = pathlib.Path(sys.argv[1]).resolve(); "
                 "assert repository != package and repository not in package.parents, "
                 "f'imported repository source: {package}'"
@@ -271,7 +271,7 @@ class ReleaseCheck:
         command = [
             str(self.venv_python),
             "-m",
-            "job_monitor",
+            "jobpicky",
             "--no-browser",
             "--data-dir",
             str(self.profile_directory),
@@ -381,7 +381,7 @@ class ReleaseCheck:
             "3.12",
             "--from",
             str(wheel.wheel),
-            "feishu-job-radar",
+            "jobpicky",
             "--no-browser",
             "--data-dir",
             str(profile_directory),

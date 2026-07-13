@@ -4,14 +4,14 @@ import time
 
 from fastapi.testclient import TestClient
 
-from job_monitor.config import load_config
-from job_monitor.matcher import Matcher
-from job_monitor.models import Job
-from job_monitor.paths import AppPaths
-from job_monitor.pipeline import DailySummary
-from job_monitor.services.scanning import DailyWorkflowResult
-from job_monitor.services.synchronization import SyncSummary
-from job_monitor.web.app import create_app
+from jobpicky.config import load_config
+from jobpicky.matcher import Matcher
+from jobpicky.models import Job
+from jobpicky.paths import AppPaths
+from jobpicky.pipeline import DailySummary
+from jobpicky.services.scanning import DailyWorkflowResult
+from jobpicky.services.synchronization import SyncSummary
+from jobpicky.web.app import create_app
 
 
 def _profile_payload():
@@ -56,11 +56,11 @@ def test_local_start_runs_shared_workflow_without_feishu(tmp_path: Path, monkeyp
     calls = []
 
     monkeypatch.setattr(
-        "job_monitor.web.app.restore_seed_database",
+        "jobpicky.web.app.restore_seed_database",
         lambda database: calls.append(("seed", database)) or True,
     )
     monkeypatch.setattr(
-        "job_monitor.web.app.rematch_existing_jobs",
+        "jobpicky.web.app.rematch_existing_jobs",
         lambda repo, config: calls.append(("rematch", config["user_profile"]["custom_keywords"]))
         or DailySummary(4, 0, 4, 2, 2),
     )
@@ -75,9 +75,9 @@ def test_local_start_runs_shared_workflow_without_feishu(tmp_path: Path, monkeyp
             recommended_count=1,
         )
 
-    monkeypatch.setattr("job_monitor.web.app.run_daily_workflow", fake_daily)
+    monkeypatch.setattr("jobpicky.web.app.run_daily_workflow", fake_daily)
     monkeypatch.setattr(
-        "job_monitor.web.app.FeishuBitableClient",
+        "jobpicky.web.app.FeishuBitableClient",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("local mode must not call Feishu")),
     )
 
@@ -125,19 +125,19 @@ def test_feishu_test_initializes_workspace_and_syncs(tmp_path: Path, monkeypatch
                 workspace_url="https://example.feishu.cn/base/token?table=tbl-managed",
             )
 
-    monkeypatch.setattr("job_monitor.web.app.FeishuBitableClient", FeishuClient)
-    monkeypatch.setattr("job_monitor.services.initialization.WorkspaceProvisioner", Provisioner)
+    monkeypatch.setattr("jobpicky.web.app.FeishuBitableClient", FeishuClient)
+    monkeypatch.setattr("jobpicky.services.initialization.WorkspaceProvisioner", Provisioner)
     monkeypatch.setattr(
-        "job_monitor.services.initialization.restore_seed_database",
+        "jobpicky.services.initialization.restore_seed_database",
         lambda database: calls.append(("seed", database)) or True,
     )
     monkeypatch.setattr(
-        "job_monitor.services.initialization.rematch_existing_jobs",
+        "jobpicky.services.initialization.rematch_existing_jobs",
         lambda repo, config: calls.append(("rematch", config["user_profile"]["role_groups"]))
         or DailySummary(5, 0, 5, 3, 3),
     )
     monkeypatch.setattr(
-        "job_monitor.services.initialization.sync_feishu",
+        "jobpicky.services.initialization.sync_feishu",
         lambda repo, config, rows: calls.append(("sync", rows))
         or SyncSummary(created=3, updated=1),
     )
@@ -179,7 +179,7 @@ def test_feishu_connection_failure_does_not_save_credentials(tmp_path: Path, mon
         def get_app(self):
             raise RuntimeError("invalid secret")
 
-    monkeypatch.setattr("job_monitor.web.app.FeishuBitableClient", FailingClient)
+    monkeypatch.setattr("jobpicky.web.app.FeishuBitableClient", FailingClient)
 
     response = client.post(
         "/api/feishu/test",

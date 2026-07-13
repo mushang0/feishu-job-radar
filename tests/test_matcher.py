@@ -1,5 +1,5 @@
-from job_monitor.matcher import Matcher
-from job_monitor.models import Job
+from jobpicky.matcher import Matcher
+from jobpicky.models import Job
 
 
 def _config() -> dict:

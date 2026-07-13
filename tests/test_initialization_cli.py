@@ -1,8 +1,8 @@
 from pathlib import Path
 from types import SimpleNamespace
 
-from job_monitor.cli import _run_init
-from job_monitor.pipeline import DailySummary
+from jobpicky.cli import _run_init
+from jobpicky.pipeline import DailySummary
 
 
 def _config():
@@ -43,20 +43,20 @@ def test_run_init_restores_seed_then_rematches_before_sync(tmp_path: Path, monke
             on_table_created("tbl-managed")
             return SimpleNamespace(table_id="tbl-managed", workspace_url="https://example.feishu.cn/base/bascnToken?table=tbl-managed")
 
-    monkeypatch.setattr("job_monitor.cli.collect_missing_config", lambda value, **_kwargs: value)
-    monkeypatch.setattr("job_monitor.cli.confirm_initialization", lambda *args, **kwargs: events.append("confirm") or True)
-    monkeypatch.setattr("job_monitor.cli.save_config", lambda value, path: events.append(f"save:{value['feishu'].get('workspace_table_id') or 'config'}"))
-    monkeypatch.setattr("job_monitor.cli.FeishuBitableClient", Client)
-    monkeypatch.setattr("job_monitor.cli.WorkspaceProvisioner", Provisioner)
+    monkeypatch.setattr("jobpicky.cli.collect_missing_config", lambda value, **_kwargs: value)
+    monkeypatch.setattr("jobpicky.cli.confirm_initialization", lambda *args, **kwargs: events.append("confirm") or True)
+    monkeypatch.setattr("jobpicky.cli.save_config", lambda value, path: events.append(f"save:{value['feishu'].get('workspace_table_id') or 'config'}"))
+    monkeypatch.setattr("jobpicky.cli.FeishuBitableClient", Client)
+    monkeypatch.setattr("jobpicky.cli.WorkspaceProvisioner", Provisioner)
     monkeypatch.setattr(
-        "job_monitor.cli.restore_seed_database",
+        "jobpicky.cli.restore_seed_database",
         lambda path: events.append("restore-seed") or True,
     )
     monkeypatch.setattr(
-        "job_monitor.cli.rematch_existing_jobs",
+        "jobpicky.cli.rematch_existing_jobs",
         lambda *args, **kwargs: events.append("rematch") or DailySummary(0, 0, 0, 0, 0),
     )
-    monkeypatch.setattr("job_monitor.cli._sync_feishu", lambda *args, **kwargs: events.append("sync") or SimpleNamespace(created=0, updated=0, skipped=0, failed=0))
+    monkeypatch.setattr("jobpicky.cli._sync_feishu", lambda *args, **kwargs: events.append("sync") or SimpleNamespace(created=0, updated=0, skipped=0, failed=0))
 
     code = _run_init(config, str(tmp_path / "jobs.sqlite"), str(tmp_path / "config.yaml"), str(tmp_path / "export.xlsx"), assume_yes=True)
 
@@ -90,12 +90,12 @@ def test_run_init_stops_before_crawler_when_provisioning_fails(tmp_path: Path, m
         def __init__(self, _config):
             raise AssertionError("crawler must not start")
 
-    monkeypatch.setattr("job_monitor.cli.collect_missing_config", lambda value, **_kwargs: value)
-    monkeypatch.setattr("job_monitor.cli.confirm_initialization", lambda *args, **kwargs: True)
-    monkeypatch.setattr("job_monitor.cli.save_config", lambda *args, **kwargs: None)
-    monkeypatch.setattr("job_monitor.cli.FeishuBitableClient", Client)
-    monkeypatch.setattr("job_monitor.cli.WorkspaceProvisioner", Provisioner)
-    monkeypatch.setattr("job_monitor.cli.WonderCVCrawler", Crawler)
+    monkeypatch.setattr("jobpicky.cli.collect_missing_config", lambda value, **_kwargs: value)
+    monkeypatch.setattr("jobpicky.cli.confirm_initialization", lambda *args, **kwargs: True)
+    monkeypatch.setattr("jobpicky.cli.save_config", lambda *args, **kwargs: None)
+    monkeypatch.setattr("jobpicky.cli.FeishuBitableClient", Client)
+    monkeypatch.setattr("jobpicky.cli.WorkspaceProvisioner", Provisioner)
+    monkeypatch.setattr("jobpicky.cli.WonderCVCrawler", Crawler)
 
     code = _run_init(config, str(tmp_path / "jobs.sqlite"), str(tmp_path / "config.yaml"), str(tmp_path / "export.xlsx"), assume_yes=True)
 
@@ -119,17 +119,17 @@ def test_run_init_decline_performs_no_remote_write(tmp_path: Path, monkeypatch):
         def __init__(self, client, schema):
             raise AssertionError("provisioner must not be constructed")
 
-    monkeypatch.setattr("job_monitor.cli.collect_missing_config", lambda value, **_kwargs: value)
-    monkeypatch.setattr("job_monitor.cli.confirm_initialization", lambda *args, **kwargs: False)
-    monkeypatch.setattr("job_monitor.cli.save_config", lambda *args, **kwargs: None)
-    monkeypatch.setattr("job_monitor.cli.FeishuBitableClient", Client)
-    monkeypatch.setattr("job_monitor.cli.WorkspaceProvisioner", Provisioner)
+    monkeypatch.setattr("jobpicky.cli.collect_missing_config", lambda value, **_kwargs: value)
+    monkeypatch.setattr("jobpicky.cli.confirm_initialization", lambda *args, **kwargs: False)
+    monkeypatch.setattr("jobpicky.cli.save_config", lambda *args, **kwargs: None)
+    monkeypatch.setattr("jobpicky.cli.FeishuBitableClient", Client)
+    monkeypatch.setattr("jobpicky.cli.WorkspaceProvisioner", Provisioner)
 
     assert _run_init(config, str(tmp_path / "jobs.sqlite"), str(tmp_path / "config.yaml"), str(tmp_path / "export.xlsx"), assume_yes=False) == 0
 
 
 def test_read_only_preflight_checks_saved_workspace_resources():
-    from job_monitor.cli import _read_only_workspace_preflight
+    from jobpicky.cli import _read_only_workspace_preflight
 
     calls = []
 

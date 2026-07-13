@@ -26,7 +26,7 @@ def find_free_port(host: str = "127.0.0.1", start: int = 8765, attempts: int = 2
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="feishu-job-radar")
+    parser = argparse.ArgumentParser(prog="jobpicky")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=0, help="0 表示自动选择可用端口")
     parser.add_argument("--data-dir", type=Path, help="开发/迁移用数据目录；普通用户无需设置")

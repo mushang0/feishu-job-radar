@@ -2,10 +2,10 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from job_monitor.models import Job
-from job_monitor.paths import AppPaths
-from job_monitor.storage import JobRepository
-from job_monitor.web.app import create_app
+from jobpicky.models import Job
+from jobpicky.paths import AppPaths
+from jobpicky.storage import JobRepository
+from jobpicky.web.app import create_app
 
 
 def test_web_preferences_never_return_app_secret_and_persist_user_inputs(tmp_path: Path):
@@ -44,7 +44,10 @@ def test_web_lists_local_jobs_and_health(tmp_path: Path):
 
     assert client.get("/api/health").json()["job_count"] == 1
     assert client.get("/api/jobs").json()[0]["company"] == "示例公司"
-    assert "飞书求职雷达" in client.get("/").text
+    page = client.get("/").text
+    assert "JobPicky" in page
+    assert "Your personalized job radar" in page
+    assert "懂你偏好的个性化岗位雷达" in page
 
 
 def test_web_setup_preview_describes_three_step_workspace_flow(tmp_path: Path):
