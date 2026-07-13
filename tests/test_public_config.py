@@ -54,9 +54,16 @@ def test_readme_describes_automatic_workspace_setup_without_old_migration():
 
     assert "uvx --python 3.12 feishu-job-radar" in text
     assert "自动创建" in text
+    assert "git clone" not in text
+    assert "python -m venv" not in text
+    assert "pip install" not in text
     assert "YOUR_TABLE_ID" not in text
     assert "岗位ID（单行文本）" not in text
     assert "migrate-feishu" not in text
+
+    developer = (ROOT / "DEVELOPER.md").read_text(encoding="utf-8")
+    assert "python -m venv" in developer
+    assert "python scripts/release_check.py" in developer
 
 
 def test_project_exposes_launcher_and_builds_without_desktop_path():

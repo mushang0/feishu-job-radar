@@ -47,15 +47,21 @@ class InitializationService:
             configured=bool(feishu.get("app_id") and feishu.get("app_secret") and feishu.get("base_url")),
         )
 
-    def initialize(self, config: dict[str, Any]) -> InitializationResult:
-        errors = validate_config(config, require_feishu=True)
+    def initialize(self, config: dict[str, Any], *, client: FeishuBitableClient | None = None) -> InitializationResult:
+        errors = validate_config(
+            config,
+            require_feishu=True,
+            require_graduate_years=False,
+            require_batches=True,
+        )
         if errors:
             raise ValueError("；".join(errors))
         restore_seed_database(self.paths.database)
         repo = JobRepository(self.paths.database)
         repo.init_schema()
-        client = FeishuBitableClient(FeishuConfig.from_config(config))
-        client.get_app()
+        if client is None:
+            client = FeishuBitableClient(FeishuConfig.from_config(config))
+            client.get_app()
         feishu = config.setdefault("feishu", {})
 
         def persist_table_id(table_id: str) -> None:

@@ -12,6 +12,15 @@
 
 项目要求 Python `>=3.11`。应用是本地 WebUI，用户数据默认位于 Windows 的 `%LOCALAPPDATA%\FeishuJobRadar\`；测试可以使用 `FEISHU_JOB_RADAR_HOME` 指向临时目录。
 
+## 源码安装
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ".[test]"
+```
+
+日常开发直接使用该虚拟环境运行测试；普通用户不需要执行这套源码安装流程。
+
 ## 必须注意的坑
 
 ### 中文和文件编码
@@ -69,6 +78,8 @@ python scripts/release_check.py
 
 脚本会自动构建 wheel/sdist、验证 wheel 内容、创建全新临时虚拟环境、安装 wheel、执行 `pip check`，再从仓库外启动 WebUI，检查首页、`/api/health`、运行目录创建和干净退出。
 
+脚本还会使用 `uvx --from <wheel> --python 3.12` 从仓库外启动一次发行 wheel，验证目标用户入口和 Python 3.12 解析路径。
+
 成功输出应为：
 
 ```text
@@ -79,9 +90,10 @@ python scripts/release_check.py
 [PASS] Dependency check
 [PASS] Launch outside repository
 [PASS] WebUI health check
+[PASS] uvx launch smoke
 [PASS] Clean shutdown
 
-RESULT: PASS  8/8
+RESULT: PASS  9/9
 ```
 
 失败时终端只显示失败阶段、简短原因和日志位置；完整构建、pip 和服务日志位于 `.test-results/release-check.log`。不要把完整日志复制进提交说明或测试断言。
@@ -99,5 +111,7 @@ git status --short
 ```powershell
 python scripts/release_check.py
 ```
+
+发布 PyPI 时更新 `pyproject.toml`、`src/job_monitor/__init__.py` 和 tag 的版本号，然后推送形如 `v0.2.0` 的 tag。GitHub Actions 会先运行测试和 Windows 发布验收，再使用 PyPI Trusted Publishing 上传 wheel 和 sdist。
 
 提交前确认没有凭据、运行数据、临时目录或无关格式化变更。GitHub Actions 的普通测试和发布验收应复用上述入口；不要重新在 workflow 中堆叠独立的 wheel 构建、venv 安装、`pip check` 或 smoke 命令。

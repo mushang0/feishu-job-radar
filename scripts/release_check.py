@@ -31,6 +31,7 @@ STAGES = (
     "Dependency check",
     "Launch outside repository",
     "WebUI health check",
+    "uvx launch smoke",
     "Clean shutdown",
 )
 
@@ -338,6 +339,119 @@ class ReleaseCheck:
                 time.sleep(0.25)
         raise ReleaseCheckError(f"WebUI did not become healthy: {last_error}")
 
+    def _uvx_executable(self) -> Path:
+        candidates: list[Path] = []
+        discovered = shutil.which("uvx")
+        if discovered:
+            candidates.append(Path(discovered))
+        candidates.append(Path(sys.executable).resolve().parent / ("uvx.exe" if os.name == "nt" else "uvx"))
+        for candidate in candidates:
+            if candidate.is_file():
+                return candidate
+
+        self.command(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "--disable-pip-version-check",
+                "uv",
+            ],
+            cwd=self.repository_root,
+        )
+        discovered = shutil.which("uvx")
+        if discovered:
+            return Path(discovered)
+        candidate = Path(sys.executable).resolve().parent / ("uvx.exe" if os.name == "nt" else "uvx")
+        if candidate.is_file():
+            return candidate
+        raise ReleaseCheckError("uvx was not available after installing uv")
+
+    def uvx_launch_smoke(self, wheel: WheelVerification) -> None:
+        if self.temporary_root is None or self.outside_directory is None:
+            raise ReleaseCheckError("clean environment is not ready")
+
+        uvx = self._uvx_executable()
+        profile_directory = self.temporary_root / "uvx-profile"
+        port = _free_port()
+        command = [
+            str(uvx),
+            "--python",
+            "3.12",
+            "--from",
+            str(wheel.wheel),
+            "feishu-job-radar",
+            "--no-browser",
+            "--data-dir",
+            str(profile_directory),
+            "--port",
+            str(port),
+        ]
+        self.log.write(f"\n$ {_format_command(command)}\n")
+        self.log.flush()
+        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+        process = subprocess.Popen(
+            command,
+            cwd=str(self.outside_directory),
+            env=self._installed_environment(),
+            stdout=self.log,
+            stderr=subprocess.STDOUT,
+            creationflags=creationflags,
+        )
+        try:
+            deadline = time.monotonic() + 45
+            last_error: Exception | None = None
+            while time.monotonic() < deadline:
+                if process.poll() is not None:
+                    raise ReleaseCheckError(f"uvx WebUI exited during launch with code {process.returncode}")
+                try:
+                    health_status, health_body = self._get(f"http://127.0.0.1:{port}/api/health")
+                    page_status, page_body = self._get(f"http://127.0.0.1:{port}/")
+                    health = json.loads(health_body)
+                    if health_status != 200 or page_status != 200:
+                        raise ValueError(f"HTTP status health={health_status}, page={page_status}")
+                    if not isinstance(health, dict) or "job_count" not in health:
+                        raise ValueError("uvx health response does not contain job_count")
+                    if b"<!doctype html>" not in page_body.lower():
+                        raise ValueError("uvx homepage response is not HTML")
+                    expected_directories = (
+                        profile_directory,
+                        profile_directory / "logs",
+                        profile_directory / "exports",
+                        profile_directory / "backups",
+                    )
+                    missing = [str(path) for path in expected_directories if not path.is_dir()]
+                    if missing:
+                        raise ValueError(f"uvx runtime directories were not created: {missing}")
+                    if not (profile_directory / "jobs.sqlite").is_file():
+                        raise ValueError("uvx database was not created in the profile directory")
+                    return
+                except (OSError, urllib.error.URLError, ValueError) as exc:
+                    last_error = exc
+                    time.sleep(0.25)
+            raise ReleaseCheckError(f"uvx WebUI did not become healthy: {last_error}")
+        finally:
+            try:
+                if os.name == "nt":
+                    subprocess.run(
+                        ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        check=False,
+                    )
+                elif process.poll() is None:
+                    process.terminate()
+                process.wait(timeout=10)
+            except (OSError, subprocess.TimeoutExpired):
+                try:
+                    process.kill()
+                    process.wait(timeout=5)
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
+            if os.name == "nt":
+                time.sleep(0.5)
+
     def clean_shutdown(self) -> None:
         if self.server is not None:
             if self.server.poll() is None:
@@ -451,6 +565,14 @@ def main() -> int:
                 _run_stage("WebUI health check", checker.webui_health_check, passed)
             except Exception as exc:
                 failed_stage, failure = "WebUI health check", exc
+
+        if failed_stage is None:
+            try:
+                if verified_wheel is None:
+                    raise ReleaseCheckError("wheel verification did not produce a result")
+                _run_stage("uvx launch smoke", lambda: checker.uvx_launch_smoke(verified_wheel), passed)
+            except Exception as exc:
+                failed_stage, failure = "uvx launch smoke", exc
 
         if failed_stage is None:
             try:

@@ -15,6 +15,7 @@ class Matcher:
         self.company_aliases = self.taxonomy.get("company_aliases", {})
         self.role_groups = self._expand_role_groups()
         self.must_watch_companies = self._expand_must_watch_companies()
+        self.custom_keywords = self._clean_terms(self.profile.get("custom_keywords", []))
 
     def match(self, job: Job) -> MatchResult:
         text = self._job_text(job)
@@ -50,6 +51,17 @@ class Matcher:
                 f"命中岗位方向：{role_group}",
                 score=90,
                 matched_keywords=keyword_hits,
+                negative_hits=negative_hits,
+                city_hit=city_hit,
+            )
+
+        custom_hits = self._match_many(text, self.custom_keywords)
+        if custom_hits:
+            return self._result(
+                True,
+                "命中自定义关键词",
+                score=85,
+                matched_keywords=custom_hits,
                 negative_hits=negative_hits,
                 city_hit=city_hit,
             )
@@ -161,6 +173,14 @@ class Matcher:
                 continue
             expanded.extend(company_groups.get(name, [name]))
         return list(dict.fromkeys(expanded))
+
+    @staticmethod
+    def _clean_terms(values) -> list[str]:
+        if isinstance(values, str):
+            values = [values]
+        if not isinstance(values, (list, tuple, set)):
+            return []
+        return list(dict.fromkeys(str(value).strip() for value in values if str(value).strip()))
 
     def _target_industry_hit(self, job: Job, text: str) -> str:
         haystack = " ".join(part for part in [job.industry or "", text] if part)

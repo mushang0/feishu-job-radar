@@ -1,9 +1,16 @@
 [project]
 name = "feishu-job-radar"
-version = "0.1.0"
+version = "0.2.0"
 description = "面向个人求职者的本地岗位发现与飞书进度管理工具"
 readme = "README.md"
 license = "MIT"
+keywords = ["job-search", "feishu", "career", "招聘", "求职"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: Microsoft :: Windows",
+]
 requires-python = ">=3.11"
 dependencies = [
     "beautifulsoup4>=4.12",
@@ -22,6 +29,10 @@ test = [
 
 [project.scripts]
 feishu-job-radar = "job_monitor.launcher:main"
+
+[project.urls]
+Homepage = "https://github.com/mushang0/feishu-job-radar"
+Repository = "https://github.com/mushang0/feishu-job-radar"
 
 [build-system]
 requires = ["setuptools>=77"]

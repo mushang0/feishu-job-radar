@@ -5,75 +5,444 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>飞书求职雷达</title>
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; color: #172033; }
-    section { border: 1px solid #d9dfeb; border-radius: 12px; padding: 1rem 1.25rem; margin: 1rem 0; }
-    label { display: block; margin: .7rem 0; } input { width: 100%; box-sizing: border-box; padding: .55rem; }
-    button { padding: .6rem 1rem; margin-right: .5rem; cursor: pointer; } #status { white-space: pre-wrap; }
+    :root {
+      color-scheme: light;
+      --ink: #172033;
+      --muted: #667085;
+      --line: #d9dfeb;
+      --blue: #2563eb;
+      --blue-soft: #eff6ff;
+      --panel: #ffffff;
+      --background: #f6f8fc;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--background);
+      color: var(--ink);
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    main { max-width: 980px; margin: 0 auto; padding: 2.5rem 1rem 4rem; }
+    header { margin-bottom: 1.5rem; }
+    h1 { margin: 0 0 .5rem; font-size: 2rem; }
+    h2 { margin: 0 0 .8rem; font-size: 1.15rem; }
+    h3 { margin: 1.1rem 0 .6rem; font-size: .98rem; color: var(--muted); }
+    p { color: var(--muted); line-height: 1.6; }
+    section {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 1.25rem;
+      margin: 1rem 0;
+      box-shadow: 0 8px 24px rgba(31, 41, 55, .04);
+    }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; }
+    .choice-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; }
+    .choice {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 1rem;
+      background: #fff;
+      text-align: left;
+    }
+    .choice h3 { margin-top: 0; color: var(--ink); }
+    .choice button { width: 100%; }
+    .chips { display: flex; flex-wrap: wrap; gap: .55rem; }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: .45rem .8rem;
+      background: #fff;
+      cursor: pointer;
+      user-select: none;
+      color: var(--ink);
+    }
+    .chip:has(input:checked) {
+      border-color: var(--blue);
+      background: var(--blue-soft);
+      color: #1d4ed8;
+    }
+    .chip input { position: absolute; opacity: 0; pointer-events: none; }
+    .keyword-list { display: flex; flex-wrap: wrap; gap: .45rem; min-height: 2rem; margin: .5rem 0; }
+    .keyword {
+      display: inline-flex;
+      align-items: center;
+      gap: .35rem;
+      padding: .35rem .6rem;
+      border-radius: 999px;
+      background: var(--blue-soft);
+      color: #1d4ed8;
+      font-size: .9rem;
+    }
+    .keyword button {
+      margin: 0;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      font-size: 1rem;
+    }
+    input[type=text], input[type=password] {
+      width: 100%;
+      padding: .7rem .75rem;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      font: inherit;
+      margin: .25rem 0 .75rem;
+    }
+    button {
+      border: 0;
+      border-radius: 9px;
+      padding: .7rem 1rem;
+      margin: .5rem .5rem 0 0;
+      font: inherit;
+      cursor: pointer;
+      background: var(--blue);
+      color: #fff;
+    }
+    button.secondary { background: #eef2f7; color: var(--ink); }
+    button:disabled { opacity: .55; cursor: wait; }
+    details { margin-top: 1rem; border-top: 1px solid var(--line); padding-top: .9rem; }
+    summary { cursor: pointer; color: var(--muted); }
+    #status {
+      white-space: pre-wrap;
+      background: #f8fafc;
+      border-radius: 10px;
+      padding: .8rem;
+      color: var(--muted);
+      min-height: 2.5rem;
+    }
+    ul { padding-left: 1.2rem; }
+    li { margin: .5rem 0; line-height: 1.45; }
+    .hidden { display: none !important; }
+    .success { color: #047857; }
+    .error { color: #b42318; }
+    a { color: #1d4ed8; }
   </style>
 </head>
 <body>
-  <h1>飞书求职雷达</h1>
-  <p>本地运行，浏览器负责交互，岗位和凭据保存在本机。</p>
-  <section>
-    <h2>求职偏好</h2>
-    <label>毕业届别（逗号分隔）<input id="graduate_years" placeholder="2027届"></label>
-    <label>招聘批次（逗号分隔）<input id="batches" placeholder="秋招,实习"></label>
-    <label>岗位方向（逗号分隔）<input id="role_groups" placeholder="硬件/嵌入式"></label>
-    <label>目标城市（逗号分隔）<input id="target_cities" placeholder="可留空"></label>
-    <button onclick="savePreferences()">保存偏好</button>
-  </section>
-  <section>
-    <h2>飞书连接</h2>
-    <label>Base 链接<input id="base_url" placeholder="https://租户.feishu.cn/base/..."></label>
-    <label>App ID<input id="app_id"></label>
-    <label>App Secret<input id="app_secret" type="password" placeholder="留空表示保留原值"></label>
-    <button onclick="savePreferences()">保存连接</button>
-    <button onclick="initializeWorkspace()">创建或修复工作台</button>
-  </section>
-  <section>
-    <button onclick="startDaily()">开始每日扫描</button>
-    <button onclick="loadJobs()">刷新岗位</button>
-    <div id="status">正在读取配置……</div>
-    <ul id="jobs"></ul>
-  </section>
+  <main>
+    <header>
+      <h1>飞书求职雷达</h1>
+      <p>先选择你的求职偏好。飞书不是必需项，不连接飞书也可以在本地扫描和查看岗位。</p>
+    </header>
+
+    <section id="profile-panel">
+      <h2>首次配置</h2>
+      <form id="profile-form">
+        <div class="grid">
+          <div>
+            <h3>招聘类型</h3>
+            <div id="batch-options" class="chips"></div>
+          </div>
+          <div>
+            <h3>城市</h3>
+            <div id="city-options" class="chips"></div>
+          </div>
+        </div>
+        <div id="role-sections"></div>
+        <div>
+          <h3>自定义关键词（可选）</h3>
+          <div id="keyword-list" class="keyword-list"></div>
+          <input id="custom-keyword-input" type="text" placeholder="输入关键词后按回车，例如 CUDA、AUTOSAR">
+        </div>
+        <details>
+          <summary>高级设置：毕业届别（可选）</summary>
+          <p>不选择表示不限制毕业届别。</p>
+          <div id="graduate-options" class="chips"></div>
+        </details>
+        <button type="submit">保存配置</button>
+      </form>
+    </section>
+
+    <section id="choice-panel" class="hidden">
+      <h2>选择使用方式</h2>
+      <p>配置已保存。你可以先在本地查看岗位，也可以连接飞书并同步推荐。</p>
+      <div class="choice-grid">
+        <div class="choice">
+          <h3>开始本地使用</h3>
+          <p>复制岗位基线、重新匹配并扫描最新岗位，不调用飞书。</p>
+          <button id="local-button" type="button">开始本地使用</button>
+        </div>
+        <div class="choice">
+          <h3>连接飞书</h3>
+          <p>验证凭据后自动创建或修复工作台，并同步推荐岗位。</p>
+          <button id="feishu-button" type="button">连接飞书</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="local-panel" class="hidden">
+      <h2>本地岗位</h2>
+      <p>本地模式不会调用飞书。可以重复执行扫描，结果保存在本机。</p>
+      <button id="local-scan-button" type="button">开始本地扫描</button>
+      <button id="edit-profile-button" class="secondary" type="button">修改配置</button>
+    </section>
+
+    <section id="feishu-panel" class="hidden">
+      <h2>连接飞书</h2>
+      <p>测试成功后会自动创建或修复工作台，并同步当前推荐岗位。</p>
+      <form id="feishu-form">
+        <label>Base 链接
+          <input id="base-url" type="text" placeholder="https://租户.feishu.cn/base/...">
+        </label>
+        <label>App ID
+          <input id="app-id" type="text">
+        </label>
+        <label>App Secret
+          <input id="app-secret" type="password">
+        </label>
+        <button id="feishu-submit" type="submit">测试连接</button>
+        <button id="back-button" class="secondary" type="button">返回</button>
+      </form>
+    </section>
+
+    <section id="result-panel">
+      <div id="status">正在读取配置……</div>
+      <ul id="jobs"></ul>
+    </section>
+  </main>
+
   <script>
+    const state = { options: null, preferences: null, customKeywords: [] };
     const $ = id => document.getElementById(id);
-    const values = id => $(id).value.split(',').map(x => x.trim()).filter(Boolean);
-    function setStatus(text) { $('status').textContent = text; }
-    async function loadPreferences() {
-      const data = await fetch('/api/preferences').then(r => r.json());
-      for (const key of ['graduate_years','batches','role_groups','target_cities']) $(key).value = (data.user_profile[key] || []).join(',');
-      $('base_url').value = data.feishu.base_url || ''; $('app_id').value = data.feishu.app_id || '';
-      setStatus('配置已读取。');
+    const views = ["profile-panel", "choice-panel", "local-panel", "feishu-panel"];
+
+    function setStatus(message, kind) {
+      const node = $("status");
+      node.textContent = message;
+      node.className = kind || "";
     }
-    async function savePreferences() {
-      const payload = { user_profile: {}, feishu: { base_url: $('base_url').value, app_id: $('app_id').value, app_secret: $('app_secret').value } };
-      for (const key of ['graduate_years','batches','role_groups','target_cities']) payload.user_profile[key] = values(key);
-      const response = await fetch('/api/preferences', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
-      const data = await response.json(); setStatus(response.ok ? '配置已保存。' : JSON.stringify(data.detail || data));
-      if (response.ok) $('app_secret').value = '';
+
+    function detailText(detail) {
+      if (Array.isArray(detail)) return detail.join("；");
+      if (detail && typeof detail === "object") return detail.message || JSON.stringify(detail);
+      return String(detail || "请求失败");
     }
-    async function startDaily() {
-      const response = await fetch('/api/tasks/daily', {method:'POST'}); const data = await response.json();
-      if (!response.ok) { setStatus(JSON.stringify(data.detail || data)); return; }
-      setStatus('任务已启动：' + data.task_id); pollTask(data.task_id);
+
+    async function request(url, options) {
+      const response = await fetch(url, options);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(detailText(data.detail || data));
+      return data;
     }
-    async function initializeWorkspace() {
-      const preview = await fetch('/api/setup/preview').then(r => r.json());
-      if (!preview.configured) { setStatus('请先填写并保存飞书连接。'); return; }
-      setStatus('正在创建或修复“' + preview.table_name + '”，本地基线 ' + preview.baseline_items + ' 条……');
-      const response = await fetch('/api/setup/initialize', {method:'POST'}); const data = await response.json();
-      setStatus(response.ok ? '工作台已准备：' + data.workspace_url : JSON.stringify(data.detail || data));
+
+    function showView(id) {
+      views.forEach(view => $(view).classList.toggle("hidden", view !== id));
     }
-    async function pollTask(id) {
-      const data = await fetch('/api/tasks/' + id).then(r => r.json()); setStatus(JSON.stringify(data, null, 2));
-      if (data.status === 'queued' || data.status === 'running') setTimeout(() => pollTask(id), 1000);
-      else loadJobs();
+
+    function renderOptions(container, items, name, selected) {
+      container.replaceChildren();
+      items.forEach(item => {
+        const label = document.createElement("label");
+        label.className = "chip";
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.name = name;
+        input.value = item.value;
+        input.checked = selected.includes(item.value);
+        label.append(input, document.createTextNode(item.label));
+        container.append(label);
+      });
     }
+
+    function renderRoleSections(sections, selected) {
+      const root = $("role-sections");
+      root.replaceChildren();
+      sections.forEach(section => {
+        const heading = document.createElement("h3");
+        heading.textContent = section.label;
+        const chips = document.createElement("div");
+        chips.className = "chips";
+        renderOptions(chips, section.options, "role_groups", selected);
+        root.append(heading, chips);
+      });
+    }
+
+    function selectedValues(name) {
+      return Array.from(document.querySelectorAll("input[name='" + name + "']:checked"))
+        .map(input => input.value);
+    }
+
+    function renderKeywords() {
+      const root = $("keyword-list");
+      root.replaceChildren();
+      state.customKeywords.forEach(keyword => {
+        const item = document.createElement("span");
+        item.className = "keyword";
+        const text = document.createTextNode(keyword);
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.textContent = "×";
+        remove.setAttribute("aria-label", "删除 " + keyword);
+        remove.addEventListener("click", () => {
+          state.customKeywords = state.customKeywords.filter(value => value !== keyword);
+          renderKeywords();
+        });
+        item.append(text, remove);
+        root.append(item);
+      });
+    }
+
+    function renderProfile(preferences) {
+      const profile = preferences.user_profile || {};
+      renderOptions($("batch-options"), state.options.batches, "batches", profile.batches || []);
+      const cities = state.options.cities;
+      renderOptions($("city-options"), cities, "target_cities", profile.target_cities || []);
+      const cityInputs = document.querySelectorAll("input[name='target_cities']");
+      const unlimited = cityInputs[0];
+      unlimited.checked = !(profile.target_cities || []).length;
+      cityInputs.forEach(input => {
+        if (input !== unlimited) {
+          input.addEventListener("change", () => {
+            if (input.checked) unlimited.checked = false;
+          });
+        }
+      });
+      unlimited.addEventListener("change", () => {
+        if (unlimited.checked) cityInputs.forEach(input => { if (input !== unlimited) input.checked = false; });
+      });
+      renderRoleSections(state.options.role_sections, profile.role_groups || []);
+      state.customKeywords = Array.from(new Set(profile.custom_keywords || []));
+      renderKeywords();
+      renderOptions($("graduate-options"), state.options.graduate_years.map(value => ({value, label: value})), "graduate_years", profile.graduate_years || []);
+    }
+
+    async function loadApp() {
+      try {
+        state.options = await request("/api/onboarding/options");
+        state.preferences = await request("/api/preferences");
+        renderProfile(state.preferences);
+        if (state.preferences.onboarding_complete) {
+          showView("choice-panel");
+          await loadJobs();
+          setStatus("配置已读取，可以选择本地使用或连接飞书。");
+        } else {
+          showView("profile-panel");
+          setStatus("请选择招聘类型和岗位方向。");
+        }
+      } catch (error) {
+        setStatus(error.message, "error");
+      }
+    }
+
+    async function savePreferences(event) {
+      event.preventDefault();
+      const cities = selectedValues("target_cities").filter(Boolean);
+      const payload = {
+        user_profile: {
+          batches: selectedValues("batches"),
+          role_groups: selectedValues("role_groups"),
+          target_cities: cities,
+          custom_keywords: state.customKeywords,
+          graduate_years: selectedValues("graduate_years")
+        }
+      };
+      try {
+        const response = await request("/api/preferences", {
+          method: "PUT",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify(payload)
+        });
+        state.preferences = response;
+        showView("choice-panel");
+        setStatus("配置已保存，可以开始本地使用或连接飞书。", "success");
+      } catch (error) {
+        setStatus(error.message, "error");
+      }
+    }
+
+    async function startLocal() {
+      $("local-button").disabled = true;
+      $("local-scan-button").disabled = true;
+      showView("local-panel");
+      setStatus("正在准备岗位基线并启动本地扫描……");
+      try {
+        const data = await request("/api/local/start", {method: "POST"});
+        await pollTask(data.task_id);
+      } catch (error) {
+        setStatus(error.message, "error");
+      } finally {
+        $("local-button").disabled = false;
+        $("local-scan-button").disabled = false;
+      }
+    }
+
+    async function pollTask(taskId) {
+      const task = await request("/api/tasks/" + taskId);
+      if (task.status === "queued" || task.status === "running") {
+        setStatus("扫描进行中……");
+        window.setTimeout(() => pollTask(taskId), 1000);
+        return;
+      }
+      const errors = task.errors || [];
+      if (errors.length) {
+        setStatus(errors.map(item => item.message).join("；"), "error");
+      } else {
+        setStatus("扫描完成：抓取 " + (task.fetched_count || 0) + " 条，新发现 " + (task.created_count || 0) + " 条，推荐 " + (task.recommended_count || 0) + " 条。", "success");
+      }
+      await loadJobs();
+    }
+
+    async function connectFeishu(event) {
+      event.preventDefault();
+      $("feishu-submit").disabled = true;
+      setStatus("正在测试飞书连接、准备工作台并同步推荐……");
+      try {
+        const data = await request("/api/feishu/test", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            base_url: $("base-url").value,
+            app_id: $("app-id").value,
+            app_secret: $("app-secret").value
+          })
+        });
+        $("app-secret").value = "";
+        showView("local-panel");
+        const sync = data.sync || {};
+        setStatus("飞书已连接，工作台已准备。\n" +
+          "推荐岗位：" + data.recommended_items + " 条；同步新增：" + (sync.created || 0) +
+          " 条；同步更新：" + (sync.updated || 0) + " 条。\n" + data.workspace_url, "success");
+        await loadJobs();
+      } catch (error) {
+        setStatus(error.message, "error");
+      } finally {
+        $("feishu-submit").disabled = false;
+      }
+    }
+
     async function loadJobs() {
-      const rows = await fetch('/api/jobs').then(r => r.json()); $('jobs').innerHTML = rows.map(row => `<li>${row.company || '未知公司'} - ${row.title || ''} - ${row.city || '城市待确认'}</li>`).join('');
+      const rows = await request("/api/jobs");
+      const list = $("jobs");
+      list.replaceChildren();
+      rows.forEach(row => {
+        const item = document.createElement("li");
+        item.textContent = (row.company || "未知公司") + " - " +
+          (row.title || "") + " - " + (row.city || "城市待确认");
+        list.append(item);
+      });
     }
-    loadPreferences(); loadJobs();
+
+    $("custom-keyword-input").addEventListener("keydown", event => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      const value = event.target.value.trim();
+      if (value && !state.customKeywords.includes(value)) state.customKeywords.push(value);
+      event.target.value = "";
+      renderKeywords();
+    });
+    $("profile-form").addEventListener("submit", savePreferences);
+    $("local-button").addEventListener("click", startLocal);
+    $("local-scan-button").addEventListener("click", startLocal);
+    $("feishu-button").addEventListener("click", () => showView("feishu-panel"));
+    $("back-button").addEventListener("click", () => showView("choice-panel"));
+    $("edit-profile-button").addEventListener("click", () => showView("profile-panel"));
+    $("feishu-form").addEventListener("submit", connectFeishu);
+    loadApp();
   </script>
 </body>
 </html>

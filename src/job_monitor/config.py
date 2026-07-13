@@ -9,8 +9,57 @@ from typing import Any
 import yaml
 
 
+ONBOARDING_BATCH_OPTIONS = ("秋招", "实习", "社招")
+
+ONBOARDING_ROLE_SECTIONS: tuple[dict[str, Any], ...] = (
+    {
+        "label": "硬件与芯片",
+        "options": (
+            {"value": "嵌入式", "label": "嵌入式"},
+            {"value": "硬件", "label": "硬件"},
+            {"value": "FPGA", "label": "FPGA"},
+            {"value": "电气/电力电子", "label": "电气/电力电子"},
+            {"value": "半导体/芯片", "label": "芯片/半导体"},
+            {"value": "芯片验证/EDA", "label": "芯片验证/EDA"},
+            {"value": "测试/验证", "label": "测试/验证"},
+        ),
+    },
+    {
+        "label": "算法与数据",
+        "options": (
+            {"value": "算法", "label": "算法"},
+            {"value": "机器学习/深度学习", "label": "机器学习/深度学习"},
+            {"value": "AI/大模型/推理部署", "label": "AI/大模型"},
+            {"value": "数据/数据分析", "label": "数据/数据分析"},
+            {"value": "具身智能/机器人", "label": "机器人/具身智能"},
+        ),
+    },
+    {
+        "label": "软件与平台",
+        "options": (
+            {"value": "后端开发", "label": "后端开发"},
+            {"value": "前端开发", "label": "前端开发"},
+            {"value": "客户端", "label": "客户端"},
+            {"value": "云计算/DevOps", "label": "云计算/DevOps"},
+            {"value": "网络/安全", "label": "网络/安全"},
+        ),
+    },
+    {
+        "label": "工程与职能",
+        "options": (
+            {"value": "机械", "label": "机械/结构"},
+            {"value": "材料", "label": "材料"},
+            {"value": "工艺/制造", "label": "工艺/制造"},
+            {"value": "产品", "label": "产品"},
+            {"value": "设计", "label": "设计"},
+            {"value": "医药", "label": "医药/生物"},
+        ),
+    },
+)
+
+
 DEFAULT_CONFIG: dict[str, Any] = {
-    "profile": {"name": "default", "version": 1},
+    "profile": {"name": "default", "version": 2},
     "crawler": {
         "source": "wondercv",
         "start_date": "2026-06-15",
@@ -21,11 +70,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "max_interval_seconds": 5,
     },
     "user_profile": {
-        "graduate_years": ["2027届"],
-        "batches": ["秋招", "提前批", "实习"],
+        "graduate_years": [],
+        "batches": list(ONBOARDING_BATCH_OPTIONS),
         "role_groups": ["硬件/嵌入式", "半导体/芯片"],
         "target_industries": [],
         "target_cities": [],
+        "custom_keywords": [],
         "must_watch_companies": [],
         "exclude_role_groups": ["销售", "市场", "运营", "HR", "财务"],
         "recall_mode": "balanced",
@@ -33,8 +83,31 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "system_taxonomy": {
         "role_groups": {
+            "嵌入式": [
+                "嵌入式", "单片机", "MCU", "BSP", "固件", "驱动开发", "驱动工程师",
+                "RTOS", "FreeRTOS", "Zephyr", "C语言", "C++",
+            ],
+            "硬件": [
+                "硬件", "原理图", "电路设计", "数字电路", "模拟电路", "PCB", "射频",
+                "信号完整性", "电源设计", "硬件工程师",
+            ],
+            "FPGA": ["FPGA", "Verilog", "VHDL", "RTL", "Vivado", "Quartus", "时序分析"],
+            "电气/电力电子": [
+                "电气", "电气工程", "电力电子", "电机控制", "PLC", "变频器", "高压", "低压",
+                "配电", "自动化控制",
+            ],
             "硬件/嵌入式": ["硬件", "嵌入式", "单片机", "驱动开发", "数字电路", "模拟电路", "PCB", "Verilog", "FPGA"],
             "半导体/芯片": ["半导体", "芯片", "IC", "芯片验证", "版图", "封装", "测试开发"],
+            "芯片验证/EDA": [
+                "芯片验证", "IC验证", "验证工程师", "EDA", "ASIC", "SoC", "UVM", "SystemVerilog",
+                "形式验证", "数字后端", "版图设计",
+            ],
+            "测试/验证": ["测试开发", "测试工程师", "软件测试", "自动化测试", "功能测试", "验证工程师", "质量工程"],
+            "算法": ["算法", "算法工程师", "推荐", "搜索", "排序", "优化算法", "研发工程师"],
+            "机器学习/深度学习": [
+                "机器学习", "深度学习", "计算机视觉", "CV", "NLP", "自然语言处理", "强化学习",
+                "模型训练", "特征工程",
+            ],
             "算法/研发": ["算法", "机器学习", "深度学习", "计算机视觉", "NLP", "研发工程师"],
             "AI/大模型/推理部署": [
                 "大模型", "LLM", "生成式AI", "AIGC", "推理", "推理优化", "模型部署",
@@ -44,11 +117,20 @@ DEFAULT_CONFIG: dict[str, Any] = {
                 "具身智能", "机器人", "机械臂", "运动控制", "导航算法", "SLAM", "路径规划",
                 "强化学习", "感知算法", "多模态",
             ],
+            "数据/数据分析": ["数据分析", "数据科学", "数据挖掘", "商业分析", "数仓", "ETL", "SQL", "BI"],
+            "后端开发": ["后端开发", "服务端", "Java", "Go", "Python", "C++", "微服务", "API", "数据库"],
+            "前端开发": ["前端开发", "前端工程师", "JavaScript", "TypeScript", "React", "Vue", "Web"],
+            "客户端": ["客户端", "移动端", "Android", "iOS", "Flutter", "鸿蒙", "桌面开发"],
+            "云计算/DevOps": [
+                "云计算", "DevOps", "MLOps", "SRE", "Kubernetes", "Docker", "云原生", "CI/CD", "推理服务",
+            ],
+            "网络/安全": ["网络", "网络安全", "信息安全", "安全工程师", "渗透测试", "密码学", "通信工程"],
             "开发/部署": ["部署", "MLOps", "DevOps", "云原生", "Kubernetes", "Docker", "推理服务"],
             "互联网/技术": ["互联网", "软件开发", "后端开发", "前端开发", "客户端开发", "云计算"],
             "产品": ["产品经理", "产品运营"],
             "机械": ["机械", "结构", "CAE", "工艺"],
             "材料": ["材料", "高分子", "金属", "电池材料"],
+            "工艺/制造": ["工艺", "制造", "生产工艺", "制程", "质量管理", "自动化产线", "精益生产"],
             "医药": ["医药", "临床", "药物", "生物"],
             "法务": ["法务", "合规", "知识产权"],
             "设计": ["设计", "视觉", "交互", "UI", "UX"],
@@ -65,6 +147,18 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "important_company_types": ["上市公司", "央企", "国企", "外企", "事业单位"],
         "important_company_marks": ["知名大厂", "研究院", "有内推"],
         "role_input_aliases": {
+            "嵌入式开发": "嵌入式",
+            "电气": "电气/电力电子",
+            "电力电子": "电气/电力电子",
+            "芯片验证": "芯片验证/EDA",
+            "测试": "测试/验证",
+            "机器学习": "机器学习/深度学习",
+            "深度学习": "机器学习/深度学习",
+            "后端": "后端开发",
+            "前端": "前端开发",
+            "客户端开发": "客户端",
+            "云计算": "云计算/DevOps",
+            "网络安全": "网络/安全",
             "推理部署": "AI/大模型/推理部署",
             "大模型": "AI/大模型/推理部署",
             "推理优化": "AI/大模型/推理部署",
@@ -115,11 +209,19 @@ def load_config(path: str | Path = "config.yaml") -> dict[str, Any]:
     return config
 
 
-def validate_config(config: dict[str, Any], *, require_feishu: bool = False) -> list[str]:
+def validate_config(
+    config: dict[str, Any],
+    *,
+    require_feishu: bool = False,
+    require_graduate_years: bool = True,
+    require_batches: bool = False,
+) -> list[str]:
     profile = config.get("user_profile", {})
     errors: list[str] = []
-    if not profile.get("graduate_years"):
+    if require_graduate_years and not profile.get("graduate_years"):
         errors.append("至少选择一个毕业届别")
+    if require_batches and not profile.get("batches"):
+        errors.append("至少选择一个招聘类型")
     if not profile.get("role_groups"):
         errors.append("至少选择一个岗位方向")
     if require_feishu:
@@ -165,6 +267,7 @@ def _config_for_storage(config: dict[str, Any]) -> dict[str, Any]:
         "role_groups",
         "target_industries",
         "target_cities",
+        "custom_keywords",
         "must_watch_companies",
         "exclude_role_groups",
         "recall_mode",
