@@ -51,17 +51,22 @@ def _parse_date_to_timestamp_ms(val: Any) -> int | None:
         return None
     if isinstance(val, (int, float)):
         return int(val)
-    from datetime import datetime
+    from datetime import datetime, timedelta, timezone
+
+    feishu_timezone = timezone(timedelta(hours=8))
     val_str = str(val).strip()
     try:
         # Support ISO 8601 formats including Z and offset timezone info
         dt = datetime.fromisoformat(val_str.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=feishu_timezone)
         return int(dt.timestamp() * 1000)
     except ValueError:
         pass
     for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
         try:
             dt = datetime.strptime(val_str, fmt)
+            dt = dt.replace(tzinfo=feishu_timezone)
             return int(dt.timestamp() * 1000)
         except ValueError:
             continue
