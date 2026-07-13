@@ -64,7 +64,8 @@ def test_project_exposes_launcher_and_builds_without_desktop_path():
     workflow = (ROOT / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8")
 
     assert 'feishu-job-radar = "job_monitor.launcher:main"' in pyproject
-    assert "python -m build" in workflow
+    assert "python scripts/release_check.py" in workflow
+    assert "runs-on: windows-latest" in workflow
     assert "3.12" in workflow
     assert "PySide6" not in pyproject
     assert "PyInstaller" not in workflow

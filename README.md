@@ -60,16 +60,13 @@ App Secret 不会由配置读取接口返回，但当前仍以明文保存在本
 运行测试：
 
 ```powershell
-python -m pip install -e ".[test]"
 python -m pytest -q
 ```
 
 构建发行包：
 
 ```powershell
-python -m pip install build
-python -m build
-python scripts/verify_wheel.py dist/*.whl
+python scripts/release_check.py
 ```
 
 项目使用 MIT License。
