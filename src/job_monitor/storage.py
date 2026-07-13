@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import gc
+import os
 import sqlite3
+import tempfile
 from dataclasses import dataclass
 from dataclasses import asdict
 from pathlib import Path
@@ -9,6 +12,58 @@ from typing import Any, Iterable
 
 from .backup import BackupService
 from .models import Job, MatchResult
+
+
+class _ClosingConnection(sqlite3.Connection):
+    """Close SQLite connections when a context-manager block exits."""
+
+    def __exit__(self, *args):
+        try:
+            return super().__exit__(*args)
+        finally:
+            self.close()
+
+
+_SCHEMA_COLUMNS: dict[str, dict[str, str]] = {
+    "jobs": {
+        "source": "TEXT", "source_job_id": "TEXT", "source_url": "TEXT", "detail_url": "TEXT",
+        "dedupe_key": "TEXT", "company": "TEXT", "raw_company": "TEXT", "company_normalized": "TEXT",
+        "title": "TEXT", "raw_title": "TEXT", "clean_title": "TEXT", "summary": "TEXT", "batch": "TEXT",
+        "target_graduate_year": "TEXT", "degree": "TEXT", "city": "TEXT", "location_text": "TEXT",
+        "collected_date": "DATE", "deadline": "DATE", "company_type": "TEXT", "industry": "TEXT",
+        "tags": "TEXT", "job_tags": "TEXT", "special_marks": "TEXT", "raw_tags": "TEXT", "raw_text": "TEXT",
+        "role_text": "TEXT", "announcement_text": "TEXT", "role_signals": "TEXT", "field_evidence": "TEXT",
+        "extraction_version": "TEXT", "apply_url": "TEXT", "official_url": "TEXT", "parse_status": "TEXT",
+        "parse_note": "TEXT", "first_seen": "DATETIME", "last_seen": "DATETIME", "last_checked": "DATETIME",
+        "content_hash": "TEXT", "is_active": "INTEGER",
+    },
+    "job_matches": {
+        "job_id": "INTEGER", "matched_keywords": "TEXT", "matched_strong_keywords": "TEXT",
+        "matched_weak_keywords": "TEXT", "matched_industry_keywords": "TEXT", "matched_company_rule": "TEXT",
+        "matched_city_rule": "TEXT", "negative_keywords": "TEXT", "match_score": "INTEGER", "priority": "TEXT",
+        "is_relevant": "INTEGER", "should_push": "INTEGER", "needs_verify": "INTEGER", "match_reason": "TEXT",
+        "verify_status": "TEXT", "suggested_search_terms": "TEXT", "match_config_version": "TEXT",
+        "matched_at": "DATETIME", "recommend_reason": "TEXT",
+    },
+    "job_user_state": {
+        "job_id": "INTEGER", "status": "TEXT", "official_url": "TEXT", "apply_url_manual": "TEXT",
+        "next_action": "TEXT", "note": "TEXT", "updated_at": "DATETIME",
+    },
+    "scan_runs": {
+        "id": "INTEGER", "run_type": "TEXT", "started_at": "DATETIME", "finished_at": "DATETIME",
+        "status": "TEXT", "pages_scanned": "INTEGER", "items_seen": "INTEGER", "new_items": "INTEGER",
+        "updated_items": "INTEGER", "error_message": "TEXT", "notification_status": "TEXT",
+    },
+    "feishu_sync": {
+        "job_id": "INTEGER", "feishu_record_id": "TEXT", "last_synced_at": "DATETIME", "sync_status": "TEXT",
+        "sync_error": "TEXT",
+    },
+    "recommended_jobs": {
+        "id": "INTEGER", "recommendation_date": "DATE", "job_id": "INTEGER", "recommend_reason": "TEXT",
+        "created_at": "DATETIME",
+    },
+}
+_SCHEMA_INDEXES = {"idx_recommended_jobs_job_id": "recommended_jobs"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,15 +79,13 @@ class JobRepository:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
     def connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, factory=_ClosingConnection)
         conn.row_factory = sqlite3.Row
         return conn
 
-    def init_schema(self) -> None:
-        schema_backup_needed = self._schema_backup_needed()
-        if schema_backup_needed:
-            BackupService(self.db_path.parent / "backups").backup_sqlite(self.db_path, source="schema-upgrade")
+    def _apply_schema_in_place(self) -> None:
         with self.connect() as conn:
+            self._validate_schema_objects(conn)
             conn.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS jobs (
@@ -120,7 +173,8 @@ class JobRepository:
                     items_seen INTEGER,
                     new_items INTEGER,
                     updated_items INTEGER,
-                    error_message TEXT
+                    error_message TEXT,
+                    notification_status TEXT
                 );
                 CREATE TABLE IF NOT EXISTS feishu_sync (
                     job_id INTEGER UNIQUE,
@@ -173,18 +227,85 @@ class JobRepository:
                 "apply_url_manual": "TEXT",
                 "next_action": "TEXT",
             })
+            self._ensure_columns(conn, "scan_runs", {
+                "notification_status": "TEXT",
+            })
+            for table, columns in _SCHEMA_COLUMNS.items():
+                self._ensure_columns(conn, table, columns)
 
-    def _schema_backup_needed(self) -> bool:
+    def init_schema(self) -> None:
+        if not self.db_path.exists():
+            self._apply_schema_in_place()
+            return
+        if not self._schema_needs_upgrade():
+            return
+
+        BackupService(self.db_path.parent / "backups").backup_sqlite(self.db_path, source="schema-upgrade")
+        file_handle, temporary_name = tempfile.mkstemp(
+            prefix=f".{self.db_path.name}.", suffix=".migration.tmp", dir=self.db_path.parent
+        )
+        os.close(file_handle)
+        temporary_path = Path(temporary_name)
+        try:
+            self._copy_database(temporary_path)
+            migrated = JobRepository(temporary_path)
+            migrated._apply_schema_in_place()
+            if migrated._schema_needs_upgrade():
+                raise sqlite3.DatabaseError("schema migration did not produce the required schema")
+            # Release every connection/cursor owned by the temporary repository
+            # before replacing the database on Windows.
+            del migrated
+            gc.collect()
+            os.replace(temporary_path, self.db_path)
+        finally:
+            temporary_path.unlink(missing_ok=True)
+
+    def _schema_needs_upgrade(self) -> bool:
         if not self.db_path.exists():
             return False
-        with self.connect() as conn:
-            existing_tables = {
-                row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        conn = self.connect()
+        try:
+            objects = {
+                row["name"]: row["type"]
+                for row in conn.execute("SELECT name, type FROM sqlite_master")
             }
-            if "job_user_state" not in existing_tables:
-                return False
-            columns = {row["name"] for row in conn.execute("PRAGMA table_info(job_user_state)")}
-            return not {"apply_url_manual", "next_action"}.issubset(columns)
+            for table, columns in _SCHEMA_COLUMNS.items():
+                if objects.get(table) != "table":
+                    return True
+                existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+                if not set(columns).issubset(existing):
+                    return True
+            for index_name in _SCHEMA_INDEXES:
+                if objects.get(index_name) != "index":
+                    return True
+            return False
+        finally:
+            conn.close()
+
+    def _validate_schema_objects(self, conn: sqlite3.Connection) -> None:
+        objects = {
+            row["name"]: row["type"]
+            for row in conn.execute("SELECT name, type FROM sqlite_master")
+        }
+        for table in _SCHEMA_COLUMNS:
+            if table in objects and objects[table] != "table":
+                raise sqlite3.DatabaseError(f"schema object {table!r} is not a table")
+        for index_name in _SCHEMA_INDEXES:
+            if index_name in objects and objects[index_name] != "index":
+                raise sqlite3.DatabaseError(f"schema object {index_name!r} is not an index")
+
+    def _copy_database(self, target_path: Path) -> None:
+        source = sqlite3.connect(self.db_path)
+        target = sqlite3.connect(target_path)
+        try:
+            source.backup(target)
+        finally:
+            target.close()
+            source.close()
+
+    def _schema_backup_needed(self) -> bool:
+        """Compatibility alias for callers that used the old migration probe."""
+        return self._schema_needs_upgrade()
 
     def _ensure_columns(self, conn: sqlite3.Connection, table: str, columns: dict[str, str]) -> None:
         existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
@@ -239,9 +360,19 @@ class JobRepository:
             if before:
                 visible_fields = (
                     "company", "title", "clean_title", "summary", "batch", "target_graduate_year",
-                    "degree", "city", "deadline", "apply_url", "official_url",
+                    "degree", "city", "deadline", "apply_url", "official_url", "raw_text",
+                    "role_text", "announcement_text", "role_signals", "field_evidence",
+                    "extraction_version", "parse_status", "content_hash",
                 )
-                changed = any(before[field] != values.get(field) for field in visible_fields)
+                changed = any(
+                    before[field]
+                    != (
+                        before[field]
+                        if field == "official_url" and not values.get(field)
+                        else values.get(field)
+                    )
+                    for field in visible_fields
+                )
                 if changed:
                     conn.execute("UPDATE feishu_sync SET sync_status = 'pending' WHERE job_id = ?", (job_id,))
             return UpsertResult(job_id=job_id, created=before is None, changed=changed)

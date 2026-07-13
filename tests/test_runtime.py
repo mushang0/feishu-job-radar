@@ -27,3 +27,10 @@ def test_run_reporter_forwards_stage_and_report():
 
     assert events == [RunEvent("daily", 1, 5, "扫描", "done", "抓取 1 条")]
     assert reports == [report]
+
+
+def test_run_report_renders_failed_and_notification_status():
+    text = RunReport("daily", "failed", notification_status="failed").render()
+
+    assert "今日扫描完成（失败）" in text
+    assert "每日通知：失败" in text

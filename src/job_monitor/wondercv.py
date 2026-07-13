@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from html.parser import HTMLParser
 import random
 import re
@@ -14,6 +15,7 @@ import requests
 
 from .models import Job
 from .normalizer import build_dedupe_key, infer_batch, infer_city, infer_graduate_year, normalize_company, normalize_date
+from .error_safety import safe_exception_detail
 
 
 WONDERCV_URL = "https://www.wondercv.com/xiaozhao/"
@@ -31,6 +33,9 @@ class CrawlResult:
     partial: bool = False
     error: str | None = None
     interrupted: bool = False
+    sources_attempted: int = 0
+    sources_succeeded: int = 0
+    sources_failed: int = 0
 
 
 class ScanInterrupted(RuntimeError):
@@ -188,16 +193,28 @@ class WonderCVCrawler:
             for page_jobs in self.crawl_pages(mode, should_stop=should_stop):
                 pages_scanned += 1
                 jobs.extend(page_jobs)
-            return CrawlResult(jobs=jobs, pages_scanned=pages_scanned)
+            return CrawlResult(
+                jobs=jobs,
+                pages_scanned=pages_scanned,
+                sources_attempted=1,
+                sources_succeeded=1,
+            )
         except Exception as exc:
             if isinstance(exc, ScanInterrupted):
                 return CrawlResult(jobs=jobs, pages_scanned=pages_scanned, error="日常扫描已中断", interrupted=True)
-            return CrawlResult(jobs=jobs, pages_scanned=pages_scanned, partial=bool(jobs), error=str(exc))
+            return CrawlResult(
+                jobs=jobs,
+                pages_scanned=pages_scanned,
+                partial=bool(jobs),
+                error=safe_exception_detail(exc, self.config),
+                sources_attempted=1,
+                sources_succeeded=int(bool(pages_scanned or jobs)),
+                sources_failed=1,
+            )
 
     def crawl_pages(self, mode: str = "daily", should_stop: Callable[[list[Job]], bool] | None = None):
         crawler_config = self.config.get("crawler", {})
         max_pages = int(crawler_config.get("max_pages_init" if mode == "init" else "max_pages_daily", 20))
-        import logging
         for page in range(1, max_pages + 1):
             self._ensure_not_cancelled()
             page_url = self._page_url(page)
@@ -206,8 +223,9 @@ class WonderCVCrawler:
                 response = self.get(page_url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
                 response.raise_for_status()
             except Exception as exc:
-                logging.error("Failed to fetch page %s: %s", page, exc)
-                raise RuntimeError(f"WonderCV 第 {page} 页抓取失败：{exc}") from exc
+                logging.error("Failed to fetch page %s: %s", page, safe_exception_detail(exc, self.config))
+                safe_error = safe_exception_detail(exc, self.config)
+                raise RuntimeError(f"WonderCV 第 {page} 页抓取失败：{safe_error}") from None
             page_jobs = parse_wondercv_list(response.text, page_url, self.aliases)
             self._ensure_not_cancelled()
             if not page_jobs:

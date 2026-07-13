@@ -386,7 +386,7 @@ feishu:
     captured = {}
 
     class Crawler:
-        def __init__(self, config):
+        def __init__(self, config, cancel_check=None):
             pass
 
         def crawl(self, mode, should_stop):
@@ -438,10 +438,10 @@ feishu:
             captured["message"] = text
             return FeishuResult(sent=True)
 
-    monkeypatch.setattr("job_monitor.cli.WonderCVCrawler", Crawler)
-    monkeypatch.setattr("job_monitor.cli.OfficialUrlFinder", Finder)
-    monkeypatch.setattr("job_monitor.cli.FeishuBitableClient", Client)
-    monkeypatch.setattr("job_monitor.cli.FeishuBot", Bot)
+    monkeypatch.setattr("job_monitor.services.scanning.WonderCVCrawler", Crawler)
+    monkeypatch.setattr("job_monitor.services.scanning.OfficialUrlFinder", Finder)
+    monkeypatch.setattr("job_monitor.services.scanning.FeishuBitableClient", Client)
+    monkeypatch.setattr("job_monitor.services.scanning.FeishuBot", Bot)
 
     exit_code = main(["--config", str(config_path), "--db", str(db_path), "daily"])
 

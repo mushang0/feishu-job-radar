@@ -30,10 +30,15 @@ class RunReport:
     feishu_failed: int = 0
     workspace_url: str = ""
     advice: str = ""
+    notification_status: str | None = None
 
     def render(self) -> str:
         heading = {"init": "初始化完成", "daily": "今日扫描完成", "rematch": "重新匹配完成", "check": "健康检查完成", "pull": "飞书状态回收完成"}.get(self.command, "运行完成")
-        state = "完成" if self.status == "success" else "部分完成"
+        state = {
+            "success": "完成",
+            "partial": "部分完成",
+            "failed": "失败",
+        }.get(self.status, self.status)
         lines = [f"\n{heading}（{state}）"]
         if self.baseline_items is not None:
             lines.append(f"- 本地岗位基线：{self.baseline_items} 条")
@@ -42,6 +47,13 @@ class RunReport:
         elif self.command in {"init", "rematch"}:
             lines.extend([f"- 参与匹配岗位：{self.items_seen} 条", f"- 推荐岗位：{self.recommended_items} 条"])
         lines.extend([f"- 飞书新增：{self.feishu_created} 条", f"- 飞书更新：{self.feishu_updated} 条"])
+        if self.notification_status is not None:
+            notification_label = {
+                "skipped": "已跳过",
+                "sent": "已发送",
+                "failed": "失败",
+            }.get(self.notification_status, self.notification_status)
+            lines.append(f"- 每日通知：{notification_label}")
         if self.current_workspace_items is not None:
             lines.append(f"- 当前工作台岗位：{self.current_workspace_items} 条")
         if self.workspace_url:

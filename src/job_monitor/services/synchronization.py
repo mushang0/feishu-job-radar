@@ -6,6 +6,7 @@ from typing import Any, Callable
 
 from ..feishu import FeishuBitableClient, FeishuConfig
 from ..feishu_records import build_create_fields, build_update_fields
+from ..error_safety import known_secrets, redact_text
 from ..storage import JobRepository
 
 
@@ -55,15 +56,16 @@ def sync_feishu(
 
     if to_create:
         create_result = client.batch_create_records([{"fields": build_create_fields(row)} for row in to_create])
-        if not create_result.sent:
+        if not _result_sent(create_result):
+            error = _result_error(create_result, config)
             for row in to_create:
                 repo.mark_sync(
                     int(row.get("job_id", row.get("id"))),
                     "failed",
-                    error=getattr(create_result, "error", None),
+                    error=error,
                 )
                 failed += 1
-            logging.info("feishu bitable create failed: %s", getattr(create_result, "error", None))
+            logging.info("feishu bitable create failed: %s", error)
         else:
             returned_ids = list(getattr(create_result, "record_ids", []) or [])
             for index, row in enumerate(to_create):
@@ -82,19 +84,35 @@ def sync_feishu(
             for row, record_id in to_update
         ]
         update_result = client.batch_update_records(update_records)
-        if not update_result.sent:
+        if not _result_sent(update_result):
+            error = _result_error(update_result, config)
             for row, record_id in to_update:
                 repo.mark_sync(
                     int(row.get("job_id", row.get("id"))),
                     "failed",
                     record_id=record_id,
-                    error=getattr(update_result, "error", None),
+                    error=error,
                 )
             failed += len(to_update)
-            logging.info("feishu bitable update skipped or failed: %s", getattr(update_result, "error", None))
+            logging.info("feishu bitable update skipped or failed: %s", error)
             return SyncSummary(created=created, updated=updated, skipped=skipped, failed=failed)
         for row, record_id in to_update:
             repo.mark_sync(int(row.get("job_id", row.get("id"))), "synced", record_id=record_id)
             updated += 1
 
     return SyncSummary(created=created, updated=updated, skipped=skipped, failed=failed)
+
+
+def _result_sent(result: Any) -> bool:
+    try:
+        return result.sent is True
+    except BaseException:
+        return False
+
+
+def _result_error(result: Any, config: dict[str, Any]) -> str:
+    try:
+        value = getattr(result, "error", None) or "飞书同步失败"
+    except BaseException:
+        value = "飞书同步失败"
+    return redact_text(value, secrets=known_secrets(config))

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import logging
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict
 from pathlib import Path
@@ -12,8 +13,9 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from ..config import load_config, validate_config
+from ..error_safety import safe_exception_detail
 from ..paths import AppPaths
-from ..services.scanning import DailyWorkflowResult, run_daily_workflow
+from ..services.scanning import DailyStageError, DailyWorkflowResult, run_daily_workflow
 from ..services.initialization import InitializationService
 from ..services.web_state import WebStateService
 
@@ -49,12 +51,18 @@ class TaskManager:
             self._tasks[task_id]["status"] = "running"
         try:
             result = run_daily_workflow(config, self.paths.database, task_id=task_id)
-            payload = asdict(result)
+            payload = result.to_dict()
             with self._lock:
                 self._tasks[task_id].update(payload)
         except Exception as exc:
+            logging.error("Web daily task failed: %s", safe_exception_detail(exc, config))
+            fallback = DailyWorkflowResult(
+                status="failed",
+                task_id=task_id,
+                errors=(DailyStageError("workflow", "workflow_failed", "每日工作流失败"),),
+            )
             with self._lock:
-                self._tasks[task_id].update({"status": "failed", "error": str(exc)})
+                self._tasks[task_id].update(fallback.to_dict())
         finally:
             with self._lock:
                 if self._active_task_id == task_id:
@@ -112,8 +120,32 @@ def create_app(paths: AppPaths | None = None) -> FastAPI:
         config = load_config(paths.config)
         try:
             result = initialization.initialize(config)
+        except ValueError as exc:
+            logging.warning(
+                "Web initialization configuration rejected: %s",
+                safe_exception_detail(exc, config),
+            )
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "stage": "initialization",
+                    "code": "configuration_invalid",
+                    "message": "配置校验失败，请检查配置后重试。",
+                },
+            ) from None
         except Exception as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            logging.error(
+                "Web initialization failed: %s",
+                safe_exception_detail(exc, config),
+            )
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "stage": "initialization",
+                    "code": "initialization_failed",
+                    "message": "初始化失败，请查看日志后重试。",
+                },
+            ) from None
         return {
             "table_id": result.table_id,
             "workspace_url": result.workspace_url,
@@ -130,8 +162,15 @@ def create_app(paths: AppPaths | None = None) -> FastAPI:
             raise HTTPException(status_code=422, detail=errors)
         try:
             task_id = tasks.start_daily(config)
-        except RuntimeError as exc:
-            raise HTTPException(status_code=409, detail=f"已有扫描任务运行中：{exc}") from exc
+        except RuntimeError:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "stage": "daily",
+                    "code": "already_running",
+                    "message": "已有扫描任务运行中，请稍后再试。",
+                },
+            ) from None
         return {"task_id": task_id}
 
     @app.get("/api/tasks/{task_id}")

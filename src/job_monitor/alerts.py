@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
+from .error_safety import redact_text
+
 
 def build_daily_message(total_new: int, relevant_rows: list[dict[str, Any]], error: str | None = None) -> str:
     lines = [f"今日新增秋招信息：{total_new} 条", f"推荐岗位：{len(relevant_rows)} 条"]
     if error:
+        error = redact_text(error)
         lines.append(f"抓取异常：{error}")
     if not relevant_rows:
         lines.append("暂无需要推送的推荐岗位。")

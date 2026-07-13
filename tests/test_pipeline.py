@@ -141,3 +141,71 @@ def test_daily_pipeline_rematches_existing_job_when_visible_fields_change(tmp_pa
     assert summary.recommended_items == 1
     assert [row["company"] for row in repo.list_recommended_jobs("2026-07-04")] == ["OtherCo"]
 
+
+def test_daily_pipeline_does_not_count_unchanged_duplicate_as_updated(tmp_path: Path, mock_config):
+    repo = JobRepository(tmp_path / "jobs.sqlite")
+    repo.init_schema()
+    job = Job(
+        source="WonderCV",
+        dedupe_key="WonderCV:id:unchanged",
+        company="OtherCo",
+        title="2027届 FPGA 工程师",
+        batch="秋招",
+        target_graduate_year="2027届",
+        content_hash="same",
+    )
+
+    first = run_daily_with_jobs(repo, [job], mock_config(), run_date="2026-07-03")
+    second = run_daily_with_jobs(repo, [job], mock_config(), run_date="2026-07-04")
+
+    assert first.new_items == 1
+    assert second.new_items == 0
+    assert second.updated_items == 0
+    assert second.matched_items == 0
+    assert repo.count_jobs() == 1
+
+
+def test_preserved_official_url_does_not_make_an_unchanged_job_look_updated(tmp_path: Path, mock_config):
+    repo = JobRepository(tmp_path / "jobs.sqlite")
+    repo.init_schema()
+    job = Job(dedupe_key="WonderCV:id:official", company="OtherCo", title="普通岗位")
+    inserted = repo.upsert_job(job)
+    repo.update_official_url_if_empty(inserted.job_id, "https://careers.example.com/job")
+
+    summary = run_daily_with_jobs(repo, [job], mock_config(), run_date="2026-07-04")
+
+    assert summary.updated_items == 0
+    assert repo.list_all_jobs()[0]["official_url"] == "https://careers.example.com/job"
+
+
+def test_daily_pipeline_rematches_when_detail_content_changes(tmp_path: Path, mock_config):
+    repo = JobRepository(tmp_path / "jobs.sqlite")
+    repo.init_schema()
+    first = Job(
+        dedupe_key="WonderCV:id:detail-change",
+        company="OtherCo",
+        title="2027届校园招聘公告",
+        batch="秋招",
+        target_graduate_year="2027届",
+        raw_text="普通岗位",
+        role_text="普通岗位",
+        content_hash="v1",
+    )
+    run_daily_with_jobs(repo, [first], mock_config(), run_date="2026-07-03")
+    changed = Job(
+        dedupe_key="WonderCV:id:detail-change",
+        company="OtherCo",
+        title="2027届校园招聘公告",
+        batch="秋招",
+        target_graduate_year="2027届",
+        raw_text="FPGA 硬件岗位",
+        role_text="FPGA 硬件岗位",
+        content_hash="v2",
+    )
+
+    summary = run_daily_with_jobs(repo, [changed], mock_config(), run_date="2026-07-04")
+
+    assert summary.updated_items == 1
+    assert summary.matched_items == 1
+    assert summary.recommended_items == 1
+

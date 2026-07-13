@@ -15,6 +15,7 @@ class DailySummary:
     updated_items: int
     relevant_items: int
     recommended_items: int = 0
+    matched_items: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,17 +34,19 @@ def run_daily_with_jobs(repo: JobRepository, jobs: list[Job], config: dict, run_
     updated_items = 0
     relevant_items = 0
     recommendations: list[dict] = []
+    matched_items = 0
     recommendation_date = run_date or date.today().isoformat()
 
     for job in jobs:
         result = repo.upsert_job(job)
         if result.created:
             new_items += 1
-        else:
+        elif result.changed:
             updated_items += 1
         # List-page candidates are stored for retry, but never become ordinary
         # recommendations until the detail extractor has produced role evidence.
         if job.parse_status == "detail_ready" and (result.created or result.changed):
+            matched_items += 1
             match = matcher.match(job)
             repo.save_match(result.job_id, match)
             if match.is_relevant:
@@ -58,6 +61,7 @@ def run_daily_with_jobs(repo: JobRepository, jobs: list[Job], config: dict, run_
         updated_items=updated_items,
         relevant_items=relevant_items,
         recommended_items=len(recommendations),
+        matched_items=matched_items,
     )
 
 

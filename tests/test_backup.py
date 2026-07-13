@@ -10,13 +10,20 @@ from job_monitor.storage import JobRepository
 
 def test_schema_upgrade_backs_up_existing_database_before_adding_user_fields(tmp_path: Path):
     database = tmp_path / "jobs.sqlite"
-    with sqlite3.connect(database) as conn:
+    conn = sqlite3.connect(database)
+    try:
         conn.execute("CREATE TABLE job_user_state (job_id INTEGER UNIQUE, status TEXT, note TEXT)")
+    finally:
+        conn.close()
 
     repository = JobRepository(database)
     repository.init_schema()
 
-    columns = {row[1] for row in repository.connect().execute("PRAGMA table_info(job_user_state)")}
+    conn = repository.connect()
+    try:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(job_user_state)")}
+    finally:
+        conn.close()
     backups = list((tmp_path / "backups").glob("*.sqlite"))
     assert {"next_action", "apply_url_manual"} <= columns
     assert len(backups) == 1

@@ -2,26 +2,27 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from .alerts import build_daily_message
 from .audit import audit_feishu_records
 from .config import load_config, save_config, validate_config
 from .diagnostics import preflight_check
+from .error_safety import known_secrets, safe_exception_detail
 from .exporters import export_jobs_to_excel
-from .feishu import FeishuBitableClient, FeishuBot, FeishuConfig
-from .logging_utils import setup_logging
+from .feishu import FeishuBitableClient, FeishuConfig
+from .logging_utils import SensitiveDataFilter, setup_logging
 from .onboarding import InitializationPreview, collect_missing_config, confirm_initialization
 from .official_search import OfficialUrlFinder
-from .pipeline import backfill_existing_job_details, enrich_official_urls, rematch_existing_jobs, run_daily_with_jobs, run_init_with_page_batches, pull_user_states_from_feishu
+from .pipeline import backfill_existing_job_details, enrich_official_urls, rematch_existing_jobs, run_init_with_page_batches, pull_user_states_from_feishu
 from .seed import SeedDatabaseError, find_seed_database, restore_seed_database
-from .run_guard import DailyRunGuard, DailyRunInProgress
 from .runtime import RunReport, RunReporter, console_event, console_report
+from .services.scanning import DailyWorkflowResult, _notification_rows, run_daily_workflow
 from .storage import JobRepository
 from .services.synchronization import SyncSummary, sync_feishu
-from .wondercv import EXTRACTION_VERSION, WonderCVCrawler
+from .wondercv import WonderCVCrawler
 from .workspace_provisioner import WorkspaceProvisioner
 from .workspace_schema import WORKSPACE_SCHEMA_VERSION, desired_workspace
 
@@ -32,6 +33,68 @@ class PullSummary:
     skipped: int = 0
     unknown: int = 0
     failed: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class CliErrorSpec:
+    code: str
+    message: str
+
+
+_CLI_ERROR_SPECS = {
+    "configuration": CliErrorSpec(
+        "configuration_invalid",
+        "配置读取失败，请检查 YAML 格式后重试。",
+    ),
+    "init": CliErrorSpec("initialization_failed", "初始化失败，请查看日志后重试。"),
+    "reset": CliErrorSpec("reset_failed", "reset 失败，请查看日志后重试。"),
+    "pull": CliErrorSpec("pull_failed", "pull 失败，请查看日志后重试。"),
+    "check": CliErrorSpec("check_failed", "check 失败，请查看日志后重试。"),
+    "daily": CliErrorSpec("daily_failed", "daily 失败，请查看日志后重试。"),
+    "rematch": CliErrorSpec("rematch_failed", "rematch 失败，请查看日志后重试。"),
+    "open-workspace": CliErrorSpec(
+        "open_workspace_failed", "打开飞书工作台失败，请查看日志后重试。"
+    ),
+}
+
+
+def _cli_error_spec(command: str, *, configuration: bool = False) -> CliErrorSpec:
+    if configuration:
+        return _CLI_ERROR_SPECS["configuration"]
+    return _CLI_ERROR_SPECS.get(command, CliErrorSpec("command_failed", "命令执行失败，请查看日志后重试。"))
+
+
+def _report_cli_exception(
+    config: dict,
+    exc: BaseException,
+    *,
+    log_message: str,
+    error: CliErrorSpec,
+) -> None:
+    """Report one stable CLI error while keeping diagnostics log-safe."""
+    detail = safe_exception_detail(exc, config)
+    logging.error("%s code=%s detail=%s", log_message, error.code, detail)
+    print(f"错误 code={error.code} message={error.message}")
+
+
+def _configure_cli_logging(command: str, config: dict | None = None) -> None:
+    """Configure filtered logging before config parsing and after secrets load."""
+    log_name = f"{command}-{datetime.now().date().isoformat()}.log"
+    log_dir = os.environ.get("JOB_MONITOR_LOG_DIR", "data/logs")
+    try:
+        setup_logging(Path(log_dir) / log_name, secrets=known_secrets(config))
+    except Exception:
+        # Logging setup must not create a second exception boundary escape. The
+        # normal path uses setup_logging's sensitive-data filter; keep the same
+        # guarantee if the configured log destination is unavailable.
+        stream_handler = logging.StreamHandler()
+        stream_handler.addFilter(SensitiveDataFilter(known_secrets(config)))
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s %(levelname)s %(name)s %(message)s",
+            handlers=[stream_handler],
+            force=True,
+        )
 
 
 def main(argv: list[str] | None = None, reporter: RunReporter | None = None) -> int:
@@ -90,35 +153,55 @@ def main(argv: list[str] | None = None, reporter: RunReporter | None = None) -> 
     if args.command == "export":
         return _run_export(db_path, args.output, args.table, args.date)
 
-    import os
-    config = load_config(config_path)
-    log_name = f"{args.command}-{datetime.now().date().isoformat()}.log"
-    log_dir = os.environ.get("JOB_MONITOR_LOG_DIR", "data/logs")
-    setup_logging(Path(log_dir) / log_name)
+    _configure_cli_logging(args.command)
+    try:
+        config = load_config(config_path)
+    except Exception as exc:
+        _report_cli_exception(
+            {},
+            exc,
+            log_message=f"{args.command} configuration load failed",
+            error=_cli_error_spec(args.command, configuration=True),
+        )
+        return 1
+
+    # Reconfigure the same log file with exact configured secrets once YAML has
+    # loaded successfully. This also protects later records containing values
+    # that are not recognizable from their field names alone.
+    _configure_cli_logging(args.command, config)
     reporter = reporter or RunReporter(console_event, console_report)
 
-    if args.command == "init":
-        return _run_init(config, db_path, config_path, args.output, assume_yes=args.yes, reporter=reporter)
-    if args.command == "reset":
-        return _run_reset(config, db_path, config_path, args.output, confirmed=args.yes)
-    if args.command == "daily":
-        return _run_daily(config, db_path, skip_feishu=args.no_feishu, reporter=reporter)
-    if args.command == "rematch":
-        return _run_rematch(
+    try:
+        if args.command == "init":
+            return _run_init(config, db_path, config_path, args.output, assume_yes=args.yes, reporter=reporter)
+        if args.command == "reset":
+            return _run_reset(config, db_path, config_path, args.output, confirmed=args.yes)
+        if args.command == "daily":
+            return _run_daily(config, db_path, skip_feishu=args.no_feishu, reporter=reporter)
+        if args.command == "rematch":
+            return _run_rematch(
+                config,
+                db_path,
+                args.date,
+                skip_feishu=args.no_feishu,
+                skip_enrich_official=args.no_enrich_official,
+                reporter=reporter,
+            )
+        if args.command == "pull":
+            return _run_pull(config, db_path, reporter=reporter)
+        if args.command == "check":
+            return _run_check(config, db_path, reporter=reporter)
+        if args.command == "open-workspace":
+            return _run_open_workspace(config)
+        return 2
+    except Exception as exc:
+        _report_cli_exception(
             config,
-            db_path,
-            args.date,
-            skip_feishu=args.no_feishu,
-            skip_enrich_official=args.no_enrich_official,
-            reporter=reporter,
+            exc,
+            log_message=f"{args.command} command failed",
+            error=_cli_error_spec(args.command),
         )
-    if args.command == "pull":
-        return _run_pull(config, db_path, reporter=reporter)
-    if args.command == "check":
-        return _run_check(config, db_path, reporter=reporter)
-    if args.command == "open-workspace":
-        return _run_open_workspace(config)
-    return 2
+        return 1
 
 
 def _run_export(db_path: str, output_path: str, table: str = "all", export_date: str | None = None) -> int:
@@ -169,18 +252,31 @@ def _run_init(
             return 1
         save_config(config, config_path)
     except Exception as exc:
-        logging.error("initial configuration failed: %s", exc)
-        print(f"初始化配置失败：{exc}")
+        _report_cli_exception(
+            config,
+            exc,
+            log_message="initial configuration failed",
+            error=_cli_error_spec("init"),
+        )
         return 1
 
     try:
         seeded = restore_seed_database(db_path)
     except SeedDatabaseError as exc:
-        print(f"seed 数据库初始化失败：{exc}")
+        _report_cli_exception(
+            config,
+            exc,
+            log_message="seed database initialization failed",
+            error=_cli_error_spec("init"),
+        )
         return 1
     except OSError as exc:
-        logging.error("seed database initialization failed: %s", exc)
-        print(f"seed 数据库初始化失败：{exc}")
+        _report_cli_exception(
+            config,
+            exc,
+            log_message="seed database initialization failed",
+            error=_cli_error_spec("init"),
+        )
         return 1
 
     repo = JobRepository(db_path)
@@ -198,8 +294,12 @@ def _run_init(
         _read_only_workspace_preflight(client, config)
         reporter.stage("init", 2, 5, "检查飞书连接与权限", "done")
     except Exception as exc:
-        logging.error("Feishu read-only preflight failed: %s", exc)
-        print(f"飞书连接检查失败：{exc}")
+        _report_cli_exception(
+            config,
+            exc,
+            log_message="Feishu read-only preflight failed",
+            error=_cli_error_spec("init"),
+        )
         return 1
 
     preview = InitializationPreview(
@@ -226,8 +326,12 @@ def _run_init(
         save_config(config, config_path)
         reporter.stage("init", 3, 5, "创建或修复飞书工作台", "done")
     except Exception as exc:
-        logging.exception("Feishu workspace provisioning failed")
-        print(f"飞书工作台初始化失败：{exc}")
+        _report_cli_exception(
+            config,
+            exc,
+            log_message="Feishu workspace provisioning failed",
+            error=_cli_error_spec("init"),
+        )
         return 1
 
     started_at = datetime.now().isoformat(timespec="seconds")
@@ -296,7 +400,12 @@ def _run_reset(
     try:
         find_seed_database()
     except SeedDatabaseError as exc:
-        print(f"reset 失败：{exc}")
+        _report_cli_exception(
+            config,
+            exc,
+            log_message="reset seed lookup failed",
+            error=_cli_error_spec("reset"),
+        )
         return 1
     workspace_deleted = False
     try:
@@ -330,8 +439,12 @@ def _run_reset(
                 client.delete_table(table_id)
                 workspace_deleted = True
     except Exception as exc:
-        logging.exception("Feishu workspace reset failed")
-        print(f"飞书工作台删除失败，未修改本地配置：{exc}")
+        _report_cli_exception(
+            config,
+            exc,
+            log_message="Feishu workspace reset failed",
+            error=_cli_error_spec("reset"),
+        )
         return 1
 
     config["feishu"]["workspace_table_id"] = ""
@@ -341,8 +454,12 @@ def _run_reset(
     try:
         restore_seed_database(db_path, overwrite=True)
     except (SeedDatabaseError, OSError) as exc:
-        logging.exception("seed database restore failed after workspace deletion")
-        print(f"seed 数据库恢复失败：{exc}。已清除失效工作台 ID，请在占用解除后直接重试 reset --yes。")
+        _report_cli_exception(
+            config,
+            exc,
+            log_message="seed database restore failed after workspace deletion",
+            error=_cli_error_spec("reset"),
+        )
         return 1
     action = "已删除当前飞书工作台" if workspace_deleted else "未发现需要删除的受管工作台"
     print(f"{action}，并从 seed 恢复本地岗位库，正在重新初始化。")
@@ -357,131 +474,21 @@ def _run_reset(
 
 
 def _run_daily(config: dict, db_path: str, skip_feishu: bool = False, reporter: RunReporter | None = None) -> int:
-    reporter = reporter or RunReporter()
-    try:
-        with DailyRunGuard(db_path) as guard:
-            return _run_daily_guarded(config, db_path, skip_feishu, guard.cancelled.is_set, reporter)
-    except DailyRunInProgress as exc:
-        print(f"daily result: status=already_running message={exc}")
-        return 1
-
-
-def _run_daily_guarded(config: dict, db_path: str, skip_feishu: bool, cancel_check, reporter: RunReporter | None = None) -> int:
-    reporter = reporter or RunReporter()
-    repo = JobRepository(db_path)
-    repo.init_schema()
-    crawler = WonderCVCrawler(config)
-    crawler.cancel_check = cancel_check
-    last_run_date = repo.get_last_successful_run_date("daily")
-
-    def should_stop(page_jobs) -> bool:
-        if not page_jobs:
-            return True
-        # 1. Stop if all jobs on this page already exist in the database
-        all_exist = True
-        for job in page_jobs:
-            if (
-                not repo.job_exists(job.dedupe_key)
-                or repo.job_requires_detail_enrichment(job.dedupe_key, EXTRACTION_VERSION)
-            ):
-                all_exist = False
-                break
-        if all_exist:
-            logging.info("Dynamic stop triggered: all jobs on the current page already exist in the database.")
-            return True
-
-        # 2. Stop if all jobs on the page are older than the last successful daily run date
-        if last_run_date:
-            all_older = True
-            for job in page_jobs:
-                if job.collected_date and job.collected_date >= last_run_date:
-                    all_older = False
-                    break
-            if all_older:
-                logging.info(f"Dynamic stop triggered: all jobs on the page are older than the last successful run date ({last_run_date}).")
-                return True
-
-        return False
-
-    reporter.stage("daily", 1, 5, "扫描 WonderCV 新岗位")
-    crawl = crawler.crawl(mode="daily", should_stop=should_stop)
-    reporter.stage("daily", 1, 5, "扫描 WonderCV 新岗位", "done", f"抓取 {len(crawl.jobs)} 条")
-    if getattr(crawl, "interrupted", False) or cancel_check():
-        repo.record_scan_run(
-            {"run_type": "daily", "started_at": datetime.now().isoformat(timespec="seconds"),
-             "finished_at": datetime.now().isoformat(timespec="seconds"), "status": "interrupted",
-             "pages_scanned": crawl.pages_scanned, "items_seen": 0, "new_items": 0,
-             "updated_items": 0, "error_message": crawl.error}
-        )
-        print("daily result: status=interrupted message=启动器已结束，已停止扫描且未同步数据")
-        return 1
-    reporter.stage("daily", 2, 5, "匹配岗位偏好")
-    summary = run_daily_with_jobs(repo, crawl.jobs, config)
-    reporter.stage("daily", 2, 5, "匹配岗位偏好", "done", f"新推荐 {summary.recommended_items} 条")
-    enrich_summary = None
-    sync_summary = SyncSummary()
-    pull_summary = PullSummary()
-    rows = repo.list_all_jobs()
-    recommended_rows = _notification_rows(rows, config)
-
-    if not skip_feishu and _feishu_is_configured(config):
-        try:
-            reporter.stage("daily", 3, 5, "回收飞书求职状态")
-            logging.info("Pulling latest user states from Feishu before sync...")
-            pull_client = FeishuBitableClient(FeishuConfig.from_config(config))
-            pull_summary = _pull_summary(pull_user_states_from_feishu(repo, pull_client))
-            reporter.stage("daily", 3, 5, "回收飞书求职状态", "done", f"更新 {pull_summary.updated} 条")
-        except Exception as exc:
-            logging.warning("Failed to pull latest user states from Feishu: %s", exc)
-
-        if not _pull_has_anomalies(pull_summary):
-            reporter.stage("daily", 4, 5, "补全官方投递链接")
-            enrich_summary = enrich_official_urls(repo, OfficialUrlFinder(), only_recommended=True)
-            reporter.stage("daily", 4, 5, "补全官方投递链接", "done", f"更新 {enrich_summary.updated_items} 条")
-            rows = repo.list_feishu_sync_candidates()
-            reporter.stage("daily", 5, 5, "同步到飞书")
-            sync_summary = _sync_feishu(repo, config, rows)
-            reporter.stage("daily", 5, 5, "同步到飞书", "done", f"新建 {sync_summary.created} 条，更新 {sync_summary.updated} 条")
-        else:
-            logging.error("Feishu sync blocked because user-state reconciliation was not clean")
-        message = build_daily_message(summary.new_items, recommended_rows, crawl.error)
-        bot = FeishuBot(FeishuConfig.from_config(config).webhook_url)
-        bot_result = bot.send_text(message)
-        if not bot_result.sent:
-            logging.info("feishu bot skipped: %s", bot_result.error)
-
-    repo.record_scan_run(
-        {
-            "run_type": "daily",
-            "started_at": datetime.now().isoformat(timespec="seconds"),
-            "finished_at": datetime.now().isoformat(timespec="seconds"),
-            "status": "partial" if crawl.error or sync_summary.failed or _pull_has_anomalies(pull_summary) else "success",
-            "pages_scanned": crawl.pages_scanned,
-            "items_seen": summary.items_seen,
-            "new_items": summary.new_items,
-            "updated_items": summary.updated_items,
-            "error_message": crawl.error or _run_error_message(pull_summary, sync_summary),
-        }
+    result = run_daily_workflow(
+        config,
+        db_path,
+        skip_feishu=skip_feishu,
+        reporter=reporter or RunReporter(),
     )
-    logging.info(
-        "daily finished: seen=%s new=%s recommended=%s official_seen=%s official_updated=%s feishu_created=%s feishu_updated=%s feishu_failed=%s",
-        summary.items_seen,
-        summary.new_items,
-        summary.recommended_items,
-        enrich_summary.items_seen if enrich_summary else 0,
-        enrich_summary.updated_items if enrich_summary else 0,
-        sync_summary.created,
-        sync_summary.updated,
-        sync_summary.failed,
-    )
-    print(_format_run_summary("daily", summary, enrich_summary, pull_summary, sync_summary, partial=bool(crawl.error)))
-    if summary.items_seen == 0:
+    run_guard_error = next((error for error in result.errors if error.stage == "run_guard"), None)
+    if run_guard_error:
+        print(f"daily result: status=already_running message={run_guard_error.message}")
+        return result.exit_code
+    print(_format_daily_result(result))
+    if result.fetched_count == 0:
         print("提示：本次没有获取到新页面岗位；如连续发生，请运行 check 并查看日志中的页面解析或网络错误。")
-    _print_recovery_advice(pull_summary, sync_summary)
-    advice = "本次没有新的匹配岗位，飞书无需更新。" if not summary.recommended_items and not sync_summary.failed else ("飞书同步有失败项，请检查错误后安全重试。" if sync_summary.failed else "已同步本次匹配到的岗位。")
-    reporter.finish(RunReport("daily", "partial" if crawl.error or sync_summary.failed or _pull_has_anomalies(pull_summary) else "success", items_seen=summary.items_seen, new_items=summary.new_items, recommended_items=summary.recommended_items, current_workspace_items=len(repo.list_feishu_sync_candidates()), feishu_created=sync_summary.created, feishu_updated=sync_summary.updated, feishu_skipped=sync_summary.skipped, feishu_failed=sync_summary.failed, workspace_url=str(config.get("feishu", {}).get("base_url") or ""), advice=advice))
-    repo.vacuum()
-    return 1 if (crawl.error and not crawl.jobs) or sync_summary.failed or _pull_has_anomalies(pull_summary) else 0
+    _print_daily_recovery_advice(result)
+    return result.exit_code
 
 
 def _run_rematch(
@@ -505,7 +512,12 @@ def _run_rematch(
             pull_client = FeishuBitableClient(FeishuConfig.from_config(config))
             pull_summary = _pull_summary(pull_user_states_from_feishu(repo, pull_client))
         except Exception as exc:
-            logging.exception("Failed to pull latest user states from Feishu")
+            _report_cli_exception(
+                config,
+                exc,
+                log_message="Failed to pull latest user states from Feishu",
+                error=_cli_error_spec("rematch"),
+            )
             pull_summary = PullSummary(failed=1)
 
     if _pull_has_anomalies(pull_summary):
@@ -615,10 +627,10 @@ def _run_enrich_official_urls(
 
 def _run_pull(config: dict, db_path: str, reporter: RunReporter | None = None) -> int:
     reporter = reporter or RunReporter()
-    repo = JobRepository(db_path)
-    repo.init_schema()
-    client = FeishuBitableClient(FeishuConfig.from_config(config))
     try:
+        repo = JobRepository(db_path)
+        repo.init_schema()
+        client = FeishuBitableClient(FeishuConfig.from_config(config))
         pull_summary = _pull_summary(pull_user_states_from_feishu(repo, client))
         repo.record_scan_run(
             {
@@ -644,22 +656,30 @@ def _run_pull(config: dict, db_path: str, reporter: RunReporter | None = None) -
         _print_recovery_advice(pull_summary, SyncSummary())
         return 1 if _pull_has_anomalies(pull_summary) else 0
     except Exception as exc:
-        logging.exception("Failed to pull from Feishu")
-        print(f"Error pulling from Feishu: {exc}")
+        _report_cli_exception(
+            config,
+            exc,
+            log_message="Failed to pull from Feishu",
+            error=_cli_error_spec("pull"),
+        )
         return 1
 
 
 def _run_check(config: dict, db_path: str, reporter: RunReporter | None = None) -> int:
     """Report Feishu/local reconciliation facts without modifying either side."""
     reporter = reporter or RunReporter()
-    repo = JobRepository(db_path)
-    repo.init_schema()
-    client = FeishuBitableClient(FeishuConfig.from_config(config))
     try:
+        repo = JobRepository(db_path)
+        repo.init_schema()
+        client = FeishuBitableClient(FeishuConfig.from_config(config))
         report = audit_feishu_records(repo, client.list_all_records())
     except Exception as exc:
-        logging.exception("Failed to audit Feishu records")
-        print(f"Error checking Feishu: {exc}")
+        _report_cli_exception(
+            config,
+            exc,
+            log_message="Failed to audit Feishu records",
+            error=_cli_error_spec("check"),
+        )
         return 1
     print(
         "check summary: "
@@ -697,28 +717,6 @@ def _sync_feishu(repo: JobRepository, config: dict, rows: list[dict]) -> SyncSum
     # Transitional compatibility for tests and the legacy CLI.  Web routes
     # call the service directly and do not depend on this private adapter.
     return sync_feishu(repo, config, rows, client_factory=FeishuBitableClient)
-
-
-def _notification_rows(rows: list[dict], config: dict) -> list[dict]:
-    recommended_rows = [
-        row for row in rows
-        if row.get("recommendation_status") == "推荐"
-        and (
-            not row.get("feishu_record_id")
-            or row.get("sync_status") in ("pending", "failed")
-        )
-    ]
-    limit = _notification_limit(config)
-    if limit is None:
-        return recommended_rows
-    return recommended_rows[:limit]
-
-
-def _notification_limit(config: dict) -> int | None:
-    value = config.get("user_profile", {}).get("daily_push_limit")
-    if value in (None, "", "不限制", "unlimited"):
-        return None
-    return max(int(value), 0)
 
 
 def _pull_summary(recovery) -> PullSummary:
@@ -760,6 +758,39 @@ def _run_error_message(pull_summary: PullSummary, sync_summary: SyncSummary) -> 
     if sync_summary.failed:
         return f"飞书同步失败 {sync_summary.failed} 条"
     return None
+
+
+def _format_daily_result(result: DailyWorkflowResult) -> str:
+    summary = (
+        f"daily result: status={result.status} seen={result.fetched_count} "
+        f"new={result.created_count} updated={result.updated_count} "
+        f"unchanged={result.unchanged_count} matched={result.matched_count} "
+        f"recommended={result.recommended_count} "
+        f"pull_updated={result.feishu_pull_updated_count} "
+        f"pull_skipped={result.feishu_pull_skipped_count} "
+        f"pull_unknown={result.feishu_pull_unknown_count} "
+        f"pull_failed={int(result.feishu_pull_attempted and not result.feishu_pull_succeeded)} "
+        f"official_updated={result.link_enriched_count} "
+        f"feishu_created={result.feishu_created_count} "
+        f"feishu_updated={result.feishu_updated_count} "
+        f"feishu_skipped={result.feishu_skipped_count} "
+        f"feishu_failed={result.feishu_failed_count} "
+        f"notification_status={result.notification_status}"
+    )
+    if result.error_summary:
+        summary += f" errors={result.error_summary}"
+    return summary
+
+
+def _print_daily_recovery_advice(result: DailyWorkflowResult) -> None:
+    stages = {error.stage for error in result.errors}
+    if "feishu_pull" in stages:
+        print("恢复建议：检查网络、飞书凭据和异常记录后安全重试；本次未执行飞书同步。")
+    elif "feishu_sync" in stages:
+        print("恢复建议：远端已有数据未被清空；检查同步错误后重新运行同一命令即可安全重试。")
+    elif result.errors:
+        first = result.errors[0]
+        print(f"恢复建议：阶段 {first.stage} 失败（{first.message}），请检查日志后重试。")
 
 
 def _format_pull_summary(command: str, summary: PullSummary) -> str:
