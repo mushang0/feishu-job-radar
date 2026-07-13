@@ -625,6 +625,40 @@ def test_initialization_failure_reports_once_without_secondary_exception(monkeyp
     assert reports[-1].status == "failed"
 
 
+def test_database_recording_failure_is_nonzero(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr(scanning, "WonderCVCrawler", _Crawler)
+
+    def fail_record(self, values):
+        raise RuntimeError("database write failed")
+
+    monkeypatch.setattr(JobRepository, "record_scan_run", fail_record)
+    result = run_daily_workflow(_config(feishu=False), tmp_path / "record-failure.sqlite")
+
+    assert result.status == "partial_success"
+    assert result.exit_code != 0
+    assert result.errors[-1] == DailyStageError(
+        "database", "database_failed", "每日运行结果保存失败"
+    )
+
+
+def test_database_maintenance_failure_is_nonzero(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr(scanning, "WonderCVCrawler", _Crawler)
+
+    def fail_vacuum(self):
+        raise RuntimeError("database maintenance failed")
+
+    monkeypatch.setattr(JobRepository, "vacuum", fail_vacuum)
+    db_path = tmp_path / "maintenance-failure.sqlite"
+    result = run_daily_workflow(_config(feishu=False), db_path)
+
+    assert result.status == "partial_success"
+    assert result.exit_code != 0
+    assert result.errors[-1] == DailyStageError(
+        "database", "database_failed", "每日数据库维护失败"
+    )
+    assert _latest_run(db_path)["status"] == "partial"
+
+
 def test_already_running_reports_failed_without_creating_duplicate_run(monkeypatch, tmp_path: Path):
     reports = []
 

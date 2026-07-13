@@ -117,7 +117,21 @@ def create_app(paths: AppPaths | None = None) -> FastAPI:
 
     @app.post("/api/setup/initialize")
     def setup_initialize() -> dict[str, Any]:
-        config = load_config(paths.config)
+        try:
+            config = load_config(paths.config)
+        except Exception as exc:
+            logging.warning(
+                "Web initialization configuration load failed: %s",
+                safe_exception_detail(exc, {}),
+            )
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "stage": "initialization",
+                    "code": "configuration_invalid",
+                    "message": "配置校验失败，请检查配置后重试。",
+                },
+            ) from None
         try:
             result = initialization.initialize(config)
         except ValueError as exc:

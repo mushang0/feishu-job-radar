@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Literal
@@ -27,6 +27,12 @@ class DailyStageError:
     stage: str
     code: str
     message: str
+
+
+@dataclass(frozen=True, slots=True)
+class _FinalizeOutcome:
+    database_errors: tuple[DailyStageError, ...] = ()
+    current_workspace_items: int = 0
 
 
 def _daily_exit_code(
@@ -377,7 +383,9 @@ def _finalize_result(
     *,
     write_scan_run: bool,
     pages_scanned: int = 0,
-) -> None:
+    emit_report: bool = True,
+) -> _FinalizeOutcome:
+    database_errors: list[DailyStageError] = []
     if write_scan_run:
         values = {
             "run_type": "daily",
@@ -404,14 +412,49 @@ def _finalize_result(
                 if "notification_status" not in columns:
                     values.pop("notification_status", None)
                 repo.record_scan_run(values)
+            else:
+                raise RuntimeError("scan_runs table unavailable")
         except Exception as exc:
             logging.error("Daily early-result recording failed: %s", safe_exception_detail(exc, config))
+            database_errors.append(_stage_error("database", "database_failed", "每日运行结果保存失败"))
 
     current_workspace_items = 0
     try:
         current_workspace_items = len(repo.list_feishu_sync_candidates())
     except Exception as exc:
         logging.error("Daily early-result reporting failed: %s", safe_exception_detail(exc, config))
+        database_errors.append(_stage_error("database", "database_failed", "每日运行结果读取失败"))
+    if not emit_report:
+        return _FinalizeOutcome(tuple(database_errors), current_workspace_items)
+    try:
+        reporter.finish(
+            RunReport(
+                "daily",
+                "partial" if result.status == "partial_success" else result.status,
+                items_seen=result.fetched_count,
+                new_items=result.created_count,
+                recommended_items=result.recommended_count,
+                current_workspace_items=current_workspace_items,
+                feishu_created=result.feishu_created_count,
+                feishu_updated=result.feishu_updated_count,
+                feishu_skipped=result.feishu_skipped_count,
+                feishu_failed=result.feishu_failed_count,
+                notification_status=result.notification_status,
+                workspace_url=str(config.get("feishu", {}).get("base_url") or ""),
+                advice=_advice(result),
+            )
+        )
+    except Exception as exc:
+        logging.error("Daily early-result reporter failed: %s", safe_exception_detail(exc, config))
+    return _FinalizeOutcome(tuple(database_errors), current_workspace_items)
+
+
+def _emit_daily_report(
+    reporter: RunReporter,
+    config: dict,
+    result: DailyWorkflowResult,
+    current_workspace_items: int,
+) -> None:
     try:
         reporter.finish(
             RunReport(
@@ -467,7 +510,13 @@ def _finish(
     fetched = summary.items_seen if summary else 0
     created = summary.new_items if summary else 0
     updated = summary.updated_items if summary else 0
-    status = _calculate_status(errors or ())
+    finish_errors = list(errors or ())
+    try:
+        repo.vacuum()
+    except Exception as exc:
+        logging.error("Daily database maintenance failed: %s", safe_exception_detail(exc, config))
+        finish_errors.append(_stage_error("database", "database_failed", "每日数据库维护失败"))
+    status = _calculate_status(finish_errors)
     result = DailyWorkflowResult(
         status=status,
         task_id=task_id,
@@ -493,9 +542,9 @@ def _finish(
         notification_status=notification_status,
         notification_attempted=notification_attempted,
         notification_sent=notification_sent,
-        errors=tuple(errors or ()),
+        errors=tuple(finish_errors),
     )
-    _finalize_result(
+    finalize_outcome = _finalize_result(
         repo,
         reporter,
         config,
@@ -503,11 +552,21 @@ def _finish(
         result,
         write_scan_run=True,
         pages_scanned=getattr(crawl, "pages_scanned", 0),
+        emit_report=False,
     )
-    try:
-        repo.vacuum()
-    except Exception as exc:
-        logging.error("Daily database maintenance failed: %s", safe_exception_detail(exc, config))
+    if finalize_outcome.database_errors:
+        final_errors = result.errors + finalize_outcome.database_errors
+        result = replace(
+            result,
+            status=_calculate_status(final_errors),
+            errors=final_errors,
+        )
+    _emit_daily_report(
+        reporter,
+        config,
+        result,
+        finalize_outcome.current_workspace_items,
+    )
     return result
 
 

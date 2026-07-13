@@ -276,6 +276,31 @@ def test_web_initialization_internal_error_is_stable_and_redacted(
     assert "Traceback" not in caplog.text
 
 
+def test_web_initialization_invalid_yaml_is_structured_and_redacted(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+):
+    paths = AppPaths(tmp_path / "profile")
+    paths.ensure_runtime_directories()
+    paths.config.write_text(
+        "feishu:\n  app_secret: VERY-SECRET\n  invalid: [\n",
+        encoding="utf-8",
+    )
+    client = TestClient(web_app.create_app(paths), raise_server_exceptions=False)
+
+    with caplog.at_level(logging.WARNING):
+        response = client.post("/api/setup/initialize")
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == {
+        "stage": "initialization",
+        "code": "configuration_invalid",
+        "message": "配置校验失败，请检查配置后重试。",
+    }
+    _assert_no_secret(response.text)
+    _assert_no_secret(caplog.text)
+    assert "Traceback" not in response.text + caplog.text
+
+
 def test_cli_pull_error_is_redacted_from_stdout_stderr_and_logs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
