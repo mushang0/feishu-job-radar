@@ -9,19 +9,8 @@ from job_monitor.config import load_config, save_config
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_public_config_contains_only_user_inputs_and_no_real_credentials():
-    config = yaml.safe_load((ROOT / "config.example.yaml").read_text(encoding="utf-8"))
-
-    assert set(config) == {"user_profile", "feishu"}
-    assert "system_taxonomy" not in config
-    assert config["feishu"] == {
-        "base_url": "",
-        "app_id": "",
-        "app_secret": "",
-        "webhook_url": "",
-    }
-    assert "table_id" not in config["feishu"]
-    assert "tenant_access_token" not in config["feishu"]
+def test_public_surface_does_not_ship_editable_credential_template():
+    assert not (ROOT / "config.example.yaml").exists()
 
 
 def test_saving_merged_defaults_keeps_local_config_small(tmp_path: Path):
@@ -63,37 +52,29 @@ def test_saving_config_preserves_only_changed_advanced_overrides(tmp_path: Path)
 def test_readme_describes_automatic_workspace_setup_without_old_migration():
     text = (ROOT / "README.md").read_text(encoding="utf-8")
 
-    assert "python -m job_monitor init" in text
+    assert "uvx --python 3.12 feishu-job-radar" in text
     assert "自动创建" in text
     assert "YOUR_TABLE_ID" not in text
     assert "岗位ID（单行文本）" not in text
     assert "migrate-feishu" not in text
 
 
-def test_project_exposes_console_script_and_windows_ci_matrix():
+def test_project_exposes_launcher_and_builds_without_desktop_path():
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     workflow = (ROOT / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8")
 
-    assert 'feishu-job-radar = "job_monitor.cli:main"' in pyproject
-    assert "windows-latest" in workflow
+    assert 'feishu-job-radar = "job_monitor.launcher:main"' in pyproject
+    assert "python -m build" in workflow
     assert "3.12" in workflow
+    assert "PySide6" not in pyproject
+    assert "PyInstaller" not in workflow
 
 
-def test_windows_launchers_keep_results_visible_and_use_project_paths():
-    runner = (ROOT / "run_daily.bat").read_text(encoding="utf-8")
-    launcher = (ROOT / "start.bat").read_text(encoding="ascii")
-    menu = (ROOT / "start.ps1").read_text(encoding="utf-8-sig")
-
-    assert 'call "%~dp0start.bat"' in runner
-    assert '--config "%~dp0config.yaml"' in runner
-    assert '--db "%~dp0data\\jobs.sqlite"' in runner
-    assert 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File' in launcher
-    assert '.venv\\Scripts\\python.exe' in menu
-    assert '首次配置 / 修复飞书工作台' in menu
-    assert '开始每日扫描' in menu
-    assert '查看健康检查' in menu
-    assert '打开飞书工作台' in menu
-    assert (ROOT / 'start.ps1').read_bytes().startswith(b'\xef\xbb\xbf')
+def test_legacy_desktop_and_script_paths_are_removed():
+    assert not (ROOT / "start.bat").exists()
+    assert not (ROOT / "start.ps1").exists()
+    assert not (ROOT / "run_daily.bat").exists()
+    assert not (ROOT / "packaging").exists()
 
 
 def test_init_help_describes_workspace_creation(capsys):

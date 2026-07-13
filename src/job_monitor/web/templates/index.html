@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>飞书求职雷达</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; color: #172033; }
+    section { border: 1px solid #d9dfeb; border-radius: 12px; padding: 1rem 1.25rem; margin: 1rem 0; }
+    label { display: block; margin: .7rem 0; } input { width: 100%; box-sizing: border-box; padding: .55rem; }
+    button { padding: .6rem 1rem; margin-right: .5rem; cursor: pointer; } #status { white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>飞书求职雷达</h1>
+  <p>本地运行，浏览器负责交互，岗位和凭据保存在本机。</p>
+  <section>
+    <h2>求职偏好</h2>
+    <label>毕业届别（逗号分隔）<input id="graduate_years" placeholder="2027届"></label>
+    <label>招聘批次（逗号分隔）<input id="batches" placeholder="秋招,实习"></label>
+    <label>岗位方向（逗号分隔）<input id="role_groups" placeholder="硬件/嵌入式"></label>
+    <label>目标城市（逗号分隔）<input id="target_cities" placeholder="可留空"></label>
+    <button onclick="savePreferences()">保存偏好</button>
+  </section>
+  <section>
+    <h2>飞书连接</h2>
+    <label>Base 链接<input id="base_url" placeholder="https://租户.feishu.cn/base/..."></label>
+    <label>App ID<input id="app_id"></label>
+    <label>App Secret<input id="app_secret" type="password" placeholder="留空表示保留原值"></label>
+    <button onclick="savePreferences()">保存连接</button>
+    <button onclick="initializeWorkspace()">创建或修复工作台</button>
+  </section>
+  <section>
+    <button onclick="startDaily()">开始每日扫描</button>
+    <button onclick="loadJobs()">刷新岗位</button>
+    <div id="status">正在读取配置……</div>
+    <ul id="jobs"></ul>
+  </section>
+  <script>
+    const $ = id => document.getElementById(id);
+    const values = id => $(id).value.split(',').map(x => x.trim()).filter(Boolean);
+    function setStatus(text) { $('status').textContent = text; }
+    async function loadPreferences() {
+      const data = await fetch('/api/preferences').then(r => r.json());
+      for (const key of ['graduate_years','batches','role_groups','target_cities']) $(key).value = (data.user_profile[key] || []).join(',');
+      $('base_url').value = data.feishu.base_url || ''; $('app_id').value = data.feishu.app_id || '';
+      setStatus('配置已读取。');
+    }
+    async function savePreferences() {
+      const payload = { user_profile: {}, feishu: { base_url: $('base_url').value, app_id: $('app_id').value, app_secret: $('app_secret').value } };
+      for (const key of ['graduate_years','batches','role_groups','target_cities']) payload.user_profile[key] = values(key);
+      const response = await fetch('/api/preferences', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+      const data = await response.json(); setStatus(response.ok ? '配置已保存。' : JSON.stringify(data.detail || data));
+      if (response.ok) $('app_secret').value = '';
+    }
+    async function startDaily() {
+      const response = await fetch('/api/tasks/daily', {method:'POST'}); const data = await response.json();
+      if (!response.ok) { setStatus(JSON.stringify(data.detail || data)); return; }
+      setStatus('任务已启动：' + data.task_id); pollTask(data.task_id);
+    }
+    async function initializeWorkspace() {
+      const preview = await fetch('/api/setup/preview').then(r => r.json());
+      if (!preview.configured) { setStatus('请先填写并保存飞书连接。'); return; }
+      setStatus('正在创建或修复“' + preview.table_name + '”，本地基线 ' + preview.baseline_items + ' 条……');
+      const response = await fetch('/api/setup/initialize', {method:'POST'}); const data = await response.json();
+      setStatus(response.ok ? '工作台已准备：' + data.workspace_url : JSON.stringify(data.detail || data));
+    }
+    async function pollTask(id) {
+      const data = await fetch('/api/tasks/' + id).then(r => r.json()); setStatus(JSON.stringify(data, null, 2));
+      if (data.status === 'queued' || data.status === 'running') setTimeout(() => pollTask(id), 1000);
+      else loadJobs();
+    }
+    async function loadJobs() {
+      const rows = await fetch('/api/jobs').then(r => r.json()); $('jobs').innerHTML = rows.map(row => `<li>${row.company || '未知公司'} - ${row.title || ''} - ${row.city || '城市待确认'}</li>`).join('');
+    }
+    loadPreferences(); loadJobs();
+  </script>
+</body>
+</html>

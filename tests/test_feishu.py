@@ -2,6 +2,7 @@ from unittest.mock import Mock
 import requests
 from job_monitor.cli import _sync_feishu
 from job_monitor.feishu import FeishuBitableClient, FeishuConfig
+from job_monitor.models import Job
 from job_monitor.storage import JobRepository
 
 
@@ -322,4 +323,39 @@ def test_sync_feishu_creates_when_local_record_id_is_missing(tmp_path, monkeypat
 
     assert summary.created == 1
     assert captured["records"][0]["fields"]["公司"] == "RemoteCo"
+
+
+def test_sync_feishu_marks_records_without_create_receipts_as_failed(tmp_path, monkeypatch):
+    repo = JobRepository(tmp_path / "jobs.sqlite")
+    repo.init_schema()
+    first = repo.upsert_job(Job(dedupe_key="create:first", company="FirstCo", title="工程师"))
+    second = repo.upsert_job(Job(dedupe_key="create:second", company="SecondCo", title="工程师"))
+    rows = [
+        {"job_id": first.job_id, "company": "FirstCo", "title": "工程师", "sync_status": "pending", "recommendation_active": True},
+        {"job_id": second.job_id, "company": "SecondCo", "title": "工程师", "sync_status": "pending", "recommendation_active": True},
+    ]
+
+    class Client:
+        def __init__(self, config):
+            pass
+
+        def batch_create_records(self, records):
+            return type("Result", (), {"sent": True, "record_ids": ["rec-first"], "error": None})()
+
+        def batch_update_records(self, records):
+            raise AssertionError("update should not be called for new records")
+
+    monkeypatch.setattr("job_monitor.cli.FeishuBitableClient", Client)
+
+    summary = _sync_feishu(
+        repo,
+        {"feishu": {"bitable_app_token": "base", "table_id": "tbl", "tenant_access_token": "token"}},
+        rows,
+    )
+
+    assert summary.created == 1
+    assert summary.failed == 1
+    assert repo.sync_job_ids_by_record_id() == {"rec-first": first.job_id}
+    failed_row = next(row for row in repo.list_jobs_with_matches() if row["id"] == second.job_id)
+    assert failed_row["sync_status"] == "failed"
 

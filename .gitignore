@@ -10,11 +10,18 @@ data/exports/
 
 # Python temp files
 __pycache__/
+**/__pycache__/
 *.pyc
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
 .venv/
 venv/
 .worktrees/
+worktrees/
 
 # Python packaging & build artifacts
 build/
@@ -22,6 +29,5 @@ dist/
 *.egg-info/
 .eggs/
 
-# Un-tracked documentation / Developer resources
-DEVELOPER.md
+# Local-only agent resources
 .agents/

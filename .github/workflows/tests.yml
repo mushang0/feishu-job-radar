@@ -23,9 +23,52 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: python -m pip install --upgrade pip
-      - run: python -m pip install -e . pytest
+      - run: python -m pip install -e ".[test]"
+      - run: python -m pip check
       - run: python -m pytest -q
-      - if: runner.os == 'Windows'
-        run: python -m pip install -e .[desktop]
-      - if: runner.os == 'Windows'
-        run: pyinstaller --noconfirm packaging/feishu-job-radar.spec
+
+  build:
+    needs: pytest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip build
+      - run: python -m build
+      - name: Verify both distribution formats exist
+        run: |
+          test "$(find dist -maxdepth 1 -name '*.whl' | wc -l)" -eq 1
+          test "$(find dist -maxdepth 1 -name '*.tar.gz' | wc -l)" -eq 1
+      - run: python scripts/verify_wheel.py dist/*.whl
+      - name: Install wheel into a fresh environment
+        run: |
+          python -m venv "${RUNNER_TEMP}/wheel-venv"
+          "${RUNNER_TEMP}/wheel-venv/bin/python" -m pip install --upgrade pip
+          "${RUNNER_TEMP}/wheel-venv/bin/python" -m pip install dist/*.whl
+          "${RUNNER_TEMP}/wheel-venv/bin/python" -m pip check
+      - name: Smoke test installed WebUI outside the repository
+        run: |
+          cd "${RUNNER_TEMP}"
+          "${RUNNER_TEMP}/wheel-venv/bin/python" "${GITHUB_WORKSPACE}/scripts/smoke_installed.py"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: distributions
+          path: dist/
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    environment:
+      name: pypi
+      url: https://pypi.org/p/feishu-job-radar
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: distributions
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

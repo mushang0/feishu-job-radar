@@ -3,24 +3,40 @@ name = "feishu-job-radar"
 version = "0.1.0"
 description = "面向个人求职者的本地岗位发现与飞书进度管理工具"
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
     "beautifulsoup4>=4.12",
+    "fastapi>=0.115,<0.116",
     "openpyxl>=3.1",
     "PyYAML>=6.0",
     "requests>=2.31",
+    "uvicorn>=0.32",
 ]
 
 [project.optional-dependencies]
-desktop = [
-    "PySide6>=6.7",
-    "PyInstaller>=6.0",
+test = [
+    "httpx>=0.27,<0.29",
+    "pytest>=8,<9",
 ]
 
 [project.scripts]
-feishu-job-radar = "job_monitor.cli:main"
-feishu-job-radar-desktop = "job_monitor.desktop:main"
+feishu-job-radar = "job_monitor.launcher:main"
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+job_monitor = [
+    "resources/*.sqlite",
+    "resources/defaults/*",
+    "web/templates/**/*",
+    "web/static/**/*",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

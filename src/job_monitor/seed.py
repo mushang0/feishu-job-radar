@@ -11,11 +11,16 @@ class SeedDatabaseError(RuntimeError):
 
 
 def find_seed_database() -> Path:
-    """Locate the bundled job baseline from a checkout or installed project."""
+    """Locate the bundled job baseline from an installed package or checkout.
+
+    The packaged resource is the canonical source.  Working-directory and
+    frozen-app fallbacks remain temporarily for legacy installs and migration.
+    """
     frozen_root = Path(getattr(__import__("sys"), "_MEIPASS", ""))
     candidates = (
-        Path.cwd() / "data" / "jobs_seed.sqlite",
+        Path(__file__).resolve().parent / "resources" / "jobs_seed.sqlite",
         frozen_root / "data" / "jobs_seed.sqlite",
+        Path.cwd() / "data" / "jobs_seed.sqlite",
         Path(__file__).resolve().parents[2] / "data" / "jobs_seed.sqlite",
     )
     for candidate in candidates:

@@ -99,7 +99,7 @@ def test_daily_pipeline_stores_detail_failure_without_recommendation(tmp_path: P
     job = Job(
         source="WonderCV",
         dedupe_key="WonderCV:id:detail-failed",
-        company="TargetCo",
+        company="OtherCo",
         title="2027届 FPGA 工程师",
         batch="秋招",
         target_graduate_year="2027届",
@@ -111,4 +111,33 @@ def test_daily_pipeline_stores_detail_failure_without_recommendation(tmp_path: P
     assert summary.new_items == 1
     assert summary.recommended_items == 0
     assert repo.list_recommended_jobs("2026-07-03") == []
+
+
+def test_daily_pipeline_rematches_existing_job_when_visible_fields_change(tmp_path: Path, mock_config):
+    repo = JobRepository(tmp_path / "jobs.sqlite")
+    repo.init_schema()
+    first = Job(
+        source="WonderCV",
+        dedupe_key="WonderCV:id:changed",
+        company="OtherCo",
+        title="2027届校园招聘公告",
+        batch="秋招",
+        target_graduate_year="2027届",
+    )
+    repo_result = run_daily_with_jobs(repo, [first], mock_config(), run_date="2026-07-03")
+    assert repo_result.recommended_items == 0
+
+    updated = Job(
+        source="WonderCV",
+        dedupe_key="WonderCV:id:changed",
+        company="OtherCo",
+        title="2027届 FPGA 工程师",
+        batch="秋招",
+        target_graduate_year="2027届",
+    )
+    summary = run_daily_with_jobs(repo, [updated], mock_config(), run_date="2026-07-04")
+
+    assert summary.updated_items == 1
+    assert summary.recommended_items == 1
+    assert [row["company"] for row in repo.list_recommended_jobs("2026-07-04")] == ["OtherCo"]
 
