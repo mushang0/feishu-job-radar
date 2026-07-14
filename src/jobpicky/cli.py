@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -18,10 +19,12 @@ from .onboarding import InitializationPreview, collect_missing_config, confirm_i
 from .official_search import OfficialUrlFinder
 from .pipeline import backfill_existing_job_details, enrich_official_urls, run_init_with_page_batches, pull_user_states_from_feishu
 from .core import DatabaseBootstrapService, JobQueryService
+from .integrations.feishu import FeishuIntegrationService
 from .seed import SeedDatabaseError, find_seed_database, restore_seed_database
 from .runtime import RunReport, RunReporter, console_event, console_report
 from .services.scanning import DailyWorkflowResult, _notification_rows, run_daily_workflow
 from .services.local import rematch_local
+from .services.initialization import existing_local_repository
 from .storage import JobRepository
 from .services.synchronization import SyncSummary, sync_feishu
 from .wondercv import WonderCVCrawler
@@ -268,27 +271,12 @@ def _run_init(
         return 1
 
     try:
-        database_existed = Path(db_path).is_file()
-        repo = DatabaseBootstrapService(db_path).initialize()
-        seeded = not database_existed
-    except SeedDatabaseError as exc:
-        _report_cli_exception(
-            config,
-            exc,
-            log_message="seed database initialization failed",
-            error=_cli_error_spec("init"),
-        )
-        return 1
-    except OSError as exc:
-        _report_cli_exception(
-            config,
-            exc,
-            log_message="seed database initialization failed",
-            error=_cli_error_spec("init"),
-        )
+        repo = existing_local_repository(db_path)
+    except ValueError as exc:
+        print(str(exc))
         return 1
 
-    reporter.stage("init", 1, 5, "恢复本地岗位基线", "done", f"{JobQueryService(repo).stats()['jobs']} 条")
+    reporter.stage("init", 1, 5, "检查本地岗位库", "done", f"{JobQueryService(repo).stats()['jobs']} 条")
     local_preflight = preflight_check(config, db_path)
     if not local_preflight.ok:
         print("运行前检查失败：" + "；".join(local_preflight.errors))
@@ -296,8 +284,11 @@ def _run_init(
 
     try:
         reporter.stage("init", 2, 5, "检查飞书连接与权限")
-        client = FeishuBitableClient(FeishuConfig.from_config(config))
-        client.get_app()
+        integration = FeishuIntegrationService(
+            repo, config, config_path=config_path,
+            client_factory=FeishuBitableClient, push_jobs=sync_feishu,
+        )
+        client = integration.test_connection()
         _read_only_workspace_preflight(client, config)
         reporter.stage("init", 2, 5, "检查飞书连接与权限", "done")
     except Exception as exc:
@@ -319,19 +310,11 @@ def _run_init(
         return 0
 
     try:
-        reporter.stage("init", 3, 5, "创建或修复飞书工作台")
-        def persist_table_id(table_id: str) -> None:
-            config["feishu"]["workspace_table_id"] = table_id
-            save_config(config, config_path)
-
-        provisioning = WorkspaceProvisioner(client, desired_workspace()).provision(
-            config["feishu"].get("workspace_table_id") or None,
-            on_table_created=persist_table_id,
-        )
-        config["feishu"]["workspace_table_id"] = provisioning.table_id
-        config["feishu"]["workspace_schema_version"] = WORKSPACE_SCHEMA_VERSION
-        save_config(config, config_path)
-        reporter.stage("init", 3, 5, "创建或修复飞书工作台", "done")
+        reporter.stage("init", 3, 5, "创建或修复飞书工作台并同步本地推荐")
+        connected = integration.connect(client=client)
+        provisioning = connected
+        sync_summary = connected.sync
+        reporter.stage("init", 3, 5, "创建或修复飞书工作台并同步本地推荐", "done")
     except Exception as exc:
         _report_cli_exception(
             config,
@@ -342,14 +325,14 @@ def _run_init(
         return 1
 
     started_at = datetime.now().isoformat(timespec="seconds")
-    reporter.stage("init", 4, 5, "根据偏好筛选岗位")
-    summary = rematch_existing_jobs(repo, config)
-    reporter.stage("init", 4, 5, "根据偏好筛选岗位", "done", f"推荐 {summary.recommended_items} 条")
-
-    reporter.stage("init", 5, 5, "同步到飞书")
-    sync_summary = _sync_feishu(repo, config, repo.list_feishu_reconciliation_rows())
-    export_jobs_to_excel(repo.list_all_jobs(), output_path)
+    summary = type("ExistingLocalSummary", (), {
+        "items_seen": connected.baseline_items, "new_items": 0, "updated_items": 0,
+        "relevant_items": connected.recommended_items,
+        "recommended_items": connected.recommended_items,
+    })()
+    reporter.stage("init", 4, 5, "读取本地推荐结果", "done", f"推荐 {summary.recommended_items} 条")
     reporter.stage("init", 5, 5, "同步到飞书", "done", f"新建 {sync_summary.created} 条")
+    export_jobs_to_excel(repo.list_all_jobs(), output_path)
     repo.record_scan_run(
         {
             "run_type": "init",
@@ -363,9 +346,8 @@ def _run_init(
             "error_message": f"飞书同步失败 {sync_summary.failed} 条" if sync_summary.failed else None,
         }
     )
-    seed_origin = seeded or seeded_from_reset
-    source_label = "已从 seed 恢复本地岗位库" if seed_origin else "使用已有本地岗位库"
-    print(f"初始化数据：{source_label}；已重新匹配，不执行首次全量抓取。")
+    seed_origin = seeded_from_reset
+    print("已连接飞书，工作台创建或修复完成，并已同步现有本地推荐；未执行本地初始化、抓取或重新匹配。")
     print(_format_run_summary("init", summary, None, PullSummary(), sync_summary))
     if summary.items_seen == 0:
         print("提示：本地岗位库为空；请确认运行数据库未被错误替换，或运行 daily 获取新增岗位。")
@@ -481,10 +463,13 @@ def _run_reset(
 
 
 def _run_daily(config: dict, db_path: str, skip_feishu: bool = False, reporter: RunReporter | None = None) -> int:
+    workflow_config = config
+    if skip_feishu:
+        workflow_config = deepcopy(config)
+        workflow_config["feishu"] = {}
     result = run_daily_workflow(
-        config,
+        workflow_config,
         db_path,
-        skip_feishu=skip_feishu,
         reporter=reporter or RunReporter(),
     )
     run_guard_error = next((error for error in result.errors if error.stage == "run_guard"), None)

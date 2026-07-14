@@ -79,7 +79,7 @@ class _Crawler:
         )()
 
 
-def test_daily_workflow_pulls_before_fetch_and_sync(monkeypatch, tmp_path: Path):
+def test_daily_workflow_updates_local_before_pull_and_sync(monkeypatch, tmp_path: Path):
     events: list[str] = []
 
     class Client:
@@ -121,7 +121,7 @@ def test_daily_workflow_pulls_before_fetch_and_sync(monkeypatch, tmp_path: Path)
 
     result = run_daily_workflow(_config(), tmp_path / "jobs.sqlite")
 
-    assert events == ["pull", "fetch", "enrich", "sync", "notify"]
+    assert events == ["fetch", "enrich", "pull", "sync", "notify"]
     assert result.status == "success"
     assert result.fetched_count == result.created_count == result.matched_count == result.recommended_count == 1
     assert result.unchanged_count == 0
@@ -160,7 +160,7 @@ def test_pull_failure_blocks_sync_but_returns_stage_error(monkeypatch, tmp_path:
     assert result.errors == (DailyStageError("feishu_pull", "feishu_pull_failed", "飞书状态回拉失败"),)
 
 
-def test_no_feishu_skips_pull_sync_enrichment_and_notification(monkeypatch, tmp_path: Path):
+def test_no_feishu_skips_pull_sync_and_notification_but_keeps_enrichment(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(scanning, "WonderCVCrawler", _Crawler)
     monkeypatch.setattr(
         scanning,
@@ -180,7 +180,7 @@ def test_no_feishu_skips_pull_sync_enrichment_and_notification(monkeypatch, tmp_
     assert result.notification_status == "skipped"
     assert result.notification_attempted is False
     assert result.notification_sent is False
-    assert result.link_enriched_count == 0
+    assert result.link_enriched_count == 1
 
 
 def test_process_failure_identifies_the_failed_stage(monkeypatch, tmp_path: Path):

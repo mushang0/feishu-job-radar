@@ -33,7 +33,8 @@ def test_new_record_uses_managed_schema_and_defaults_to_pending():
     assert fields["求职状态"] == "待处理"
     assert fields["投递入口"] == {"link": "https://careers.example.com/job/42", "text": "打开投递入口"}
     assert isinstance(fields["截止时间"], int)
-    assert set(fields) == {"公司", "岗位", "城市", "届别", "批次", "投递入口", "截止时间", "求职状态"}
+    assert fields["当前推荐"] is True
+    assert set(fields) == {"公司", "岗位", "当前推荐", "城市", "届别", "批次", "投递入口", "截止时间", "求职状态"}
 
 
 def test_recreated_tracked_record_restores_known_local_user_fields():
@@ -47,4 +48,5 @@ def test_update_only_contains_synced_user_visible_fields():
     fields = build_update_fields(_row(user_status="收藏", next_action="面试", note="keep", recommendation_active=False))
 
     assert {"求职状态", "备注"}.isdisjoint(fields)
-    assert set(fields) == {"公司", "岗位", "城市", "届别", "批次", "投递入口", "截止时间"}
+    assert fields["当前推荐"] is False
+    assert set(fields) == {"公司", "岗位", "当前推荐", "城市", "届别", "批次", "投递入口", "截止时间"}

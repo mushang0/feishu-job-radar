@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from copy import deepcopy
 from pathlib import Path
 from typing import Callable
 
@@ -59,10 +60,11 @@ class LocalApplicationService:
         repository = DatabaseBootstrapService(self.database_path).initialize()
         matching = MatchingService(repository, self.config).rematch_all()
         recommended = RecommendationService(repository).rebuild_all(matching.matches)
+        local_config = deepcopy(self.config)
+        local_config["feishu"] = {}
         daily = run_daily_workflow(
-            self.config,
+            local_config,
             self.database_path,
-            skip_feishu=True,
             task_id=task_id,
             cancel_check=cancel_check,
         )
