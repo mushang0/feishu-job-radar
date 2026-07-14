@@ -173,14 +173,6 @@ def run_init_with_page_batches(
 
 def _job_from_row(row: dict) -> Job:
     return JobRepository.job_from_row(row)
-
-
-def _split(value: str | None) -> list[str]:
-    if not value:
-        return []
-    return [part for part in str(value).split(";") if part]
-
-
 def pull_user_states_from_feishu(repo: JobRepository, client: "FeishuBitableClient"):
     """Pull user-owned fields and return the complete, auditable result."""
     return recover_user_states(repo, client.list_all_records())
