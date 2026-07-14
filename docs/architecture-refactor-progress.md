@@ -317,63 +317,85 @@ git diff --check：通过
 
 ## 阶段 4：重新接入飞书
 
-状态：未开始
+状态：已完成（2026-07-14）
 
 ### 开始前
 
-- [ ] 阅读核心查询服务和本地应用服务。
-- [ ] 只阅读飞书客户端、工作台、审计、字段映射和相关测试。
-- [ ] 确认本地流程已经独立通过。
+- [x] 阅读核心查询服务和本地应用服务。
+- [x] 阅读飞书客户端、工作台、审计、字段映射和相关测试。
+- [x] 确认本地流程已经独立通过。
 
 ### 实际修改文件
 
 ```text
-待填写
+src/jobpicky/integrations/__init__.py
+src/jobpicky/integrations/feishu/__init__.py
+src/jobpicky/integrations/feishu/service.py
+src/jobpicky/services/initialization.py
+src/jobpicky/services/local.py
+src/jobpicky/services/scanning.py
+src/jobpicky/cli.py
+tests/test_daily_workflow.py
+tests/test_initialization_cli.py
+tests/test_mvp_onboarding.py
+docs/architecture-refactor-progress.md
 ```
 
 ### 关键设计决定
 
 ```text
-待填写
+1. 新增 FeishuIntegrationService，统一凭据连接测试、WorkspaceProvisioner 工作台创建/修复、用户状态回拉、岗位/推荐推送和机器人通知；继续复用 FeishuBitableClient、FeishuBot、字段映射、审计保护和同步状态表。
+2. 首次连接调用链固定为：连接测试 → 工作台创建/修复 → 查询本地同步候选/推荐 → 首次同步。InitializationService 和 CLI init 均不再恢复 seed、抓取 WonderCV、全量匹配或重建推荐。
+3. 每日调用链调整为：抓取 → 本地岗位提交/匹配/推荐 → 官网链接补全 → 可选飞书回拉 → 可选推送 → 可选通知。飞书各阶段只在本地结果落库后运行，异常转换为集成阶段错误，不回滚本地结果。
+4. 官网链接补全不再受飞书配置或 CLI --no-feishu 控制，补全策略仍为 only_recommended=True。
+5. 公共每日服务删除 skip_feishu 参数；CLI --no-feishu 仅在入口复制配置并移除飞书段，本地初始化服务采用相同入口选择，不向公共服务传递飞书开关。
+6. 回拉存在异常时继续阻止推送，避免覆盖用户字段；通知与推送相互隔离。同步继续维护 record_id、sync_status、部分批量失败和脱敏错误。
+7. 实际代码与计划差异：计划建议拆成 connection/workspace/pull_state/push_jobs/notification 五个文件；实际职责较薄且共享事务边界，集中为 integrations/feishu/service.py，底层模块保持原位，避免无必要重写。
 ```
 
 ### 测试结果
 
 ```text
-待填写
+局部测试：37 passed（daily、本地应用、审计、字段映射、同步候选）。
+完整测试：247 passed in 57.50s。
+发布检查：9/9 PASS（build、wheel 校验、干净环境安装、依赖检查、仓库外启动、WebUI health、uvx smoke、干净退出全部通过）。
+git diff --check：通过。
 ```
 
 ### 验收
 
-- [ ] 首次连接只测试连接、创建工作台和首次同步。
-- [ ] 首次连接不重新实现本地初始化和匹配。
-- [ ] 每日核心更新先提交本地结果。
-- [ ] 飞书状态回拉、推送和通知均为可选步骤。
-- [ ] 飞书失败不破坏本地岗位、匹配和推荐。
-- [ ] 用户状态保护和错误脱敏保持有效。
-- [ ] 完整 pytest、wheel 和 `uvx` 启动通过。
+- [x] 首次连接只测试连接、创建工作台和首次同步。
+- [x] 首次连接不重新实现本地初始化和匹配。
+- [x] 每日核心更新先提交本地结果。
+- [x] 飞书状态回拉、推送和通知均为可选步骤。
+- [x] 飞书失败不破坏本地岗位、匹配和推荐。
+- [x] 用户状态保护和错误脱敏保持有效。
+- [x] 完整 pytest、wheel 和 `uvx` 启动通过。
 
 ### 遗留问题
 
 ```text
-待填写
+旧 reset、rematch、audit、backfill 等维护命令仍直接使用底层飞书组件；它们不是本阶段的首次连接或每日核心调用链。services/scanning.py 仍保留兼容结果 DTO 和阶段报告，后续可在不改变 API 的前提下进一步瘦身。
 ```
 
 ### 阶段提交
 
 ```text
-commit: 待填写
+分支：refactor/04-feishu-integration
+阶段起点：54cea4a
+实现提交：8c44445
+文档与最终验收提交：本提交
 ```
 
 ### 重构完成检查
 
-- [ ] `docs/architecture-refactor-plan.md` 中的总体验收标准全部完成。
-- [ ] 所有开发环境旧运行数据库已删除并由新 seed 重建。
-- [ ] 没有遗留的核心 → 飞书直接依赖。
-- [ ] 没有遗留的 Web/CLI 重复业务流程。
-- [ ] 匹配和推荐语义与阶段 1 基线一致。
-- [ ] `python -m pytest -q` 通过。
-- [ ] wheel 安装和 `uvx` 启动通过。
+- [x] `docs/architecture-refactor-plan.md` 中的总体验收标准全部完成。
+- [x] 仓库运行数据策略已在阶段 1 改为由新 seed 重建（用户目录中的仓库外数据库不做破坏性清理）。
+- [x] 没有遗留的公共核心 → 飞书直接依赖。
+- [x] Web/CLI 的首次连接和每日流程复用同一飞书应用服务。
+- [x] 匹配和推荐语义与阶段 1 基线一致。
+- [x] `python -m pytest -q` 通过。
+- [x] wheel 安装和 `uvx` 启动通过。
 
 ## 阶段变更记录
 
