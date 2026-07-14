@@ -462,6 +462,25 @@ class JobRepository:
                 ).fetchall()
             ]
 
+    def get_stored_job(self, job_id: int) -> dict[str, Any]:
+        with self.connect() as conn:
+            row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        return dict(row) if row else {}
+
+    @staticmethod
+    def job_from_row(row: dict[str, Any]) -> Job:
+        split = lambda value: [part for part in str(value).split(";") if part] if value else []
+        fields = Job.__dataclass_fields__
+        values = {name: row.get(name) for name in fields if name in row}
+        for name in ("tags", "job_tags", "special_marks", "raw_tags", "role_signals"):
+            values[name] = split(row.get(name))
+        values["source"] = values.get("source") or "WonderCV"
+        values["company"] = values.get("company") or ""
+        values["title"] = values.get("title") or ""
+        values["parse_status"] = values.get("parse_status") or "ok"
+        values["is_active"] = int(values.get("is_active") if values.get("is_active") is not None else 1)
+        return Job(**values)
+
     def list_all_jobs(self) -> list[dict[str, Any]]:
         with self.connect() as conn:
             return [dict(row) for row in conn.execute(self._all_jobs_query()).fetchall()]

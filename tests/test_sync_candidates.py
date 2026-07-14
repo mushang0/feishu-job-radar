@@ -2,6 +2,8 @@ from pathlib import Path
 
 from jobpicky.models import Job
 from jobpicky.storage import JobRepository
+from jobpicky.services.synchronization import sync_feishu
+from types import SimpleNamespace
 
 
 def test_feishu_sync_candidates_include_recommendations_and_tracked_jobs_only(tmp_path: Path):
@@ -32,3 +34,36 @@ def test_feishu_reconciliation_includes_previously_synced_inactive_jobs(tmp_path
     assert rows[recommended]["recommendation_active"] is True
     assert rows[stale]["recommendation_active"] is False
     assert ignored not in rows
+
+
+def test_reconciliation_updates_stale_record_without_user_fields(tmp_path: Path):
+    repo = JobRepository(tmp_path / "jobs.sqlite")
+    repo.init_schema()
+    stale = repo.upsert_job(Job(dedupe_key="job:stale", company="B", title="Designer")).job_id
+    repo.update_user_state(stale, "收藏", "keep this note")
+    repo.mark_sync(stale, "pending", record_id="rec-stale")
+    captured = []
+
+    class Client:
+        def __init__(self, _config):
+            pass
+
+        def batch_update_records(self, records):
+            captured.extend(records)
+            return SimpleNamespace(sent=True)
+
+    rows = repo.list_feishu_reconciliation_rows()
+    summary = sync_feishu(
+        repo,
+        {"feishu": {"bitable_app_token": "base", "table_id": "tbl", "tenant_access_token": "token"}},
+        rows,
+        client_factory=Client,
+    )
+
+    assert summary.updated == 1
+    assert captured[0]["record_id"] == "rec-stale"
+    assert captured[0]["fields"]["当前推荐"] is False
+    assert {"求职状态", "备注"}.isdisjoint(captured[0]["fields"])
+    saved = repo.get_job_with_match(stale)
+    assert saved["user_status"] == "收藏"
+    assert saved["note"] == "keep this note"

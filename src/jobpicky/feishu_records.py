@@ -23,6 +23,7 @@ def build_update_fields(row: dict[str, Any]) -> dict[str, Any]:
     fields: dict[str, Any] = {
         "公司": str(row.get("company") or "未命名公司"),
         "岗位": str(row.get("title") or "未命名岗位"),
+        "当前推荐": bool(row.get("recommendation_active")),
     }
     _set_text(fields, "城市", row.get("city"))
     _set_text(fields, "届别", row.get("target_graduate_year"))

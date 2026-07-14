@@ -2,7 +2,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from jobpicky.cli import _run_init
+from jobpicky.core import DatabaseBootstrapService
+from jobpicky.integrations.feishu import FeishuIntegrationService
 from jobpicky.pipeline import DailySummary
+from jobpicky.storage import JobRepository
 
 
 def _config():
@@ -18,9 +21,11 @@ def _config():
     }
 
 
-def test_run_init_restores_seed_then_rematches_before_sync(tmp_path: Path, monkeypatch):
+def test_run_init_uses_existing_database_and_connects_without_local_work(tmp_path: Path, monkeypatch, capsys):
     events = []
     config = _config()
+    database = tmp_path / "jobs.sqlite"
+    DatabaseBootstrapService(database).initialize()
 
     class Client:
         def __init__(self, _config):
@@ -47,27 +52,75 @@ def test_run_init_restores_seed_then_rematches_before_sync(tmp_path: Path, monke
     monkeypatch.setattr("jobpicky.cli.confirm_initialization", lambda *args, **kwargs: events.append("confirm") or True)
     monkeypatch.setattr("jobpicky.cli.save_config", lambda value, path: events.append(f"save:{value['feishu'].get('workspace_table_id') or 'config'}"))
     monkeypatch.setattr("jobpicky.cli.FeishuBitableClient", Client)
-    monkeypatch.setattr("jobpicky.cli.WorkspaceProvisioner", Provisioner)
+    monkeypatch.setattr("jobpicky.integrations.feishu.service.WorkspaceProvisioner", Provisioner)
+    original_test_connection = FeishuIntegrationService.test_connection
+
+    def test_connection(service):
+        events.append("service-test-connection")
+        return original_test_connection(service)
+
+    monkeypatch.setattr(FeishuIntegrationService, "test_connection", test_connection)
     monkeypatch.setattr(
-        "jobpicky.cli.restore_seed_database",
-        lambda path: events.append("restore-seed") or True,
+        "jobpicky.cli.DatabaseBootstrapService.initialize",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("bootstrap must not run")),
     )
     monkeypatch.setattr(
         "jobpicky.cli.rematch_existing_jobs",
         lambda *args, **kwargs: events.append("rematch") or DailySummary(0, 0, 0, 0, 0),
     )
-    monkeypatch.setattr("jobpicky.cli._sync_feishu", lambda *args, **kwargs: events.append("sync") or SimpleNamespace(created=0, updated=0, skipped=0, failed=0))
+    monkeypatch.setattr("jobpicky.cli.sync_feishu", lambda *args, **kwargs: events.append("sync") or SimpleNamespace(created=0, updated=0, skipped=0, failed=0))
 
-    code = _run_init(config, str(tmp_path / "jobs.sqlite"), str(tmp_path / "config.yaml"), str(tmp_path / "export.xlsx"), assume_yes=True)
+    code = _run_init(config, str(database), str(tmp_path / "config.yaml"), str(tmp_path / "export.xlsx"), assume_yes=True)
 
     assert code == 0
-    assert events.index("restore-seed") < events.index("read-only-preflight") < events.index("confirm") < events.index("provision") < events.index("rematch") < events.index("sync")
+    assert events.index("service-test-connection") < events.index("read-only-preflight") < events.index("confirm") < events.index("provision") < events.index("sync")
+    assert "rematch" not in events
+    assert "已重新匹配" not in capsys.readouterr().out
     assert config["feishu"]["workspace_table_id"] == "tbl-managed"
-    assert config["feishu"]["workspace_schema_version"] == "2"
+    assert config["feishu"]["workspace_schema_version"] == "3"
+
+
+def test_run_init_requires_existing_local_database(tmp_path: Path, monkeypatch, capsys):
+    monkeypatch.setattr("jobpicky.cli.collect_missing_config", lambda value, **_kwargs: value)
+    monkeypatch.setattr("jobpicky.cli.save_config", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "jobpicky.integrations.feishu.service.FeishuIntegrationService.test_connection",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("Feishu must not be called")),
+    )
+
+    database = tmp_path / "missing.sqlite"
+    code = _run_init(_config(), str(database), str(tmp_path / "config.yaml"), str(tmp_path / "export.xlsx"), assume_yes=True)
+
+    assert code == 1
+    assert not database.exists()
+    assert "请先完成本地初始化" in capsys.readouterr().out
+
+
+def test_run_init_rejects_empty_schema_before_feishu_connection(tmp_path: Path, monkeypatch, capsys):
+    monkeypatch.setattr("jobpicky.cli.collect_missing_config", lambda value, **_kwargs: value)
+    monkeypatch.setattr("jobpicky.cli.save_config", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "jobpicky.integrations.feishu.service.FeishuIntegrationService.test_connection",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("Feishu must not be called")
+        ),
+    )
+    database = tmp_path / "empty.sqlite"
+    JobRepository(database).init_schema()
+
+    code = _run_init(
+        _config(), str(database), str(tmp_path / "config.yaml"),
+        str(tmp_path / "export.xlsx"), assume_yes=True,
+    )
+
+    assert code == 1
+    assert JobRepository(database).count_jobs() == 0
+    assert "请先完成本地初始化" in capsys.readouterr().out
 
 
 def test_run_init_stops_before_crawler_when_provisioning_fails(tmp_path: Path, monkeypatch):
     config = _config()
+    DatabaseBootstrapService(tmp_path / "jobs.sqlite").initialize()
 
     class Client:
         def __init__(self, _config):
@@ -104,6 +157,7 @@ def test_run_init_stops_before_crawler_when_provisioning_fails(tmp_path: Path, m
 
 def test_run_init_decline_performs_no_remote_write(tmp_path: Path, monkeypatch):
     config = _config()
+    DatabaseBootstrapService(tmp_path / "jobs.sqlite").initialize()
 
     class Client:
         def __init__(self, _config):

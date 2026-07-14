@@ -4,6 +4,9 @@ from datetime import date
 from .matcher import Matcher
 from .models import Job
 from .storage import JobRepository
+from .core.ingestion import JobIngestionService
+from .core.matching import MatchingService
+from .core.recommendations import RecommendationService
 from .wondercv import merge_detail_into_job, parse_wondercv_detail
 from .audit import recover_user_states
 
@@ -29,65 +32,30 @@ class InitSummary:
 
 
 def run_daily_with_jobs(repo: JobRepository, jobs: list[Job], config: dict, run_date: str | None = None) -> DailySummary:
-    matcher = Matcher(config)
-    new_items = 0
-    updated_items = 0
-    relevant_items = 0
-    recommendations: list[dict] = []
-    matched_items = 0
-    recommendation_date = run_date or date.today().isoformat()
-
-    for job in jobs:
-        result = repo.upsert_job(job)
-        if result.created:
-            new_items += 1
-        elif result.changed:
-            updated_items += 1
-        # List-page candidates are stored for retry, but never become ordinary
-        # recommendations until the detail extractor has produced role evidence.
-        if job.parse_status == "detail_ready" and (result.created or result.changed):
-            matched_items += 1
-            match = matcher.match(job)
-            repo.save_match(result.job_id, match)
-            if match.is_relevant:
-                relevant_items += 1
-            if match.should_push:
-                recommendations.append({"job_id": result.job_id, "recommend_reason": match.recommend_reason})
-
-    repo.append_recommendations(recommendation_date, recommendations)
+    ingestion = JobIngestionService(repo, config).ingest(jobs)
+    matching = MatchingService(repo, config).match_ingested(ingestion.changed_items)
+    recommended_items = RecommendationService(repo).append_daily(matching.matches, run_date)
     return DailySummary(
         items_seen=len(jobs),
-        new_items=new_items,
-        updated_items=updated_items,
-        relevant_items=relevant_items,
-        recommended_items=len(recommendations),
-        matched_items=matched_items,
+        new_items=ingestion.new_items,
+        updated_items=ingestion.updated_items,
+        relevant_items=matching.relevant_items,
+        recommended_items=recommended_items,
+        matched_items=matching.matched_items,
     )
 
 
 def rematch_existing_jobs(repo: JobRepository, config: dict, recommendation_date: str | None = None) -> DailySummary:
-    matcher = Matcher(config)
     rows = repo.list_stored_jobs()
-    recommendations: list[dict] = []
-    relevant_items = 0
-    target_date = recommendation_date or date.today().isoformat()
-
-    for row in rows:
-        job = _job_from_row(row)
-        match = matcher.match(job)
-        repo.save_match(int(row["id"]), match)
-        if match.is_relevant:
-            relevant_items += 1
-        if match.should_push:
-            recommendations.append({"job_id": int(row["id"]), "recommend_reason": match.recommend_reason})
-
-    repo.sync_global_recommendations(target_date, recommendations)
+    matching = MatchingService(repo, config).rematch_all()
+    recommended_items = RecommendationService(repo).rebuild_all(matching.matches, recommendation_date)
     return DailySummary(
         items_seen=len(rows),
         new_items=0,
-        updated_items=len(rows),
-        relevant_items=relevant_items,
-        recommended_items=len(recommendations),
+        updated_items=matching.matched_items,
+        relevant_items=matching.relevant_items,
+        recommended_items=recommended_items,
+        matched_items=matching.matched_items,
     )
 
 
@@ -174,31 +142,24 @@ def run_init_with_page_batches(
     config: dict,
     run_date: str | None = None,
 ) -> InitSummary:
-    matcher = Matcher(config)
     pages_scanned = 0
     items_seen = 0
     new_items = 0
     updated_items = 0
     relevant_items = 0
-    recommendations: dict[int, dict] = {}
+    all_matches = []
 
     for jobs in page_batches:
         pages_scanned += 1
         items_seen += len(jobs)
-        for job in jobs:
-            result = repo.upsert_job(job)
-            if result.created:
-                new_items += 1
-            else:
-                updated_items += 1
-            match = matcher.match(job)
-            repo.save_match(result.job_id, match)
-            if match.is_relevant:
-                relevant_items += 1
-            if match.should_push:
-                recommendations[result.job_id] = {"job_id": result.job_id, "recommend_reason": match.recommend_reason}
+        ingestion = JobIngestionService(repo, config).ingest(jobs)
+        matching = MatchingService(repo, config).match_ingested(ingestion.changed_items)
+        new_items += ingestion.new_items
+        updated_items += ingestion.updated_items
+        relevant_items += matching.relevant_items
+        all_matches.extend(matching.matches)
 
-    repo.sync_global_recommendations(run_date or date.today().isoformat(), recommendations.values())
+    recommended_items = RecommendationService(repo).rebuild_all(all_matches, run_date)
 
     return InitSummary(
         pages_scanned=pages_scanned,
@@ -206,61 +167,12 @@ def run_init_with_page_batches(
         new_items=new_items,
         updated_items=updated_items,
         relevant_items=relevant_items,
-        recommended_items=len(recommendations),
+        recommended_items=recommended_items,
     )
 
 
 def _job_from_row(row: dict) -> Job:
-    return Job(
-        source=row.get("source") or "WonderCV",
-        source_job_id=row.get("source_job_id"),
-        source_url=row.get("source_url"),
-        detail_url=row.get("detail_url"),
-        dedupe_key=row.get("dedupe_key"),
-        company=row.get("company") or "",
-        raw_company=row.get("raw_company"),
-        company_normalized=row.get("company_normalized"),
-        title=row.get("title") or "",
-        raw_title=row.get("raw_title"),
-        clean_title=row.get("clean_title"),
-        summary=row.get("summary"),
-        batch=row.get("batch"),
-        target_graduate_year=row.get("target_graduate_year"),
-        degree=row.get("degree"),
-        city=row.get("city"),
-        location_text=row.get("location_text"),
-        collected_date=row.get("collected_date"),
-        deadline=row.get("deadline"),
-        company_type=row.get("company_type"),
-        industry=row.get("industry"),
-        tags=_split(row.get("tags")),
-        job_tags=_split(row.get("job_tags")),
-        special_marks=_split(row.get("special_marks")),
-        raw_tags=_split(row.get("raw_tags")),
-        raw_text=row.get("raw_text"),
-        role_text=row.get("role_text"),
-        announcement_text=row.get("announcement_text"),
-        role_signals=_split(row.get("role_signals")),
-        field_evidence=row.get("field_evidence"),
-        extraction_version=row.get("extraction_version"),
-        apply_url=row.get("apply_url"),
-        official_url=row.get("official_url"),
-        parse_status=row.get("parse_status") or "ok",
-        parse_note=row.get("parse_note"),
-        first_seen=row.get("first_seen"),
-        last_seen=row.get("last_seen"),
-        last_checked=row.get("last_checked"),
-        content_hash=row.get("content_hash"),
-        is_active=int(row.get("is_active") if row.get("is_active") is not None else 1),
-    )
-
-
-def _split(value: str | None) -> list[str]:
-    if not value:
-        return []
-    return [part for part in str(value).split(";") if part]
-
-
+    return JobRepository.job_from_row(row)
 def pull_user_states_from_feishu(repo: JobRepository, client: "FeishuBitableClient"):
     """Pull user-owned fields and return the complete, auditable result."""
     return recover_user_states(repo, client.list_all_records())

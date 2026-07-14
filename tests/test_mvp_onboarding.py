@@ -5,12 +5,14 @@ import time
 from fastapi.testclient import TestClient
 
 from jobpicky.config import load_config
+from jobpicky.core import DatabaseBootstrapService
 from jobpicky.matcher import Matcher
 from jobpicky.models import Job
 from jobpicky.paths import AppPaths
 from jobpicky.pipeline import DailySummary
 from jobpicky.services.scanning import DailyWorkflowResult
 from jobpicky.services.synchronization import SyncSummary
+from jobpicky.storage import JobRepository
 from jobpicky.web.app import create_app
 
 
@@ -55,29 +57,25 @@ def test_local_start_runs_shared_workflow_without_feishu(tmp_path: Path, monkeyp
     assert client.put("/api/preferences", json=_profile_payload()).status_code == 200
     calls = []
 
-    monkeypatch.setattr(
-        "jobpicky.web.app.restore_seed_database",
-        lambda database: calls.append(("seed", database)) or True,
-    )
-    monkeypatch.setattr(
-        "jobpicky.web.app.rematch_existing_jobs",
-        lambda repo, config: calls.append(("rematch", config["user_profile"]["custom_keywords"]))
-        or DailySummary(4, 0, 4, 2, 2),
-    )
-
-    def fake_daily(config, database, **kwargs):
-        calls.append(("daily", kwargs.get("skip_feishu")))
-        return DailyWorkflowResult(
+    def fake_local(service, **kwargs):
+        calls.append(("local", service.config["user_profile"]["custom_keywords"]))
+        from jobpicky.services.local import LocalInitializationResult
+        return LocalInitializationResult(
+            seeded=True,
+            baseline_items=4,
+            baseline_recommended_items=2,
+            daily=DailyWorkflowResult(
             status="success",
             task_id=kwargs["task_id"],
             fetched_count=3,
             created_count=2,
             recommended_count=1,
+            ),
         )
 
-    monkeypatch.setattr("jobpicky.web.app.run_daily_workflow", fake_daily)
+    monkeypatch.setattr("jobpicky.web.app.LocalApplicationService.initialize_and_update", fake_local)
     monkeypatch.setattr(
-        "jobpicky.web.app.FeishuBitableClient",
+        "jobpicky.integrations.feishu.service.FeishuIntegrationService.test_connection",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("local mode must not call Feishu")),
     )
 
@@ -95,11 +93,12 @@ def test_local_start_runs_shared_workflow_without_feishu(tmp_path: Path, monkeyp
     assert task["mode"] == "local"
     assert task["seeded"] is True
     assert task["baseline_recommended_items"] == 2
-    assert calls == [("seed", paths.database), ("rematch", ["AUTOSAR"]), ("daily", True)]
+    assert calls == [("local", ["AUTOSAR"])]
 
 
 def test_feishu_test_initializes_workspace_and_syncs(tmp_path: Path, monkeypatch):
     paths = AppPaths(tmp_path / "profile")
+    DatabaseBootstrapService(paths.database).initialize()
     client = TestClient(create_app(paths))
     assert client.put("/api/preferences", json=_profile_payload()).status_code == 200
     calls = []
@@ -125,20 +124,19 @@ def test_feishu_test_initializes_workspace_and_syncs(tmp_path: Path, monkeypatch
                 workspace_url="https://example.feishu.cn/base/token?table=tbl-managed",
             )
 
-    monkeypatch.setattr("jobpicky.web.app.FeishuBitableClient", FeishuClient)
-    monkeypatch.setattr("jobpicky.services.initialization.WorkspaceProvisioner", Provisioner)
+    def test_connection(service):
+        feishu_client = FeishuClient(SimpleNamespace(app_id=service.config["feishu"]["app_id"]))
+        feishu_client.get_app()
+        return feishu_client
+
     monkeypatch.setattr(
-        "jobpicky.services.initialization.restore_seed_database",
-        lambda database: calls.append(("seed", database)) or True,
+        "jobpicky.integrations.feishu.service.FeishuIntegrationService.test_connection",
+        test_connection,
     )
-    monkeypatch.setattr(
-        "jobpicky.services.initialization.rematch_existing_jobs",
-        lambda repo, config: calls.append(("rematch", config["user_profile"]["role_groups"]))
-        or DailySummary(5, 0, 5, 3, 3),
-    )
+    monkeypatch.setattr("jobpicky.integrations.feishu.service.WorkspaceProvisioner", Provisioner)
     monkeypatch.setattr(
         "jobpicky.services.initialization.sync_feishu",
-        lambda repo, config, rows: calls.append(("sync", rows))
+        lambda repo, config, rows, **_kwargs: calls.append(("sync", rows))
         or SyncSummary(created=3, updated=1),
     )
 
@@ -169,6 +167,7 @@ def test_feishu_test_initializes_workspace_and_syncs(tmp_path: Path, monkeypatch
 
 def test_feishu_connection_failure_does_not_save_credentials(tmp_path: Path, monkeypatch):
     paths = AppPaths(tmp_path / "profile")
+    DatabaseBootstrapService(paths.database).initialize()
     client = TestClient(create_app(paths))
     assert client.put("/api/preferences", json=_profile_payload()).status_code == 200
 
@@ -179,7 +178,14 @@ def test_feishu_connection_failure_does_not_save_credentials(tmp_path: Path, mon
         def get_app(self):
             raise RuntimeError("invalid secret")
 
-    monkeypatch.setattr("jobpicky.web.app.FeishuBitableClient", FailingClient)
+    def fail_connection(service):
+        client = FailingClient(service.config)
+        client.get_app()
+
+    monkeypatch.setattr(
+        "jobpicky.integrations.feishu.service.FeishuIntegrationService.test_connection",
+        fail_connection,
+    )
 
     response = client.post(
         "/api/feishu/test",
@@ -194,6 +200,51 @@ def test_feishu_connection_failure_does_not_save_credentials(tmp_path: Path, mon
     assert "secret-value" not in response.text
     saved = client.get("/api/preferences").json()
     assert saved["feishu"]["configured"] is False
+
+
+def test_feishu_test_requires_local_database_before_connection(tmp_path: Path, monkeypatch):
+    paths = AppPaths(tmp_path / "profile")
+    client = TestClient(create_app(paths))
+    assert client.put("/api/preferences", json=_profile_payload()).status_code == 200
+    monkeypatch.setattr(
+        "jobpicky.integrations.feishu.service.FeishuIntegrationService.test_connection",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("connection must not run")),
+    )
+
+    response = client.post(
+        "/api/feishu/test",
+        json={"base_url": "https://example.feishu.cn/base/token", "app_id": "app-id", "app_secret": "secret-value"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "local_database_not_initialized"
+    assert "请先完成本地初始化" in response.text
+    assert not paths.database.exists()
+    assert "secret-value" not in response.text
+
+
+def test_feishu_test_rejects_empty_schema_without_remote_work(tmp_path: Path, monkeypatch):
+    paths = AppPaths(tmp_path / "profile")
+    JobRepository(paths.database).init_schema()
+    client = TestClient(create_app(paths))
+    assert client.put("/api/preferences", json=_profile_payload()).status_code == 200
+    monkeypatch.setattr(
+        "jobpicky.integrations.feishu.service.FeishuIntegrationService.test_connection",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("connection, provisioning and sync must not run")
+        ),
+    )
+
+    response = client.post(
+        "/api/feishu/test",
+        json={"base_url": "https://example.feishu.cn/base/token", "app_id": "app-id", "app_secret": "secret-value"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "local_database_not_initialized"
+    assert "请先完成本地初始化" in response.text
+    assert JobRepository(paths.database).count_jobs() == 0
+    assert "secret-value" not in response.text
 
 
 def test_role_group_and_custom_keyword_expand_local_matching(tmp_path: Path):

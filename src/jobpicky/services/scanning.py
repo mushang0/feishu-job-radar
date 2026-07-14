@@ -11,15 +11,31 @@ from ..alerts import build_daily_message
 from ..error_safety import known_secrets, redact_text, safe_exception_detail
 from ..feishu import FeishuBitableClient, FeishuBot, FeishuConfig
 from ..official_search import OfficialUrlFinder
-from ..pipeline import enrich_official_urls, pull_user_states_from_feishu, run_daily_with_jobs
+from ..core import DailyUpdateService, JobIngestionService, MatchingService, RecommendationService
+from ..pipeline import enrich_official_urls, pull_user_states_from_feishu
 from ..run_guard import DailyRunGuard, DailyRunInProgress
 from ..runtime import RunReport, RunReporter
 from ..storage import JobRepository
 from ..wondercv import EXTRACTION_VERSION, WonderCVCrawler
+from ..integrations.feishu import FeishuIntegrationService
 from .synchronization import SyncSummary, sync_feishu
 
 
 DailyStatus = Literal["success", "partial_success", "failed"]
+
+
+def run_daily_with_jobs(repo: JobRepository, jobs, config: dict):
+    """Compatibility adapter backed by the shared daily core service."""
+    class CompletedCrawl:
+        def crawl(self, *, mode="daily"):
+            return type("Crawl", (), {"jobs": jobs, "pages_scanned": 0})()
+
+    return DailyUpdateService(
+        CompletedCrawl(),
+        JobIngestionService(repo),
+        MatchingService(repo, config),
+        RecommendationService(repo),
+    ).run()
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,7 +142,6 @@ def run_daily_workflow(
     *,
     reporter: RunReporter | None = None,
     cancel_check: Callable[[], bool] | None = None,
-    skip_feishu: bool = False,
     task_id: str | None = None,
 ) -> DailyWorkflowResult:
     """Run the complete daily business workflow for every application entry point."""
@@ -148,7 +163,7 @@ def run_daily_workflow(
         _finalize_result(repo, reporter, config, started_at, result, write_scan_run=True)
         return result
     try:
-        feishu_enabled = not skip_feishu and _feishu_is_configured(config)
+        feishu_enabled = _feishu_is_configured(config)
     except Exception as exc:
         logging.error("Daily workflow configuration failed: %s", safe_exception_detail(exc, config))
         errors.append(_stage_error("configuration", "workflow_failed", "daily configuration failed"))
@@ -165,31 +180,6 @@ def run_daily_workflow(
         with DailyRunGuard(db_path) as guard:
             def is_cancelled() -> bool:
                 return cancel_check() or guard.cancelled.is_set()
-
-            # User-owned remote fields must be reconciled before any local work
-            # can result in a write back to Feishu.
-            if feishu_enabled:
-                pull_attempted = True
-                reporter.stage("daily", 1, 6, "回收飞书求职状态")
-                try:
-                    client = FeishuBitableClient(FeishuConfig.from_config(config))
-                    recovery = pull_user_states_from_feishu(repo, client)
-                    pull_updated = int(recovery.updated_count)
-                    pull_skipped = len(recovery.skipped_record_ids)
-                    pull_unknown = len(recovery.unknown_statuses)
-                    pull_succeeded = not (pull_skipped or pull_unknown)
-                    if not pull_succeeded:
-                        errors.append(
-                            _stage_error(
-                                "feishu_pull",
-                                "feishu_pull_anomalies",
-                                f"飞书存在异常记录（跳过 {pull_skipped} 条，未知状态 {pull_unknown} 条）",
-                            )
-                        )
-                    reporter.stage("daily", 1, 6, "回收飞书求职状态", "done", f"更新 {pull_updated} 条")
-                except Exception as exc:
-                    logging.warning("Feishu state pull failed: %s", safe_exception_detail(exc, config))
-                    errors.append(_stage_error("feishu_pull", "feishu_pull_failed", "飞书状态回拉失败"))
 
             crawler = WonderCVCrawler(config, cancel_check=is_cancelled)
             last_run_date = repo.get_last_successful_run_date("daily")
@@ -254,62 +244,42 @@ def run_daily_workflow(
             reporter.stage("daily", 3, 6, "标准化、增量写入并匹配岗位", "done", f"新推荐 {summary.recommended_items} 条")
             notification_rows = _notification_rows(repo.list_all_jobs(), config)
 
-            enrichment_succeeded = True
-            if feishu_enabled:
-                reporter.stage("daily", 4, 6, "补全官方投递链接")
-                try:
-                    enrich_summary = enrich_official_urls(repo, OfficialUrlFinder(), only_recommended=True)
-                    reporter.stage("daily", 4, 6, "补全官方投递链接", "done", f"更新 {enrich_summary.updated_items} 条")
-                except Exception as exc:
-                    enrichment_succeeded = False
-                    logging.warning("Official URL enrichment failed: %s", safe_exception_detail(exc, config))
-                    errors.append(_stage_error("link_enrichment", "link_enrichment_failed", "官方投递链接补全失败"))
+            # Link enrichment is a local post-processing policy and is independent
+            # of whether Feishu is configured.
+            reporter.stage("daily", 4, 6, "补全官方投递链接")
+            try:
+                enrich_summary = enrich_official_urls(repo, OfficialUrlFinder(), only_recommended=True)
+                reporter.stage("daily", 4, 6, "补全官方投递链接", "done", f"更新 {enrich_summary.updated_items} 条")
+            except Exception as exc:
+                logging.warning("Official URL enrichment failed: %s", safe_exception_detail(exc, config))
+                errors.append(_stage_error("link_enrichment", "link_enrichment_failed", "官方投递链接补全失败"))
 
-                if pull_succeeded and enrichment_succeeded and not is_cancelled():
-                    reporter.stage("daily", 5, 6, "同步到飞书")
-                    try:
-                        sync_summary = sync_feishu(
-                            repo,
-                            config,
-                            repo.list_feishu_sync_candidates(),
-                            client_factory=FeishuBitableClient,
-                        )
-                        reporter.stage(
-                            "daily", 5, 6, "同步到飞书", "done",
-                            f"新建 {sync_summary.created} 条，更新 {sync_summary.updated} 条",
-                        )
-                        if sync_summary.failed:
-                            errors.append(_stage_error("feishu_sync", "feishu_sync_failed", f"飞书同步失败 {sync_summary.failed} 条"))
-                    except Exception as exc:
-                        logging.error("Feishu sync failed: %s", safe_exception_detail(exc, config))
-                        errors.append(_stage_error("feishu_sync", "feishu_sync_failed", "飞书同步失败"))
-                elif not pull_succeeded:
-                    logging.error("Feishu sync blocked because user-state reconciliation was not clean")
-
-                reporter.stage("daily", 6, 6, "发送每日通知")
-                webhook_url = FeishuConfig.from_config(config).webhook_url
-                if webhook_url:
-                    notification_attempted = True
-                    try:
-                        fetch_error = next((error.message for error in errors if error.stage == "fetch"), None)
-                        message = build_daily_message(summary.new_items, notification_rows, fetch_error)
-                        bot_result = FeishuBot(webhook_url).send_text(message)
-                        if _notification_result_sent(bot_result):
-                            notification_status = "sent"
-                            notification_sent = True
-                        else:
-                            notification_status = "failed"
-                            errors.append(_stage_error("notification", "notification_send_failed", "飞书通知发送失败"))
-                            logging.warning(
-                                "Feishu notification was not sent: %s",
-                                _notification_result_detail(bot_result, config),
-                            )
-                    except Exception as exc:
-                        notification_status = "failed"
-                        logging.error("Feishu notification failed: %s", safe_exception_detail(exc, config))
-                        errors.append(_stage_error("notification", "notification_send_failed", "飞书通知发送失败"))
-                notification_stage_status = "failed" if notification_status == "failed" else "done"
-                reporter.stage("daily", 6, 6, "发送每日通知", notification_stage_status)
+            if feishu_enabled and not is_cancelled():
+                reporter.stage("daily", 5, 6, "回拉并同步飞书")
+                integration = FeishuIntegrationService(
+                    repo, config, client_factory=FeishuBitableClient, bot_factory=FeishuBot,
+                    pull_states=pull_user_states_from_feishu, push_jobs=sync_feishu,
+                ).run_after_local_update(
+                    new_items=summary.new_items,
+                    notification_rows=notification_rows,
+                    fetch_error=next((error.message for error in errors if error.stage == "fetch"), None),
+                    cancelled=is_cancelled,
+                )
+                pull_attempted = integration.pull_attempted
+                pull_succeeded = integration.pull_succeeded
+                pull_updated = integration.pull_updated
+                pull_skipped = integration.pull_skipped
+                pull_unknown = integration.pull_unknown
+                sync_summary = integration.sync
+                notification_status = integration.notification_status
+                notification_attempted = notification_status != "skipped"
+                notification_sent = notification_status == "sent"
+                errors.extend(_stage_error(issue.stage, issue.code, issue.message) for issue in integration.issues)
+                reporter.stage("daily", 5, 6, "回拉并同步飞书", "done")
+                reporter.stage(
+                    "daily", 6, 6, "发送每日通知",
+                    "failed" if notification_status == "failed" else "done",
+                )
 
             return _finish(
                 repo, reporter, config, started_at, task_id,

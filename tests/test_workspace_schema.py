@@ -4,11 +4,12 @@ from jobpicky.workspace_schema import WORKSPACE_SCHEMA_VERSION, desired_workspac
 def test_desired_workspace_uses_company_as_primary_field_and_declares_user_views():
     workspace = desired_workspace()
 
-    assert WORKSPACE_SCHEMA_VERSION == "2"
+    assert WORKSPACE_SCHEMA_VERSION == "3"
     assert workspace.primary_field == "公司"
     assert workspace.field_names == (
         "公司",
         "岗位",
+        "当前推荐",
         "城市",
         "届别",
         "批次",
@@ -39,6 +40,7 @@ def test_workspace_schema_has_exact_user_status_options_and_types():
     }
     assert workspace.field("截止时间").type_code == 5
     assert workspace.field("投递入口").type_code == 15
+    assert workspace.field("当前推荐").type_code == 7
 
 
 def test_table_create_payload_is_utf8_safe_and_uses_company_as_primary_field():
