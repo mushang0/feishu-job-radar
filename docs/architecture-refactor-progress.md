@@ -1,0 +1,327 @@
+# JobPicky 架构解耦重构进度
+
+状态：阶段 1 已完成，等待合并到集成分支
+
+计划文档：`docs/architecture-refactor-plan.md`
+
+## 使用规则
+
+- 每个阶段从最新的总集成分支创建独立分支。
+- 阶段内允许按逻辑拆成 2～5 个小提交，不要求压成一个巨大 commit。
+- 阶段验收通过后，使用 `--no-ff` 合并回总集成分支。
+- 每个阶段开始前先阅读计划文档、本阶段相关源码和测试。
+- 不重新扫描与本阶段无关的整个仓库。
+- 阶段完成后记录实际修改、测试结果和遗留问题。
+- 不在重构阶段顺手修改匹配算法、推荐语义或 UI。
+- 阶段 1 的生产代码只在 seed/bootstrap 需要时修改；不在此阶段抽取核心业务服务。
+
+## Git 分支与回退规则
+
+分支结构：
+
+```text
+main
+└── refactor/architecture
+    ├── refactor/01-seed-bootstrap
+    ├── refactor/02-core-services
+    ├── refactor/03-web-cli
+    └── refactor/04-feishu-integration
+```
+
+规则：
+
+- [ ] 不直接在 `main` 或 `refactor/architecture` 上开发。
+- [ ] 开始工作前记录 `git status --short`、当前分支和当前 commit。
+- [ ] 每个阶段分支从最新的 `refactor/architecture` 创建。
+- [ ] 阶段内可以按功能拆分多个小 commit，例如 seed 源、seed 测试和文档记录分别提交。
+- [ ] 未通过完整测试、wheel 和 `uvx` 检查时禁止合并阶段分支。
+- [ ] 阶段验收通过后使用 `git merge --no-ff` 合并回 `refactor/architecture`。
+- [ ] 不覆盖用户已有未提交修改。
+- [ ] 不使用 `git reset --hard`、`git clean -fd` 或强制推送，除非用户明确批准。
+- [ ] 优先用 `git revert` 或回退到上一个阶段合并 commit 处理代码回退。
+- [ ] 运行数据库回退使用 seed 重新生成，不依赖旧运行数据库迁移。
+
+推荐的初始化命令：
+
+```bash
+git switch main
+git pull
+git switch -c refactor/architecture
+```
+
+阶段分支示例：
+
+```bash
+git switch refactor/architecture
+git switch -c refactor/01-seed-bootstrap
+```
+
+阶段完成后：
+
+```bash
+git status --short
+git diff --check
+python -m pytest -q
+
+git switch refactor/architecture
+git merge --no-ff refactor/01-seed-bootstrap
+```
+
+## 初始状态
+
+| 项目 | 状态 |
+| --- | --- |
+| 当前 Git commit | `e832983` |
+| 当前分支 | `main` |
+| 初始测试结果 | `235 passed in 23.64s` |
+| 当前阶段 | 未开始 |
+| 当前运行数据库 | 开发环境旧数据库，阶段 1 后删除重建 |
+| seed 源数据 | 现有 `jobs_seed.sqlite`，747 条岗位 |
+| 下一步 | 阶段 1：导出岗位源 JSON，审查当前 schema，生成新 seed |
+
+## 阶段 1：建立可重复的 seed 数据源
+
+状态：已完成（2026-07-14）
+
+### 开始前
+
+- [x] 阅读 `DEVELOPER.md`、seed 相关代码和数据库相关测试。
+- [x] 确认旧 seed 的 747 条岗位和关键字段清单。
+- [x] 审查当前 schema 的业务含义和新核心服务所需字段。
+- [x] 明确只修正实际阻碍新架构的表或字段。
+- [x] 确认不会读取或迁移旧运行数据库。
+
+### 实际修改文件
+
+```text
+pyproject.toml
+scripts/build_seed.py
+scripts/export_seed_source.py
+src/jobpicky/resources/jobs_seed_source.json
+src/jobpicky/resources/jobs_seed.sqlite
+tests/test_seed.py
+docs/architecture-refactor-plan.md
+docs/architecture-refactor-progress.md
+```
+
+### 关键设计决定
+
+```text
+1. JSON 是岗位 seed 的权威源，保存 jobs 表全部 41 列、显式 null 和原始 id，按 id 稳定排序；不加入会随构建变化的导出时间。
+2. SQLite 由当前 JobRepository schema 创建，再从 JSON 显式按列插入；SQLite 只是可分发、可复制的构建产物。
+3. 旧 seed 的历史追加列顺序与当前 schema 顺序不同。JSON 规范化为当前 schema 顺序，验收按列名比较；旧/新 seed 的 747×41 个值完全一致。
+4. 现有六类业务表已满足阶段 1/后续服务的含义，本阶段未重设计 schema，也未读取或迁移任何旧运行数据库。
+5. JSON 加入 wheel 包资源；运行时仍只复制打包 seed，阶段 2 核心服务未实施。
+6. 开始时本地及远端均无 refactor/architecture；按计划记录的 main@e832983 基线建立本地集成分支，再创建 refactor/01-seed-bootstrap。
+```
+
+### 测试结果
+
+```text
+局部：26 passed（seed、初始化及 onboarding 相关测试）
+完整：238 passed in 24.64s
+数据：旧/新 seed 747 行 × 41 列逐值一致；完整保留空值与日期/时间字符串
+重复构建：两次 SQLite 产物字节一致
+发布检查：9/9 PASS（含 wheel 内容、干净安装、WebUI、uvx）
+git diff --check：通过
+```
+
+### 验收
+
+- [x] `jobs_seed_source.json` 已生成并作为岗位 seed 源文件。
+- [x] `jobs_seed.sqlite` 可由 JSON 重新生成。
+- [x] 新数据库包含 747 条岗位。
+- [x] 关键字段没有丢失。
+- [x] seed 可以复制为运行数据库。
+- [x] 没有因为重建 seed 而进行无必要的 schema 重设计。
+
+### 遗留问题
+
+```text
+无阶段 1 阻塞问题。旧 seed 的历史列顺序未保留，但字段集合、类型和值均保留；新 seed 使用当前 schema 的规范顺序。
+阶段 2 仍需按计划实现公共核心服务；本阶段没有提前实施。
+```
+
+### 阶段提交
+
+```text
+当前分支：refactor/01-seed-bootstrap
+实现 commit：2152963
+进度文档 commit：本节所在的后续文档提交
+```
+
+### 下一阶段入口
+
+阶段 2：实现 `src/jobpicky/core/` 下的公共核心服务。
+
+## 阶段 2：重构公共核心
+
+状态：未开始
+
+### 开始前
+
+- [ ] 只阅读核心服务、`pipeline.py`、`storage.py`、`matcher.py`、`wondercv.py` 和本阶段测试。
+- [ ] 确认阶段 1 的新 seed 已通过验收。
+- [ ] 确认本地流程可以在无飞书配置下运行。
+
+### 实际修改文件
+
+```text
+待填写
+```
+
+### 关键设计决定
+
+```text
+待填写
+```
+
+### 测试结果
+
+```text
+待填写
+```
+
+### 验收
+
+- [ ] `DatabaseBootstrapService` 可创建运行数据库。
+- [ ] `JobIngestionService` 可完成标准化、去重和写入。
+- [ ] `MatchingService` 可保存匹配结果。
+- [ ] `RecommendationService` 区分每日追加和全量重建。
+- [ ] `DailyUpdateService` 不导入飞书。
+- [ ] `JobQueryService` 可查询岗位、推荐和统计。
+- [ ] 初始化、每日更新、重新匹配和查询均不需要飞书。
+
+### 遗留问题
+
+```text
+待填写
+```
+
+### 阶段提交
+
+```text
+commit: 待填写
+```
+
+### 下一阶段入口
+
+阶段 3：让 Web 和 CLI 只调用公共应用服务。
+
+## 阶段 3：接入本地 Web 和 CLI
+
+状态：未开始
+
+### 开始前
+
+- [ ] 阅读新的 `src/jobpicky/core/` 服务。
+- [ ] 只阅读 Web、CLI、TaskManager 和相关入口测试。
+- [ ] 确认核心服务已经可以脱离飞书运行。
+
+### 实际修改文件
+
+```text
+待填写
+```
+
+### 关键设计决定
+
+```text
+待填写
+```
+
+### 测试结果
+
+```text
+待填写
+```
+
+### 验收
+
+- [ ] Web 路由不直接调用 seed、数据库、Matcher 或 crawler。
+- [ ] CLI 的 init/daily/rematch 使用公共应用服务。
+- [ ] TaskManager 只负责后台任务和状态。
+- [ ] 本地 Web 和 CLI 结果正确。
+- [ ] 不配置飞书也能完成本地工作流。
+
+### 遗留问题
+
+```text
+待填写
+```
+
+### 阶段提交
+
+```text
+commit: 待填写
+```
+
+### 下一阶段入口
+
+阶段 4：重新接入飞书集成。
+
+## 阶段 4：重新接入飞书
+
+状态：未开始
+
+### 开始前
+
+- [ ] 阅读核心查询服务和本地应用服务。
+- [ ] 只阅读飞书客户端、工作台、审计、字段映射和相关测试。
+- [ ] 确认本地流程已经独立通过。
+
+### 实际修改文件
+
+```text
+待填写
+```
+
+### 关键设计决定
+
+```text
+待填写
+```
+
+### 测试结果
+
+```text
+待填写
+```
+
+### 验收
+
+- [ ] 首次连接只测试连接、创建工作台和首次同步。
+- [ ] 首次连接不重新实现本地初始化和匹配。
+- [ ] 每日核心更新先提交本地结果。
+- [ ] 飞书状态回拉、推送和通知均为可选步骤。
+- [ ] 飞书失败不破坏本地岗位、匹配和推荐。
+- [ ] 用户状态保护和错误脱敏保持有效。
+- [ ] 完整 pytest、wheel 和 `uvx` 启动通过。
+
+### 遗留问题
+
+```text
+待填写
+```
+
+### 阶段提交
+
+```text
+commit: 待填写
+```
+
+### 重构完成检查
+
+- [ ] `docs/architecture-refactor-plan.md` 中的总体验收标准全部完成。
+- [ ] 所有开发环境旧运行数据库已删除并由新 seed 重建。
+- [ ] 没有遗留的核心 → 飞书直接依赖。
+- [ ] 没有遗留的 Web/CLI 重复业务流程。
+- [ ] 匹配和推荐语义与阶段 1 基线一致。
+- [ ] `python -m pytest -q` 通过。
+- [ ] wheel 安装和 `uvx` 启动通过。
+
+## 阶段变更记录
+
+| 日期 | 阶段 | 变更摘要 | 测试结果 | Commit |
+| --- | --- | --- | --- | --- |
+| 2026-07-14 | 计划建立 | 创建并修订架构计划和进度文档，尚未修改源码 | 235 passed（初始基线） | 待提交；基线 `e832983` |
