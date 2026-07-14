@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -18,6 +19,7 @@ from .onboarding import InitializationPreview, collect_missing_config, confirm_i
 from .official_search import OfficialUrlFinder
 from .pipeline import backfill_existing_job_details, enrich_official_urls, run_init_with_page_batches, pull_user_states_from_feishu
 from .core import DatabaseBootstrapService, JobQueryService
+from .integrations.feishu import FeishuIntegrationService
 from .seed import SeedDatabaseError, find_seed_database, restore_seed_database
 from .runtime import RunReport, RunReporter, console_event, console_report
 from .services.scanning import DailyWorkflowResult, _notification_rows, run_daily_workflow
@@ -296,8 +298,11 @@ def _run_init(
 
     try:
         reporter.stage("init", 2, 5, "检查飞书连接与权限")
-        client = FeishuBitableClient(FeishuConfig.from_config(config))
-        client.get_app()
+        integration = FeishuIntegrationService(
+            repo, config, config_path=config_path,
+            client_factory=FeishuBitableClient, push_jobs=sync_feishu,
+        )
+        client = integration.test_connection()
         _read_only_workspace_preflight(client, config)
         reporter.stage("init", 2, 5, "检查飞书连接与权限", "done")
     except Exception as exc:
@@ -319,19 +324,11 @@ def _run_init(
         return 0
 
     try:
-        reporter.stage("init", 3, 5, "创建或修复飞书工作台")
-        def persist_table_id(table_id: str) -> None:
-            config["feishu"]["workspace_table_id"] = table_id
-            save_config(config, config_path)
-
-        provisioning = WorkspaceProvisioner(client, desired_workspace()).provision(
-            config["feishu"].get("workspace_table_id") or None,
-            on_table_created=persist_table_id,
-        )
-        config["feishu"]["workspace_table_id"] = provisioning.table_id
-        config["feishu"]["workspace_schema_version"] = WORKSPACE_SCHEMA_VERSION
-        save_config(config, config_path)
-        reporter.stage("init", 3, 5, "创建或修复飞书工作台", "done")
+        reporter.stage("init", 3, 5, "创建或修复飞书工作台并同步本地推荐")
+        connected = integration.connect(client=client)
+        provisioning = connected
+        sync_summary = connected.sync
+        reporter.stage("init", 3, 5, "创建或修复飞书工作台并同步本地推荐", "done")
     except Exception as exc:
         _report_cli_exception(
             config,
@@ -342,14 +339,14 @@ def _run_init(
         return 1
 
     started_at = datetime.now().isoformat(timespec="seconds")
-    reporter.stage("init", 4, 5, "根据偏好筛选岗位")
-    summary = rematch_existing_jobs(repo, config)
-    reporter.stage("init", 4, 5, "根据偏好筛选岗位", "done", f"推荐 {summary.recommended_items} 条")
-
-    reporter.stage("init", 5, 5, "同步到飞书")
-    sync_summary = _sync_feishu(repo, config, repo.list_feishu_reconciliation_rows())
-    export_jobs_to_excel(repo.list_all_jobs(), output_path)
+    summary = type("ExistingLocalSummary", (), {
+        "items_seen": connected.baseline_items, "new_items": 0, "updated_items": 0,
+        "relevant_items": connected.recommended_items,
+        "recommended_items": connected.recommended_items,
+    })()
+    reporter.stage("init", 4, 5, "读取本地推荐结果", "done", f"推荐 {summary.recommended_items} 条")
     reporter.stage("init", 5, 5, "同步到飞书", "done", f"新建 {sync_summary.created} 条")
+    export_jobs_to_excel(repo.list_all_jobs(), output_path)
     repo.record_scan_run(
         {
             "run_type": "init",
@@ -481,10 +478,13 @@ def _run_reset(
 
 
 def _run_daily(config: dict, db_path: str, skip_feishu: bool = False, reporter: RunReporter | None = None) -> int:
+    workflow_config = config
+    if skip_feishu:
+        workflow_config = deepcopy(config)
+        workflow_config["feishu"] = {}
     result = run_daily_workflow(
-        config,
+        workflow_config,
         db_path,
-        skip_feishu=skip_feishu,
         reporter=reporter or RunReporter(),
     )
     run_guard_error = next((error for error in result.errors if error.stage == "run_guard"), None)

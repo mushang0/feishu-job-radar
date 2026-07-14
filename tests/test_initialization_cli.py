@@ -18,7 +18,7 @@ def _config():
     }
 
 
-def test_run_init_restores_seed_then_rematches_before_sync(tmp_path: Path, monkeypatch):
+def test_run_init_bootstraps_then_connects_without_rematch(tmp_path: Path, monkeypatch):
     events = []
     config = _config()
 
@@ -47,7 +47,7 @@ def test_run_init_restores_seed_then_rematches_before_sync(tmp_path: Path, monke
     monkeypatch.setattr("jobpicky.cli.confirm_initialization", lambda *args, **kwargs: events.append("confirm") or True)
     monkeypatch.setattr("jobpicky.cli.save_config", lambda value, path: events.append(f"save:{value['feishu'].get('workspace_table_id') or 'config'}"))
     monkeypatch.setattr("jobpicky.cli.FeishuBitableClient", Client)
-    monkeypatch.setattr("jobpicky.cli.WorkspaceProvisioner", Provisioner)
+    monkeypatch.setattr("jobpicky.integrations.feishu.service.WorkspaceProvisioner", Provisioner)
     original_initialize = __import__("jobpicky.cli", fromlist=["DatabaseBootstrapService"]).DatabaseBootstrapService.initialize
 
     def initialize(service):
@@ -59,12 +59,13 @@ def test_run_init_restores_seed_then_rematches_before_sync(tmp_path: Path, monke
         "jobpicky.cli.rematch_existing_jobs",
         lambda *args, **kwargs: events.append("rematch") or DailySummary(0, 0, 0, 0, 0),
     )
-    monkeypatch.setattr("jobpicky.cli._sync_feishu", lambda *args, **kwargs: events.append("sync") or SimpleNamespace(created=0, updated=0, skipped=0, failed=0))
+    monkeypatch.setattr("jobpicky.cli.sync_feishu", lambda *args, **kwargs: events.append("sync") or SimpleNamespace(created=0, updated=0, skipped=0, failed=0))
 
     code = _run_init(config, str(tmp_path / "jobs.sqlite"), str(tmp_path / "config.yaml"), str(tmp_path / "export.xlsx"), assume_yes=True)
 
     assert code == 0
-    assert events.index("bootstrap") < events.index("read-only-preflight") < events.index("confirm") < events.index("provision") < events.index("rematch") < events.index("sync")
+    assert events.index("bootstrap") < events.index("read-only-preflight") < events.index("confirm") < events.index("provision") < events.index("sync")
+    assert "rematch" not in events
     assert config["feishu"]["workspace_table_id"] == "tbl-managed"
     assert config["feishu"]["workspace_schema_version"] == "2"
 

@@ -122,19 +122,10 @@ def test_feishu_test_initializes_workspace_and_syncs(tmp_path: Path, monkeypatch
             )
 
     monkeypatch.setattr("jobpicky.web.app.FeishuBitableClient", FeishuClient)
-    monkeypatch.setattr("jobpicky.services.initialization.WorkspaceProvisioner", Provisioner)
-    monkeypatch.setattr(
-        "jobpicky.services.initialization.restore_seed_database",
-        lambda database: calls.append(("seed", database)) or True,
-    )
-    monkeypatch.setattr(
-        "jobpicky.services.initialization.rematch_existing_jobs",
-        lambda repo, config: calls.append(("rematch", config["user_profile"]["role_groups"]))
-        or DailySummary(5, 0, 5, 3, 3),
-    )
+    monkeypatch.setattr("jobpicky.integrations.feishu.service.WorkspaceProvisioner", Provisioner)
     monkeypatch.setattr(
         "jobpicky.services.initialization.sync_feishu",
-        lambda repo, config, rows: calls.append(("sync", rows))
+        lambda repo, config, rows, **_kwargs: calls.append(("sync", rows))
         or SyncSummary(created=3, updated=1),
     )
 
