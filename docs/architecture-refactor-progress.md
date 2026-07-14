@@ -387,6 +387,22 @@ git diff --check：通过。
 文档与最终验收提交：本提交
 ```
 
+### 阶段 4 独立审查修复（2026-07-14）
+
+```text
+修复 CLI 首次连接边界：只读检查既有本地数据库，不再恢复 seed、调用 DatabaseBootstrapService、抓取 WonderCV、全量重匹配或重建推荐；缺少已初始化数据库时返回明确且脱敏的操作提示。
+Web 飞书连接路由不再直接构造 FeishuBitableClient 或调用 get_app()，改为与 CLI 一致调用 FeishuIntegrationService.test_connection()。
+首次连接统一为：检查本地数据库 → 测试连接 → 创建或修复工作台 → 查询本地推荐 → 首次同步；CLI 输出不再声称已重新匹配。
+首次同步和每日同步统一使用 list_feishu_reconciliation_rows()：包含当前推荐、受跟踪状态和已有 record_id 的历史记录。退出推荐的已有远端记录保留不删除，通过系统字段“当前推荐=false”解除当前推荐标记，并继续禁止更新求职状态和备注。
+工作台 schema 升级到版本 3，新增 checkbox 系统字段“当前推荐”。
+新增/调整入口和同步测试，覆盖禁止本地初始化、缺库错误、Web/CLI 统一连接服务、退出推荐 reconciliation、用户状态与备注保护，并保留创建、更新、部分失败和错误脱敏回归覆盖。
+针对性测试：47 passed；最终补充验证：17 passed。
+完整测试：250 passed in 54.37s。
+发布检查：9/9 PASS。
+git diff --check：通过。
+修复提交：42b0870（fix: unify Feishu onboarding and reconciliation）。
+```
+
 ### 重构完成检查
 
 - [x] `docs/architecture-refactor-plan.md` 中的总体验收标准全部完成。
