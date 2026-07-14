@@ -2,6 +2,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from jobpicky.cli import _run_init
+from jobpicky.core import DatabaseBootstrapService
 from jobpicky.integrations.feishu import FeishuIntegrationService
 from jobpicky.pipeline import DailySummary
 from jobpicky.storage import JobRepository
@@ -24,7 +25,7 @@ def test_run_init_uses_existing_database_and_connects_without_local_work(tmp_pat
     events = []
     config = _config()
     database = tmp_path / "jobs.sqlite"
-    JobRepository(database).init_schema()
+    DatabaseBootstrapService(database).initialize()
 
     class Client:
         def __init__(self, _config):
@@ -95,8 +96,31 @@ def test_run_init_requires_existing_local_database(tmp_path: Path, monkeypatch, 
     assert "请先完成本地初始化" in capsys.readouterr().out
 
 
+def test_run_init_rejects_empty_schema_before_feishu_connection(tmp_path: Path, monkeypatch, capsys):
+    monkeypatch.setattr("jobpicky.cli.collect_missing_config", lambda value, **_kwargs: value)
+    monkeypatch.setattr("jobpicky.cli.save_config", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "jobpicky.integrations.feishu.service.FeishuIntegrationService.test_connection",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("Feishu must not be called")
+        ),
+    )
+    database = tmp_path / "empty.sqlite"
+    JobRepository(database).init_schema()
+
+    code = _run_init(
+        _config(), str(database), str(tmp_path / "config.yaml"),
+        str(tmp_path / "export.xlsx"), assume_yes=True,
+    )
+
+    assert code == 1
+    assert JobRepository(database).count_jobs() == 0
+    assert "请先完成本地初始化" in capsys.readouterr().out
+
+
 def test_run_init_stops_before_crawler_when_provisioning_fails(tmp_path: Path, monkeypatch):
     config = _config()
+    DatabaseBootstrapService(tmp_path / "jobs.sqlite").initialize()
 
     class Client:
         def __init__(self, _config):
@@ -133,7 +157,7 @@ def test_run_init_stops_before_crawler_when_provisioning_fails(tmp_path: Path, m
 
 def test_run_init_decline_performs_no_remote_write(tmp_path: Path, monkeypatch):
     config = _config()
-    JobRepository(tmp_path / "jobs.sqlite").init_schema()
+    DatabaseBootstrapService(tmp_path / "jobs.sqlite").initialize()
 
     class Client:
         def __init__(self, _config):

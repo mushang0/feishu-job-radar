@@ -9,6 +9,7 @@ from ..core import (
     DatabaseBootstrapService,
     MatchingService,
     RecommendationService,
+    inspect_local_database,
 )
 from .scanning import DailyWorkflowResult, run_daily_workflow
 
@@ -56,7 +57,7 @@ class LocalApplicationService:
         task_id: str | None = None,
         cancel_check: Callable[[], bool] | None = None,
     ) -> LocalInitializationResult:
-        database_existed = self.database_path.is_file()
+        database_was_initialized = inspect_local_database(self.database_path).valid
         repository = DatabaseBootstrapService(self.database_path).initialize()
         matching = MatchingService(repository, self.config).rematch_all()
         recommended = RecommendationService(repository).rebuild_all(matching.matches)
@@ -69,7 +70,7 @@ class LocalApplicationService:
             cancel_check=cancel_check,
         )
         return LocalInitializationResult(
-            seeded=not database_existed,
+            seeded=not database_was_initialized,
             baseline_items=matching.matched_items,
             baseline_recommended_items=recommended,
             daily=daily,

@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-import sqlite3
 from typing import Any
 
 from ..config import validate_config
+from ..core import inspect_local_database, packaged_seed_job_count
 from ..feishu import FeishuBitableClient
 from ..integrations.feishu import FeishuIntegrationService
 from ..paths import AppPaths
@@ -36,13 +36,14 @@ class InitializationService:
         self.paths = paths
 
     def preview(self, config: dict[str, Any]) -> InitializationPreview:
-        repo = JobRepository(self.paths.database)
-        repo.init_schema()
+        inspection = inspect_local_database(self.paths.database)
         feishu = config.get("feishu", {})
         return InitializationPreview(
             base_url=str(feishu.get("base_url") or ""),
             table_name=desired_workspace().table_name,
-            baseline_items=repo.count_jobs(),
+            baseline_items=(
+                inspection.job_count if inspection.valid else packaged_seed_job_count()
+            ),
             configured=bool(feishu.get("app_id") and feishu.get("app_secret") and feishu.get("base_url")),
         )
 
@@ -72,21 +73,6 @@ def existing_local_repository(database_path: str | Path) -> JobRepository:
     """Open an initialized local database without creating or repairing it."""
     path = Path(database_path)
     message = "本地数据库尚未初始化，请先完成本地初始化后再连接飞书。"
-    if not path.is_file():
+    if not inspect_local_database(path).valid:
         raise ValueError(message)
-    repo = JobRepository(path)
-    try:
-        with repo.connect() as connection:
-            required = {"jobs", "recommended_jobs", "feishu_sync", "job_user_state"}
-            tables = {
-                str(row[0])
-                for row in connection.execute(
-                    "SELECT name FROM sqlite_master WHERE type = 'table'"
-                ).fetchall()
-            }
-        if not required.issubset(tables):
-            raise ValueError(message)
-        repo.count_jobs()
-    except sqlite3.Error:
-        raise ValueError(message) from None
-    return repo
+    return JobRepository(path)

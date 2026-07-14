@@ -413,6 +413,31 @@ git diff --check：通过。
 - [x] `python -m pytest -q` 通过。
 - [x] wheel 安装和 `uvx` 启动通过。
 
+### 最终验收修复（2026-07-14）
+
+最终验收发现 `InitializationService.preview()` 会对不存在的运行数据库调用
+`init_schema()`，从而提前创建空 schema，并使后续 seed 恢复因目标文件存在而被跳过。
+本次在 `refactor/05-final-fixes` 完成以下修复：
+
+```text
+1. setup preview 改为完全只读：只读检查有效运行数据库；缺库、空 schema 或无效库时，只读打包 seed 返回 747 条基线数量。连续 preview 不创建数据库、不迁移 schema，也不修改配置或 seed。
+2. 新增统一只读数据库检查，明确区分 missing、empty_schema、invalid 和 valid；只有具备全部本地业务表且 jobs 中至少有一条岗位的数据库才是有效本地初始化结果，不依赖固定岗位 ID。
+3. DatabaseBootstrapService 对缺库、空 schema 和无效库明确从打包 seed 原子重建；已有岗位数据的有效库继续保留。preview → 本地初始化和历史空 schema → 本地初始化均恢复为 747 条岗位。
+4. Web 与 CLI 飞书连接前置检查复用同一有效性判定；缺库或空 schema 时在连接、工作台创建和首次同步之前停止，并返回脱敏且可操作的“请先完成本地初始化”提示。
+5. CLI init 帮助与说明改为“连接飞书并同步已有本地推荐”，明确不会恢复 seed、抓取岗位或重新匹配。
+6. 将 Web preview 的 `baseline_items >= 0` 弱断言改为精确的 747，并增加 preview 幂等无落盘、空 schema seed 恢复、有效库保留、Web/CLI 飞书保护及正常初始化后连接等真实数据库回归覆盖。
+```
+
+验收结果：
+
+```text
+针对性测试：25 passed
+完整测试：254 passed in 70.69s
+发布检查：9/9 PASS
+git diff --check：通过
+实现提交：4295807（fix: keep setup preview read-only）
+```
+
 ## 阶段变更记录
 
 | 日期 | 阶段 | 变更摘要 | 测试结果 | Commit |
