@@ -116,8 +116,8 @@ def main(argv: list[str] | None = None, reporter: RunReporter | None = None) -> 
 
     init_parser = subparsers.add_parser(
         "init",
-        help="配置飞书工作台并从 seed 初始化岗位库",
-        description="引导配置并自动创建或修复飞书求职工作台，使用 seed 岗位库重新匹配并同步。",
+        help="连接飞书工作台并同步已有本地推荐",
+        description="连接或修复飞书求职工作台，并同步已经完成本地初始化的推荐结果；不会恢复 seed、抓取岗位或重新匹配。",
     )
     init_parser.add_argument("--config", dest="command_config")
     init_parser.add_argument("--db", dest="command_db")

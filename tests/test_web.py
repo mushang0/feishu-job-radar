@@ -65,8 +65,14 @@ def test_web_setup_preview_describes_three_step_workspace_flow(tmp_path: Path):
         },
     )
 
-    preview = client.get("/api/setup/preview").json()
+    assert not paths.database.exists()
+    first = client.get("/api/setup/preview")
+    second = client.get("/api/setup/preview")
+    preview = second.json()
 
+    assert first.status_code == second.status_code == 200
+    assert first.json() == second.json()
     assert preview["configured"] is True
     assert preview["table_name"] == "求职工作台"
-    assert preview["baseline_items"] >= 0
+    assert preview["baseline_items"] == 747
+    assert not paths.database.exists()

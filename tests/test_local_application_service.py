@@ -4,6 +4,7 @@ from jobpicky.core import DailyUpdateService
 from jobpicky.models import Job
 from jobpicky.services import scanning
 from jobpicky.services.local import LocalApplicationService
+from jobpicky.services.scanning import DailyWorkflowResult
 from jobpicky.storage import JobRepository
 
 
@@ -85,3 +86,32 @@ def test_initialize_and_update_bootstraps_rematches_recommends_and_runs_daily_on
     assert len(stored) == 748
     assert daily_job["title"] == "2027届 FPGA 工程师"
     assert any(row["job_id"] == daily_job["id"] for row in recommendations)
+
+
+def test_preview_then_local_initialization_restores_seed_from_empty_schema(
+    monkeypatch, tmp_path: Path, mock_config
+):
+    from jobpicky.paths import AppPaths
+    from jobpicky.services.initialization import InitializationService
+
+    paths = AppPaths(tmp_path / "profile")
+    config = mock_config()
+    preview = InitializationService(paths).preview(config)
+    assert preview.baseline_items == 747
+    assert not paths.database.exists()
+
+    JobRepository(paths.database).init_schema()
+    assert JobRepository(paths.database).count_jobs() == 0
+    monkeypatch.setattr(
+        "jobpicky.services.local.run_daily_workflow",
+        lambda *_args, **kwargs: DailyWorkflowResult(
+            status="success", task_id=kwargs["task_id"]
+        ),
+    )
+
+    result = LocalApplicationService(paths.database, config).initialize_and_update(
+        task_id="preview-local"
+    )
+
+    assert result.seeded is True
+    assert JobRepository(paths.database).count_jobs() == 747

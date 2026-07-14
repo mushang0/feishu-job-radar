@@ -5,6 +5,7 @@ import time
 from fastapi.testclient import TestClient
 
 from jobpicky.config import load_config
+from jobpicky.core import DatabaseBootstrapService
 from jobpicky.matcher import Matcher
 from jobpicky.models import Job
 from jobpicky.paths import AppPaths
@@ -97,7 +98,7 @@ def test_local_start_runs_shared_workflow_without_feishu(tmp_path: Path, monkeyp
 
 def test_feishu_test_initializes_workspace_and_syncs(tmp_path: Path, monkeypatch):
     paths = AppPaths(tmp_path / "profile")
-    JobRepository(paths.database).init_schema()
+    DatabaseBootstrapService(paths.database).initialize()
     client = TestClient(create_app(paths))
     assert client.put("/api/preferences", json=_profile_payload()).status_code == 200
     calls = []
@@ -166,7 +167,7 @@ def test_feishu_test_initializes_workspace_and_syncs(tmp_path: Path, monkeypatch
 
 def test_feishu_connection_failure_does_not_save_credentials(tmp_path: Path, monkeypatch):
     paths = AppPaths(tmp_path / "profile")
-    JobRepository(paths.database).init_schema()
+    DatabaseBootstrapService(paths.database).initialize()
     client = TestClient(create_app(paths))
     assert client.put("/api/preferences", json=_profile_payload()).status_code == 200
 
@@ -219,6 +220,30 @@ def test_feishu_test_requires_local_database_before_connection(tmp_path: Path, m
     assert response.json()["detail"]["code"] == "local_database_not_initialized"
     assert "请先完成本地初始化" in response.text
     assert not paths.database.exists()
+    assert "secret-value" not in response.text
+
+
+def test_feishu_test_rejects_empty_schema_without_remote_work(tmp_path: Path, monkeypatch):
+    paths = AppPaths(tmp_path / "profile")
+    JobRepository(paths.database).init_schema()
+    client = TestClient(create_app(paths))
+    assert client.put("/api/preferences", json=_profile_payload()).status_code == 200
+    monkeypatch.setattr(
+        "jobpicky.integrations.feishu.service.FeishuIntegrationService.test_connection",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("connection, provisioning and sync must not run")
+        ),
+    )
+
+    response = client.post(
+        "/api/feishu/test",
+        json={"base_url": "https://example.feishu.cn/base/token", "app_id": "app-id", "app_secret": "secret-value"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "local_database_not_initialized"
+    assert "请先完成本地初始化" in response.text
+    assert JobRepository(paths.database).count_jobs() == 0
     assert "secret-value" not in response.text
 
 
