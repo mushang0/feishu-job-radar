@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from jobpicky.models import Job
-from jobpicky.pipeline import rematch_existing_jobs
+from jobpicky.services.local import rematch_local
 from jobpicky.storage import JobRepository
 
 
@@ -32,7 +32,7 @@ def test_rematch_replaces_recommendations_for_target_date(tmp_path: Path):
         },
     }
 
-    rematch_existing_jobs(repo, config, recommendation_date="2026-07-04")
+    rematch_local(repo.db_path, config, recommendation_date="2026-07-04")
 
     rows = repo.list_recommended_jobs("2026-07-04")
     assert [row["job_id"] for row in rows] == [current.job_id]

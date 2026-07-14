@@ -4,7 +4,7 @@ from openpyxl import load_workbook
 
 from jobpicky.exporters import build_feishu_record, export_jobs_to_excel
 from jobpicky.models import Job
-from jobpicky.pipeline import run_daily_with_jobs
+from jobpicky.services.scanning import run_daily_with_jobs
 from jobpicky.storage import JobRepository
 
 

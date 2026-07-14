@@ -31,34 +31,6 @@ class InitSummary:
     recommended_items: int = 0
 
 
-def run_daily_with_jobs(repo: JobRepository, jobs: list[Job], config: dict, run_date: str | None = None) -> DailySummary:
-    ingestion = JobIngestionService(repo, config).ingest(jobs)
-    matching = MatchingService(repo, config).match_ingested(ingestion.changed_items)
-    recommended_items = RecommendationService(repo).append_daily(matching.matches, run_date)
-    return DailySummary(
-        items_seen=len(jobs),
-        new_items=ingestion.new_items,
-        updated_items=ingestion.updated_items,
-        relevant_items=matching.relevant_items,
-        recommended_items=recommended_items,
-        matched_items=matching.matched_items,
-    )
-
-
-def rematch_existing_jobs(repo: JobRepository, config: dict, recommendation_date: str | None = None) -> DailySummary:
-    rows = repo.list_stored_jobs()
-    matching = MatchingService(repo, config).rematch_all()
-    recommended_items = RecommendationService(repo).rebuild_all(matching.matches, recommendation_date)
-    return DailySummary(
-        items_seen=len(rows),
-        new_items=0,
-        updated_items=matching.matched_items,
-        relevant_items=matching.relevant_items,
-        recommended_items=recommended_items,
-        matched_items=matching.matched_items,
-    )
-
-
 def backfill_existing_job_details(
     repo: JobRepository,
     crawler,

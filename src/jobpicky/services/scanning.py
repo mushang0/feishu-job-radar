@@ -24,7 +24,12 @@ from .synchronization import SyncSummary, sync_feishu
 DailyStatus = Literal["success", "partial_success", "failed"]
 
 
-def run_daily_with_jobs(repo: JobRepository, jobs, config: dict):
+def run_daily_with_jobs(
+    repo: JobRepository,
+    jobs,
+    config: dict,
+    run_date: str | None = None,
+):
     """Compatibility adapter backed by the shared daily core service."""
     class CompletedCrawl:
         def crawl(self, *, mode="daily"):
@@ -35,7 +40,7 @@ def run_daily_with_jobs(repo: JobRepository, jobs, config: dict):
         JobIngestionService(repo),
         MatchingService(repo, config),
         RecommendationService(repo),
-    ).run()
+    ).run(run_date)
 
 
 @dataclass(frozen=True, slots=True)

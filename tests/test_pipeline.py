@@ -1,7 +1,9 @@
 from pathlib import Path
 
 from jobpicky.models import Job
-from jobpicky.pipeline import backfill_existing_job_details, rematch_existing_jobs, run_daily_with_jobs
+from jobpicky.pipeline import backfill_existing_job_details
+from jobpicky.services.scanning import run_daily_with_jobs
+from jobpicky.services.local import rematch_local
 from jobpicky.storage import JobRepository
 
 
@@ -48,7 +50,7 @@ def test_rematch_existing_jobs_backfills_new_recommendations(tmp_path: Path, moc
     job = Job(source="WonderCV", dedupe_key="WonderCV:id:history", company="HistoryCo", title="2027届FPGA工程师", batch="秋招", target_graduate_year="2027届")
     repo.upsert_job(job)
 
-    summary = rematch_existing_jobs(repo, mock_config(), recommendation_date="2026-07-04")
+    _repo, summary = rematch_local(repo.db_path, mock_config(), recommendation_date="2026-07-04")
 
     recommended = repo.list_recommended_jobs("2026-07-04")
     assert summary.items_seen == 1

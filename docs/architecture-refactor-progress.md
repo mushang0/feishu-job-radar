@@ -1,4 +1,14 @@
-# JobPicky 架构解耦重构进度
+# JobPicky 架构解耦重构进度（历史实施资料）
+
+> 本文记录历史实施过程。当前架构的主要入口是 [`architecture.md`](architecture.md)。
+
+## 阶段 6：架构收尾、冗余清理和文档固化（2026-07-14）
+
+删除：`pipeline.py::run_daily_with_jobs()` 与 `pipeline.py::rematch_existing_jobs()` 两套旧业务编排，以及仅转发到 `rematch_local()` 的 `cli.rematch_existing_jobs()` wrapper；生产代码无调用，测试改为验证当前公共服务。
+
+保留：`pipeline.py` 的详情回填、官网补全、分页初始化和飞书用户状态回拉仍由维护命令、每日流程或飞书集成调用；CLI 维护命令、`scanning.run_daily_with_jobs()` DTO 适配层和 `sync_feishu()` 批量同步实现均有真实入口或明确边界职责。
+
+结论：Web/CLI 主流程不存在第二套岗位写入、匹配或推荐循环；维护命令仍有专用编排，但不与首次初始化或每日核心流程重复。新增轻量 AST 架构测试，固化 core、Web、CLI 与飞书连接边界。完整验证结果和提交号见本阶段最终提交。
 
 状态：阶段 2 已完成，等待合并到集成分支
 

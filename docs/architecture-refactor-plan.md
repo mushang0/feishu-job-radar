@@ -1,4 +1,6 @@
-# JobPicky 架构解耦重构计划
+# JobPicky 架构解耦重构计划（历史实施资料）
+
+> 本文记录历史计划，不再代表当前架构。当前代码结构、职责和调用链以 [`architecture.md`](architecture.md) 为准。
 
 状态：计划基线，尚未开始实施
 

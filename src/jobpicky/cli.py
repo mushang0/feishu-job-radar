@@ -40,12 +40,6 @@ class PullSummary:
     failed: int = 0
 
 
-def rematch_existing_jobs(repo: JobRepository, config: dict, recommendation_date: str | None = None):
-    """Legacy CLI seam backed by the shared local application service."""
-    _repository, summary = rematch_local(repo.db_path, config, recommendation_date)
-    return summary
-
-
 @dataclass(frozen=True, slots=True)
 class CliErrorSpec:
     code: str
@@ -517,7 +511,7 @@ def _run_rematch(
         return 1
 
     reporter.stage("rematch", 1, 2, "按当前偏好重新匹配岗位")
-    summary = rematch_existing_jobs(repo, config, recommendation_date)
+    repo, summary = rematch_local(db_path, config, recommendation_date)
     reporter.stage("rematch", 1, 2, "按当前偏好重新匹配岗位", "done", f"推荐 {summary.recommended_items} 条")
     if not skip_feishu and _feishu_is_configured(config):
         if not skip_enrich_official:

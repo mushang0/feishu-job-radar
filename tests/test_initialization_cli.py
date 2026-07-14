@@ -4,7 +4,6 @@ from types import SimpleNamespace
 from jobpicky.cli import _run_init
 from jobpicky.core import DatabaseBootstrapService
 from jobpicky.integrations.feishu import FeishuIntegrationService
-from jobpicky.pipeline import DailySummary
 from jobpicky.storage import JobRepository
 
 
@@ -64,17 +63,12 @@ def test_run_init_uses_existing_database_and_connects_without_local_work(tmp_pat
         "jobpicky.cli.DatabaseBootstrapService.initialize",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("bootstrap must not run")),
     )
-    monkeypatch.setattr(
-        "jobpicky.cli.rematch_existing_jobs",
-        lambda *args, **kwargs: events.append("rematch") or DailySummary(0, 0, 0, 0, 0),
-    )
     monkeypatch.setattr("jobpicky.cli.sync_feishu", lambda *args, **kwargs: events.append("sync") or SimpleNamespace(created=0, updated=0, skipped=0, failed=0))
 
     code = _run_init(config, str(database), str(tmp_path / "config.yaml"), str(tmp_path / "export.xlsx"), assume_yes=True)
 
     assert code == 0
     assert events.index("service-test-connection") < events.index("read-only-preflight") < events.index("confirm") < events.index("provision") < events.index("sync")
-    assert "rematch" not in events
     assert "已重新匹配" not in capsys.readouterr().out
     assert config["feishu"]["workspace_table_id"] == "tbl-managed"
     assert config["feishu"]["workspace_schema_version"] == "3"
