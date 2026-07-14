@@ -24,6 +24,7 @@ from .seed import SeedDatabaseError, find_seed_database, restore_seed_database
 from .runtime import RunReport, RunReporter, console_event, console_report
 from .services.scanning import DailyWorkflowResult, _notification_rows, run_daily_workflow
 from .services.local import rematch_local
+from .services.initialization import existing_local_repository
 from .storage import JobRepository
 from .services.synchronization import SyncSummary, sync_feishu
 from .wondercv import WonderCVCrawler
@@ -270,27 +271,12 @@ def _run_init(
         return 1
 
     try:
-        database_existed = Path(db_path).is_file()
-        repo = DatabaseBootstrapService(db_path).initialize()
-        seeded = not database_existed
-    except SeedDatabaseError as exc:
-        _report_cli_exception(
-            config,
-            exc,
-            log_message="seed database initialization failed",
-            error=_cli_error_spec("init"),
-        )
-        return 1
-    except OSError as exc:
-        _report_cli_exception(
-            config,
-            exc,
-            log_message="seed database initialization failed",
-            error=_cli_error_spec("init"),
-        )
+        repo = existing_local_repository(db_path)
+    except ValueError as exc:
+        print(str(exc))
         return 1
 
-    reporter.stage("init", 1, 5, "恢复本地岗位基线", "done", f"{JobQueryService(repo).stats()['jobs']} 条")
+    reporter.stage("init", 1, 5, "检查本地岗位库", "done", f"{JobQueryService(repo).stats()['jobs']} 条")
     local_preflight = preflight_check(config, db_path)
     if not local_preflight.ok:
         print("运行前检查失败：" + "；".join(local_preflight.errors))
@@ -360,9 +346,8 @@ def _run_init(
             "error_message": f"飞书同步失败 {sync_summary.failed} 条" if sync_summary.failed else None,
         }
     )
-    seed_origin = seeded or seeded_from_reset
-    source_label = "已从 seed 恢复本地岗位库" if seed_origin else "使用已有本地岗位库"
-    print(f"初始化数据：{source_label}；已重新匹配，不执行首次全量抓取。")
+    seed_origin = seeded_from_reset
+    print("已连接飞书，工作台创建或修复完成，并已同步现有本地推荐；未执行本地初始化、抓取或重新匹配。")
     print(_format_run_summary("init", summary, None, PullSummary(), sync_summary))
     if summary.items_seen == 0:
         print("提示：本地岗位库为空；请确认运行数据库未被错误替换，或运行 daily 获取新增岗位。")

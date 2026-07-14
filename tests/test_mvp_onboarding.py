@@ -11,6 +11,7 @@ from jobpicky.paths import AppPaths
 from jobpicky.pipeline import DailySummary
 from jobpicky.services.scanning import DailyWorkflowResult
 from jobpicky.services.synchronization import SyncSummary
+from jobpicky.storage import JobRepository
 from jobpicky.web.app import create_app
 
 
@@ -73,7 +74,7 @@ def test_local_start_runs_shared_workflow_without_feishu(tmp_path: Path, monkeyp
 
     monkeypatch.setattr("jobpicky.web.app.LocalApplicationService.initialize_and_update", fake_local)
     monkeypatch.setattr(
-        "jobpicky.web.app.FeishuBitableClient",
+        "jobpicky.integrations.feishu.service.FeishuIntegrationService.test_connection",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("local mode must not call Feishu")),
     )
 
@@ -96,6 +97,7 @@ def test_local_start_runs_shared_workflow_without_feishu(tmp_path: Path, monkeyp
 
 def test_feishu_test_initializes_workspace_and_syncs(tmp_path: Path, monkeypatch):
     paths = AppPaths(tmp_path / "profile")
+    JobRepository(paths.database).init_schema()
     client = TestClient(create_app(paths))
     assert client.put("/api/preferences", json=_profile_payload()).status_code == 200
     calls = []
@@ -121,7 +123,15 @@ def test_feishu_test_initializes_workspace_and_syncs(tmp_path: Path, monkeypatch
                 workspace_url="https://example.feishu.cn/base/token?table=tbl-managed",
             )
 
-    monkeypatch.setattr("jobpicky.web.app.FeishuBitableClient", FeishuClient)
+    def test_connection(service):
+        feishu_client = FeishuClient(SimpleNamespace(app_id=service.config["feishu"]["app_id"]))
+        feishu_client.get_app()
+        return feishu_client
+
+    monkeypatch.setattr(
+        "jobpicky.integrations.feishu.service.FeishuIntegrationService.test_connection",
+        test_connection,
+    )
     monkeypatch.setattr("jobpicky.integrations.feishu.service.WorkspaceProvisioner", Provisioner)
     monkeypatch.setattr(
         "jobpicky.services.initialization.sync_feishu",
@@ -156,6 +166,7 @@ def test_feishu_test_initializes_workspace_and_syncs(tmp_path: Path, monkeypatch
 
 def test_feishu_connection_failure_does_not_save_credentials(tmp_path: Path, monkeypatch):
     paths = AppPaths(tmp_path / "profile")
+    JobRepository(paths.database).init_schema()
     client = TestClient(create_app(paths))
     assert client.put("/api/preferences", json=_profile_payload()).status_code == 200
 
@@ -166,7 +177,14 @@ def test_feishu_connection_failure_does_not_save_credentials(tmp_path: Path, mon
         def get_app(self):
             raise RuntimeError("invalid secret")
 
-    monkeypatch.setattr("jobpicky.web.app.FeishuBitableClient", FailingClient)
+    def fail_connection(service):
+        client = FailingClient(service.config)
+        client.get_app()
+
+    monkeypatch.setattr(
+        "jobpicky.integrations.feishu.service.FeishuIntegrationService.test_connection",
+        fail_connection,
+    )
 
     response = client.post(
         "/api/feishu/test",
@@ -181,6 +199,27 @@ def test_feishu_connection_failure_does_not_save_credentials(tmp_path: Path, mon
     assert "secret-value" not in response.text
     saved = client.get("/api/preferences").json()
     assert saved["feishu"]["configured"] is False
+
+
+def test_feishu_test_requires_local_database_before_connection(tmp_path: Path, monkeypatch):
+    paths = AppPaths(tmp_path / "profile")
+    client = TestClient(create_app(paths))
+    assert client.put("/api/preferences", json=_profile_payload()).status_code == 200
+    monkeypatch.setattr(
+        "jobpicky.integrations.feishu.service.FeishuIntegrationService.test_connection",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("connection must not run")),
+    )
+
+    response = client.post(
+        "/api/feishu/test",
+        json={"base_url": "https://example.feishu.cn/base/token", "app_id": "app-id", "app_secret": "secret-value"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "local_database_not_initialized"
+    assert "请先完成本地初始化" in response.text
+    assert not paths.database.exists()
+    assert "secret-value" not in response.text
 
 
 def test_role_group_and_custom_keyword_expand_local_matching(tmp_path: Path):

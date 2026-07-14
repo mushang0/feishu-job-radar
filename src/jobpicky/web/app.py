@@ -16,10 +16,10 @@ from pydantic import BaseModel, Field
 from .. import __version__
 from ..config import load_config, validate_config
 from ..error_safety import safe_exception_detail
-from ..feishu import FeishuBitableClient, FeishuConfig
+from ..integrations.feishu import FeishuIntegrationService
 from ..paths import AppPaths
 from ..services.scanning import DailyStageError, DailyWorkflowResult, run_daily_workflow
-from ..services.initialization import InitializationService
+from ..services.initialization import InitializationService, existing_local_repository
 from ..services.local import LocalApplicationService
 from ..services.web_state import WebStateService
 
@@ -270,8 +270,19 @@ def create_app(paths: AppPaths | None = None) -> FastAPI:
             }
         )
         try:
-            client = FeishuBitableClient(FeishuConfig.from_config(test_config))
-            client.get_app()
+            repo = existing_local_repository(paths.database)
+        except ValueError:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "stage": "local_database",
+                    "code": "local_database_not_initialized",
+                    "message": "本地数据库尚未初始化，请先完成本地初始化后再连接飞书。",
+                },
+            ) from None
+
+        try:
+            client = FeishuIntegrationService(repo, test_config).test_connection()
         except ValueError as exc:
             raise HTTPException(
                 status_code=422,

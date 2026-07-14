@@ -94,7 +94,7 @@ class FeishuIntegrationService:
         feishu["workspace_schema_version"] = WORKSPACE_SCHEMA_VERSION
         if self.config_path:
             save_config(self.config, self.config_path)
-        rows = self.repo.list_feishu_sync_candidates()
+        rows = self.repo.list_feishu_reconciliation_rows()
         sync = self.push_jobs(self.repo, self.config, rows, client_factory=lambda _config: client)
         return FeishuSetupResult(
             table_id=provisioned.table_id,
@@ -135,7 +135,7 @@ class FeishuIntegrationService:
         if pull_succeeded and not cancelled():
             try:
                 sync = self.push_jobs(
-                    self.repo, self.config, self.repo.list_feishu_sync_candidates(),
+                    self.repo, self.config, self.repo.list_feishu_reconciliation_rows(),
                     client_factory=(lambda _config: client),
                 )
                 if sync.failed:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import sqlite3
 from typing import Any
 
 from ..config import validate_config
@@ -54,8 +55,7 @@ class InitializationService:
         )
         if errors:
             raise ValueError("；".join(errors))
-        repo = JobRepository(self.paths.database)
-        repo.init_schema()
+        repo = existing_local_repository(self.paths.database)
         result = FeishuIntegrationService(
             repo, config, config_path=self.paths.config, push_jobs=sync_feishu
         ).connect(client=client)
@@ -66,3 +66,27 @@ class InitializationService:
             recommended_items=result.recommended_items,
             sync=result.sync,
         )
+
+
+def existing_local_repository(database_path: str | Path) -> JobRepository:
+    """Open an initialized local database without creating or repairing it."""
+    path = Path(database_path)
+    message = "本地数据库尚未初始化，请先完成本地初始化后再连接飞书。"
+    if not path.is_file():
+        raise ValueError(message)
+    repo = JobRepository(path)
+    try:
+        with repo.connect() as connection:
+            required = {"jobs", "recommended_jobs", "feishu_sync", "job_user_state"}
+            tables = {
+                str(row[0])
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                ).fetchall()
+            }
+        if not required.issubset(tables):
+            raise ValueError(message)
+        repo.count_jobs()
+    except sqlite3.Error:
+        raise ValueError(message) from None
+    return repo

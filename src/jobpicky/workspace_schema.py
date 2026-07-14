@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 
-WORKSPACE_SCHEMA_VERSION = "2"
+WORKSPACE_SCHEMA_VERSION = "3"
 
 FIELD_TYPE_CODES = {
     "text": 1,
@@ -83,13 +83,14 @@ class WorkspaceSchema:
 
 
 def desired_workspace() -> WorkspaceSchema:
-    visible_fields = ("公司", "岗位", "城市", "届别", "批次", "投递入口", "截止时间", "求职状态", "备注")
+    visible_fields = ("公司", "岗位", "当前推荐", "城市", "届别", "批次", "投递入口", "截止时间", "求职状态", "备注")
     return WorkspaceSchema(
         table_name="求职工作台",
         primary_field="公司",
         fields=(
             WorkspaceField("公司", "text"),
             WorkspaceField("岗位", "text"),
+            WorkspaceField("当前推荐", "checkbox"),
             WorkspaceField("城市", "text"),
             WorkspaceField("届别", "text"),
             WorkspaceField("批次", "text"),
