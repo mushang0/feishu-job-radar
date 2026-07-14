@@ -294,7 +294,8 @@ git diff --check：通过
 ```text
 当前分支：`refactor/03-web-cli`
 起点 commit：`8aec8c7`
-阶段提交：完成提交后补记
+实现与验收 commit：`e29086d`
+进度文档 commit：本节所在的后续文档提交
 ```
 
 ### 下一阶段入口
