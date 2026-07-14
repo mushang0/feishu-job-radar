@@ -4,7 +4,9 @@ import time
 import json
 import io
 import logging
+import threading
 import pytest
+from fastapi.testclient import TestClient
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -220,7 +222,12 @@ def test_cli_and_web_use_the_same_daily_service_and_expose_same_stats(tmp_path: 
 
     monkeypatch.setattr(web_app, "run_daily_workflow", lambda *args, **kwargs: shared_result)
     manager = web_app.TaskManager(AppPaths(tmp_path / "profile"))
-    task_id = manager.start_daily({})
+    task_id = manager.start(
+        "daily",
+        lambda task_id, cancelled: web_app.run_daily_workflow(
+            {}, manager.paths.database, task_id=task_id, cancel_check=cancelled
+        ).to_dict(),
+    )
     for _ in range(100):
         task = manager.get(task_id)
         if task and task["status"] not in {"queued", "running"}:
@@ -352,7 +359,15 @@ def test_web_task_fallback_is_structured_and_does_not_expose_exception(monkeypat
     monkeypatch.setattr(web_app, "run_daily_workflow", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError(raw)))
 
     manager = web_app.TaskManager(AppPaths(tmp_path / "profile"))
-    task_id = manager.start_daily({"feishu": {"app_secret": "APP-SECRET"}})
+    task_id = manager.start(
+        "daily",
+        lambda task_id, cancelled: web_app.run_daily_workflow(
+            {"feishu": {"app_secret": "APP-SECRET"}},
+            manager.paths.database,
+            task_id=task_id,
+            cancel_check=cancelled,
+        ).to_dict(),
+    )
     for _ in range(100):
         task = manager.get(task_id)
         if task and task["status"] not in {"queued", "running"}:
@@ -363,6 +378,84 @@ def test_web_task_fallback_is_structured_and_does_not_expose_exception(monkeypat
     assert task["exit_code"] == 1
     assert task["errors"] == [{"stage": "workflow", "code": "workflow_failed", "message": "每日工作流失败"}]
     assert all(secret not in json.dumps(task, ensure_ascii=False) for secret in ("SECRET-TOKEN", "APP-SECRET", "WEBHOOK-TOKEN"))
+
+
+def _wait_for_task_status(client: TestClient, task_id: str, expected: set[str], timeout: float = 2) -> dict:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        response = client.get(f"/api/tasks/{task_id}")
+        assert response.status_code == 200
+        task = response.json()
+        if task["status"] in expected:
+            return task
+        time.sleep(0.01)
+    pytest.fail(f"task {task_id} did not reach {sorted(expected)} within {timeout} seconds")
+
+
+def test_task_cancellation_api_preserves_cancelled_state_and_exclusivity(monkeypatch, tmp_path: Path):
+    paths = AppPaths(tmp_path / "profile")
+    client = TestClient(web_app.create_app(paths))
+    saved = client.put(
+        "/api/preferences",
+        json={"user_profile": {"batches": ["秋招"], "role_groups": ["硬件/嵌入式"]}},
+    )
+    assert saved.status_code == 200
+    cancellation_observed = threading.Event()
+    allow_return = threading.Event()
+
+    def cancelled_daily(_config, _database, *, task_id, cancel_check, **_kwargs):
+        while not cancel_check():
+            time.sleep(0.01)
+        cancellation_observed.set()
+        assert allow_return.wait(timeout=2), "test did not release the cancelled workflow"
+        return DailyWorkflowResult(
+            status="failed",
+            task_id=task_id,
+            errors=(DailyStageError("fetch", "fetch_failed", "岗位抓取已中断"),),
+        )
+
+    monkeypatch.setattr(web_app, "run_daily_workflow", cancelled_daily)
+    started = client.post("/api/tasks/daily")
+    assert started.status_code == 202
+    task_id = started.json()["task_id"]
+    _wait_for_task_status(client, task_id, {"running"})
+
+    cancelled = client.delete(f"/api/tasks/{task_id}")
+    assert cancelled.status_code == 202
+    assert cancelled.json()["status"] == "cancelling"
+    assert cancellation_observed.wait(timeout=2), "workflow did not observe cancellation"
+
+    blocked = client.post("/api/tasks/daily")
+    assert blocked.status_code == 409
+    assert blocked.json()["detail"]["code"] == "already_running"
+
+    allow_return.set()
+    task = _wait_for_task_status(client, task_id, {"cancelled"})
+    assert task["status"] == "cancelled"
+    assert task["errors"] == [
+        {"stage": "fetch", "code": "fetch_failed", "message": "岗位抓取已中断"}
+    ]
+
+
+def test_task_manager_does_not_turn_normal_failure_into_cancellation(tmp_path: Path):
+    manager = web_app.TaskManager(AppPaths(tmp_path / "profile"))
+    task_id = manager.start(
+        "test",
+        lambda operation_task_id, _cancelled: DailyWorkflowResult(
+            status="failed",
+            task_id=operation_task_id,
+            errors=(DailyStageError("process", "processing_failed", "岗位处理失败"),),
+        ).to_dict(),
+    )
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        task = manager.get(task_id)
+        if task and task["status"] == "failed":
+            break
+        time.sleep(0.01)
+    else:
+        pytest.fail("ordinary failed task did not finish within 2 seconds")
+    assert task["status"] == "failed"
 
 
 def test_fetch_failure_without_jobs_is_failed_and_reported_consistently(monkeypatch, tmp_path: Path):

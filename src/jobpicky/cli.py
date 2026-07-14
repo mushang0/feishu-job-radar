@@ -16,10 +16,12 @@ from .feishu import FeishuBitableClient, FeishuConfig
 from .logging_utils import SensitiveDataFilter, setup_logging
 from .onboarding import InitializationPreview, collect_missing_config, confirm_initialization
 from .official_search import OfficialUrlFinder
-from .pipeline import backfill_existing_job_details, enrich_official_urls, rematch_existing_jobs, run_init_with_page_batches, pull_user_states_from_feishu
+from .pipeline import backfill_existing_job_details, enrich_official_urls, run_init_with_page_batches, pull_user_states_from_feishu
+from .core import DatabaseBootstrapService, JobQueryService
 from .seed import SeedDatabaseError, find_seed_database, restore_seed_database
 from .runtime import RunReport, RunReporter, console_event, console_report
 from .services.scanning import DailyWorkflowResult, _notification_rows, run_daily_workflow
+from .services.local import rematch_local
 from .storage import JobRepository
 from .services.synchronization import SyncSummary, sync_feishu
 from .wondercv import WonderCVCrawler
@@ -33,6 +35,12 @@ class PullSummary:
     skipped: int = 0
     unknown: int = 0
     failed: int = 0
+
+
+def rematch_existing_jobs(repo: JobRepository, config: dict, recommendation_date: str | None = None):
+    """Legacy CLI seam backed by the shared local application service."""
+    _repository, summary = rematch_local(repo.db_path, config, recommendation_date)
+    return summary
 
 
 @dataclass(frozen=True, slots=True)
@@ -205,10 +213,9 @@ def main(argv: list[str] | None = None, reporter: RunReporter | None = None) -> 
 
 
 def _run_export(db_path: str, output_path: str, table: str = "all", export_date: str | None = None) -> int:
-    repo = JobRepository(db_path)
-    repo.init_schema()
+    repo = DatabaseBootstrapService(db_path).initialize()
     if table == "recommended":
-        rows = repo.list_recommended_jobs(export_date)
+        rows = JobQueryService(repo).recommendations(export_date)
         export_jobs_to_excel(rows, output_path, table="recommended")
     elif table == "daily-new":
         if not export_date:
@@ -261,7 +268,9 @@ def _run_init(
         return 1
 
     try:
-        seeded = restore_seed_database(db_path)
+        database_existed = Path(db_path).is_file()
+        repo = DatabaseBootstrapService(db_path).initialize()
+        seeded = not database_existed
     except SeedDatabaseError as exc:
         _report_cli_exception(
             config,
@@ -279,9 +288,7 @@ def _run_init(
         )
         return 1
 
-    repo = JobRepository(db_path)
-    repo.init_schema()
-    reporter.stage("init", 1, 5, "恢复本地岗位基线", "done", f"{len(repo.list_stored_jobs())} 条")
+    reporter.stage("init", 1, 5, "恢复本地岗位基线", "done", f"{JobQueryService(repo).stats()['jobs']} 条")
     local_preflight = preflight_check(config, db_path)
     if not local_preflight.ok:
         print("运行前检查失败：" + "；".join(local_preflight.errors))
@@ -501,8 +508,7 @@ def _run_rematch(
     reporter: RunReporter | None = None,
 ) -> int:
     reporter = reporter or RunReporter()
-    repo = JobRepository(db_path)
-    repo.init_schema()
+    repo = DatabaseBootstrapService(db_path).initialize()
     enrich_summary = None
     sync_summary = SyncSummary()
     pull_summary = PullSummary()

@@ -15,7 +15,7 @@ from ..config import (
 from ..onboarding import parse_base_url
 from ..normalizer import KNOWN_CITY_NAMES
 from ..paths import AppPaths
-from ..storage import JobRepository
+from ..core import DatabaseBootstrapService, JobQueryService
 
 
 class WebStateService:
@@ -108,19 +108,18 @@ class WebStateService:
         save_config(config, self.paths.config)
 
     def jobs(self, limit: int = 100) -> list[dict[str, Any]]:
-        repo = JobRepository(self.paths.database)
-        repo.init_schema()
-        rows = repo.list_all_jobs()
+        repo = DatabaseBootstrapService(self.paths.database).initialize()
+        rows = JobQueryService(repo).jobs()
         return rows[: max(0, min(limit, 500))]
 
     def health(self) -> dict[str, Any]:
-        repo = JobRepository(self.paths.database)
-        repo.init_schema()
+        repo = DatabaseBootstrapService(self.paths.database).initialize()
+        queries = JobQueryService(repo)
         config = load_config(self.paths.config)
         return {
             "config_exists": self.paths.config.is_file(),
             "database_exists": self.paths.database.is_file(),
-            "job_count": repo.count_jobs(),
+            "job_count": queries.stats()["jobs"],
             "configuration_errors": validate_config(
                 config,
                 require_graduate_years=False,

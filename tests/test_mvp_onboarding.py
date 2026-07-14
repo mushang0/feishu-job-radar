@@ -55,27 +55,23 @@ def test_local_start_runs_shared_workflow_without_feishu(tmp_path: Path, monkeyp
     assert client.put("/api/preferences", json=_profile_payload()).status_code == 200
     calls = []
 
-    monkeypatch.setattr(
-        "jobpicky.web.app.restore_seed_database",
-        lambda database: calls.append(("seed", database)) or True,
-    )
-    monkeypatch.setattr(
-        "jobpicky.web.app.rematch_existing_jobs",
-        lambda repo, config: calls.append(("rematch", config["user_profile"]["custom_keywords"]))
-        or DailySummary(4, 0, 4, 2, 2),
-    )
-
-    def fake_daily(config, database, **kwargs):
-        calls.append(("daily", kwargs.get("skip_feishu")))
-        return DailyWorkflowResult(
+    def fake_local(service, **kwargs):
+        calls.append(("local", service.config["user_profile"]["custom_keywords"]))
+        from jobpicky.services.local import LocalInitializationResult
+        return LocalInitializationResult(
+            seeded=True,
+            baseline_items=4,
+            baseline_recommended_items=2,
+            daily=DailyWorkflowResult(
             status="success",
             task_id=kwargs["task_id"],
             fetched_count=3,
             created_count=2,
             recommended_count=1,
+            ),
         )
 
-    monkeypatch.setattr("jobpicky.web.app.run_daily_workflow", fake_daily)
+    monkeypatch.setattr("jobpicky.web.app.LocalApplicationService.initialize_and_update", fake_local)
     monkeypatch.setattr(
         "jobpicky.web.app.FeishuBitableClient",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("local mode must not call Feishu")),
@@ -95,7 +91,7 @@ def test_local_start_runs_shared_workflow_without_feishu(tmp_path: Path, monkeyp
     assert task["mode"] == "local"
     assert task["seeded"] is True
     assert task["baseline_recommended_items"] == 2
-    assert calls == [("seed", paths.database), ("rematch", ["AUTOSAR"]), ("daily", True)]
+    assert calls == [("local", ["AUTOSAR"])]
 
 
 def test_feishu_test_initializes_workspace_and_syncs(tmp_path: Path, monkeypatch):

@@ -231,55 +231,89 @@ git diff --check：通过
 
 ## 阶段 3：接入本地 Web 和 CLI
 
-状态：未开始
+状态：已完成（2026-07-14）
 
 ### 开始前
 
-- [ ] 阅读新的 `src/jobpicky/core/` 服务。
-- [ ] 只阅读 Web、CLI、TaskManager 和相关入口测试。
-- [ ] 确认核心服务已经可以脱离飞书运行。
+- [x] 阅读新的 `src/jobpicky/core/` 服务。
+- [x] 只阅读 Web、CLI、TaskManager 和相关入口测试。
+- [x] 确认核心服务已经可以脱离飞书运行。
 
 ### 实际修改文件
 
 ```text
-待填写
+src/jobpicky/cli.py
+src/jobpicky/services/local.py
+src/jobpicky/services/scanning.py
+src/jobpicky/services/web_state.py
+src/jobpicky/web/app.py
+tests/test_daily_workflow.py
+tests/test_initialization_cli.py
+tests/test_mvp_onboarding.py
+docs/architecture-refactor-progress.md
 ```
 
 ### 关键设计决定
 
 ```text
-待填写
+1. 新增轻量 `LocalApplicationService`，只组合 `DatabaseBootstrapService`、`MatchingService`、`RecommendationService` 和既有 daily 集成入口；不实现任何写库、匹配或推荐循环。
+2. Web 本地初始化调用链为：路由 -> `LocalApplicationService` -> bootstrap/全量匹配/推荐重建 -> `run_daily_workflow(skip_feishu=True)` -> `DailyUpdateService`。
+3. Web/CLI daily 调用同一 `run_daily_workflow`；其中本地处理阶段统一委托 `DailyUpdateService`，飞书回拉、官网补全、同步和通知边界暂时保留原实现。
+4. CLI init/rematch 通过 bootstrap、query 和本地 rematch 应用服务完成本地工作；保留飞书预检、工作台、同步、输出、退出码及扫描记录边界。
+5. Web 岗位与健康统计通过 `JobQueryService` 查询；CLI 推荐导出也通过该查询服务。
+6. `TaskManager` 接收路由注入的操作，只负责任务启动、互斥、状态、取消、异常兜底和结果保存；新增 `DELETE /api/tasks/{task_id}` 取消入口。
+7. 删除 Web `_run_local()` 中的 seed 恢复、仓储初始化、全量重匹配和 daily 编排；替换 scanning 对旧 pipeline 本地处理函数的依赖。
+8. 实际代码与计划的差异：旧 daily 集成仍承载运行锁、扫描记录和阶段 4 的飞书边界，因此本阶段仅把其本地处理段切入核心服务，没有提前拆除飞书逻辑。
 ```
 
 ### 测试结果
 
 ```text
-待填写
+局部：51 passed（Web、CLI、daily、初始化和核心服务）
+完整：245 passed in 28.34s
+git diff --check：通过
+发布检查：9/9 PASS（含 wheel、干净安装、仓库外 WebUI、uvx 和干净退出）
 ```
 
 ### 验收
 
-- [ ] Web 路由不直接调用 seed、数据库、Matcher 或 crawler。
-- [ ] CLI 的 init/daily/rematch 使用公共应用服务。
-- [ ] TaskManager 只负责后台任务和状态。
-- [ ] 本地 Web 和 CLI 结果正确。
-- [ ] 不配置飞书也能完成本地工作流。
+- [x] Web 路由不直接调用 seed、数据库、Matcher 或 crawler。
+- [x] CLI 的 init/daily/rematch 使用公共应用服务。
+- [x] TaskManager 只负责后台任务和状态。
+- [x] 本地 Web 和 CLI 结果正确。
+- [x] 不配置飞书也能完成本地工作流。
 
 ### 遗留问题
 
 ```text
-待填写
+阶段 3 无阻塞问题。`services/scanning.py` 仍保留飞书回拉、官网 URL 补全、同步和通知；CLI init/rematch 仍保留飞书工作台与同步边界，按计划留给阶段 4。旧 pipeline 的详情回填等维护命令未在本阶段迁移。
 ```
 
 ### 阶段提交
 
 ```text
-commit: 待填写
+当前分支：`refactor/03-web-cli`
+起点 commit：`8aec8c7`
+实现与验收 commit：`e29086d`
+进度文档 commit：本节所在的后续文档提交
 ```
 
 ### 下一阶段入口
 
 阶段 4：重新接入飞书集成。
+
+### 阶段 3 独立审查修复（2026-07-14）
+
+```text
+修复 TaskManager 取消终态：收到取消请求后，即使 daily/local 返回失败结果，最终状态仍稳定为 cancelled；未收到取消请求的普通失败保持 failed。
+将 cancelling 纳入活动任务状态，上一任务真正结束前继续拒绝新的 local/daily 任务。
+取消测试改为通过 DELETE API 发起，验证 cancelling 期间的 409 互斥和最终 cancelled；各等待阶段使用独立超时并在超时时明确失败。
+新增 LocalApplicationService.initialize_and_update() 结果型集成测试，验证真实 seed/bootstrap、全量匹配、推荐重建、单次 daily 更新、数据库结果和无飞书配置运行。
+完整测试：247 passed in 39.24s
+发布检查：9/9 PASS
+git diff --check：通过
+提交：本修复提交（fix: preserve cancellation state and task exclusivity）
+```
 
 ## 阶段 4：重新接入飞书
 

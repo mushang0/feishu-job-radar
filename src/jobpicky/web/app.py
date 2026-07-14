@@ -3,7 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 import logging
 import threading
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -17,13 +17,11 @@ from .. import __version__
 from ..config import load_config, validate_config
 from ..error_safety import safe_exception_detail
 from ..feishu import FeishuBitableClient, FeishuConfig
-from ..pipeline import rematch_existing_jobs
 from ..paths import AppPaths
-from ..seed import restore_seed_database
 from ..services.scanning import DailyStageError, DailyWorkflowResult, run_daily_workflow
 from ..services.initialization import InitializationService
+from ..services.local import LocalApplicationService
 from ..services.web_state import WebStateService
-from ..storage import JobRepository
 
 
 class PreferencesPayload(BaseModel):
@@ -45,85 +43,64 @@ class TaskManager:
         self._tasks: dict[str, dict[str, Any]] = {}
         self._active_task_id: str | None = None
 
-    def start_daily(self, config: dict[str, Any]) -> str:
-        return self._start("daily", config, self._run_daily)
-
-    def start_local(self, config: dict[str, Any]) -> str:
-        return self._start("local", config, self._run_local)
-
-    def _start(self, kind: str, config: dict[str, Any], runner) -> str:
+    def start(self, kind: str, operation) -> str:
         with self._lock:
             if self._active_task_id:
                 active = self._tasks.get(self._active_task_id, {})
-                if active.get("status") in {"queued", "running"}:
+                if active.get("status") in {"queued", "running", "cancelling"}:
                     raise RuntimeError(self._active_task_id)
             task_id = uuid4().hex
             self._tasks[task_id] = {"task_id": task_id, "kind": kind, "status": "queued"}
             self._active_task_id = task_id
-            future = self._executor.submit(runner, task_id, config)
+            future = self._executor.submit(self._run, task_id, operation)
             self._tasks[task_id]["future"] = future
             return task_id
 
-    def _run_daily(self, task_id: str, config: dict[str, Any]) -> None:
+    def _run(self, task_id: str, operation) -> None:
         with self._lock:
+            if self._tasks[task_id].get("cancel_requested"):
+                self._tasks[task_id]["status"] = "cancelled"
+                if self._active_task_id == task_id:
+                    self._active_task_id = None
+                return
             self._tasks[task_id]["status"] = "running"
         try:
-            result = run_daily_workflow(config, self.paths.database, task_id=task_id)
-            payload = result.to_dict()
+            payload = operation(task_id, lambda: self._cancelled(task_id))
             with self._lock:
-                self._tasks[task_id].update(payload)
-        except Exception as exc:
-            logging.error("Web daily task failed: %s", safe_exception_detail(exc, config))
-            fallback = DailyWorkflowResult(
-                status="failed",
-                task_id=task_id,
-                errors=(DailyStageError("workflow", "workflow_failed", "每日工作流失败"),),
-            )
+                task = self._tasks[task_id]
+                task.update(payload)
+                if task.get("cancel_requested"):
+                    task["status"] = "cancelled"
+        except Exception:
+            logging.error("Web background task failed")
+            fallback = DailyWorkflowResult(status="failed", task_id=task_id, errors=(DailyStageError("workflow", "workflow_failed", "每日工作流失败"),))
             with self._lock:
-                self._tasks[task_id].update(fallback.to_dict())
+                task = self._tasks[task_id]
+                task.update(fallback.to_dict())
+                if task.get("cancel_requested"):
+                    task["status"] = "cancelled"
         finally:
             with self._lock:
                 if self._active_task_id == task_id:
                     self._active_task_id = None
 
-    def _run_local(self, task_id: str, config: dict[str, Any]) -> None:
+    def _cancelled(self, task_id: str) -> bool:
         with self._lock:
-            self._tasks[task_id]["status"] = "running"
-        try:
-            seeded = restore_seed_database(self.paths.database)
-            repo = JobRepository(self.paths.database)
-            repo.init_schema()
-            baseline = rematch_existing_jobs(repo, config)
-            result = run_daily_workflow(
-                config,
-                self.paths.database,
-                skip_feishu=True,
-                task_id=task_id,
-            )
-            payload = result.to_dict()
-            payload.update(
-                {
-                    "mode": "local",
-                    "seeded": seeded,
-                    "baseline_items": baseline.items_seen,
-                    "baseline_recommended_items": baseline.recommended_items,
-                }
-            )
-            with self._lock:
-                self._tasks[task_id].update(payload)
-        except Exception as exc:
-            logging.error("Web local task failed: %s", safe_exception_detail(exc, config))
-            fallback = DailyWorkflowResult(
-                status="failed",
-                task_id=task_id,
-                errors=(DailyStageError("local", "local_start_failed", "本地初始化或扫描失败"),),
-            )
-            with self._lock:
-                self._tasks[task_id].update(fallback.to_dict())
-        finally:
-            with self._lock:
+            return bool(self._tasks.get(task_id, {}).get("cancel_requested"))
+
+    def cancel(self, task_id: str) -> bool:
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if not task or task.get("status") not in {"queued", "running"}:
+                return False
+            task["cancel_requested"] = True
+            task["status"] = "cancelling"
+            future = task.get("future")
+            if future and future.cancel():
+                task["status"] = "cancelled"
                 if self._active_task_id == task_id:
                     self._active_task_id = None
+            return True
 
     def get(self, task_id: str) -> dict[str, Any] | None:
         with self._lock:
@@ -178,7 +155,13 @@ def create_app(paths: AppPaths | None = None) -> FastAPI:
         if errors:
             raise HTTPException(status_code=422, detail=errors)
         try:
-            task_id = tasks.start_local(config)
+            service = LocalApplicationService(paths.database, config)
+            task_id = tasks.start(
+                "local",
+                lambda task_id, cancelled: service.initialize_and_update(
+                    task_id=task_id, cancel_check=cancelled
+                ).to_dict(),
+            )
         except RuntimeError:
             raise HTTPException(
                 status_code=409,
@@ -366,7 +349,15 @@ def create_app(paths: AppPaths | None = None) -> FastAPI:
         if errors:
             raise HTTPException(status_code=422, detail=errors)
         try:
-            task_id = tasks.start_daily(config)
+            task_id = tasks.start(
+                "daily",
+                lambda task_id, cancelled: run_daily_workflow(
+                    config,
+                    paths.database,
+                    task_id=task_id,
+                    cancel_check=cancelled,
+                ).to_dict(),
+            )
         except RuntimeError:
             raise HTTPException(
                 status_code=409,
@@ -384,6 +375,14 @@ def create_app(paths: AppPaths | None = None) -> FastAPI:
         if result is None:
             raise HTTPException(status_code=404, detail="任务不存在")
         return result
+
+    @app.delete("/api/tasks/{task_id}", status_code=202)
+    def cancel_task(task_id: str) -> dict[str, Any]:
+        if tasks.get(task_id) is None:
+            raise HTTPException(status_code=404, detail="任务不存在")
+        if not tasks.cancel(task_id):
+            raise HTTPException(status_code=409, detail="任务已经结束")
+        return tasks.get(task_id) or {"task_id": task_id, "status": "cancelling"}
 
     return app
 
