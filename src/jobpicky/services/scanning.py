@@ -11,7 +11,8 @@ from ..alerts import build_daily_message
 from ..error_safety import known_secrets, redact_text, safe_exception_detail
 from ..feishu import FeishuBitableClient, FeishuBot, FeishuConfig
 from ..official_search import OfficialUrlFinder
-from ..pipeline import enrich_official_urls, pull_user_states_from_feishu, run_daily_with_jobs
+from ..core import DailyUpdateService, JobIngestionService, MatchingService, RecommendationService
+from ..pipeline import enrich_official_urls, pull_user_states_from_feishu
 from ..run_guard import DailyRunGuard, DailyRunInProgress
 from ..runtime import RunReport, RunReporter
 from ..storage import JobRepository
@@ -20,6 +21,20 @@ from .synchronization import SyncSummary, sync_feishu
 
 
 DailyStatus = Literal["success", "partial_success", "failed"]
+
+
+def run_daily_with_jobs(repo: JobRepository, jobs, config: dict):
+    """Compatibility adapter backed by the shared daily core service."""
+    class CompletedCrawl:
+        def crawl(self, *, mode="daily"):
+            return type("Crawl", (), {"jobs": jobs, "pages_scanned": 0})()
+
+    return DailyUpdateService(
+        CompletedCrawl(),
+        JobIngestionService(repo),
+        MatchingService(repo, config),
+        RecommendationService(repo),
+    ).run()
 
 
 @dataclass(frozen=True, slots=True)

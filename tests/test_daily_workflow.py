@@ -220,7 +220,12 @@ def test_cli_and_web_use_the_same_daily_service_and_expose_same_stats(tmp_path: 
 
     monkeypatch.setattr(web_app, "run_daily_workflow", lambda *args, **kwargs: shared_result)
     manager = web_app.TaskManager(AppPaths(tmp_path / "profile"))
-    task_id = manager.start_daily({})
+    task_id = manager.start(
+        "daily",
+        lambda task_id, cancelled: web_app.run_daily_workflow(
+            {}, manager.paths.database, task_id=task_id, cancel_check=cancelled
+        ).to_dict(),
+    )
     for _ in range(100):
         task = manager.get(task_id)
         if task and task["status"] not in {"queued", "running"}:
@@ -352,7 +357,15 @@ def test_web_task_fallback_is_structured_and_does_not_expose_exception(monkeypat
     monkeypatch.setattr(web_app, "run_daily_workflow", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError(raw)))
 
     manager = web_app.TaskManager(AppPaths(tmp_path / "profile"))
-    task_id = manager.start_daily({"feishu": {"app_secret": "APP-SECRET"}})
+    task_id = manager.start(
+        "daily",
+        lambda task_id, cancelled: web_app.run_daily_workflow(
+            {"feishu": {"app_secret": "APP-SECRET"}},
+            manager.paths.database,
+            task_id=task_id,
+            cancel_check=cancelled,
+        ).to_dict(),
+    )
     for _ in range(100):
         task = manager.get(task_id)
         if task and task["status"] not in {"queued", "running"}:
@@ -363,6 +376,24 @@ def test_web_task_fallback_is_structured_and_does_not_expose_exception(monkeypat
     assert task["exit_code"] == 1
     assert task["errors"] == [{"stage": "workflow", "code": "workflow_failed", "message": "每日工作流失败"}]
     assert all(secret not in json.dumps(task, ensure_ascii=False) for secret in ("SECRET-TOKEN", "APP-SECRET", "WEBHOOK-TOKEN"))
+
+
+def test_task_manager_cancels_running_operation(tmp_path: Path):
+    manager = web_app.TaskManager(AppPaths(tmp_path / "profile"))
+
+    def operation(task_id, cancelled):
+        while not cancelled():
+            time.sleep(0.01)
+        return {"task_id": task_id, "status": "cancelled"}
+
+    task_id = manager.start("test", operation)
+    deadline = time.time() + 2
+    while manager.get(task_id)["status"] == "queued" and time.time() < deadline:
+        time.sleep(0.01)
+    assert manager.cancel(task_id) is True
+    while manager.get(task_id)["status"] == "cancelling" and time.time() < deadline:
+        time.sleep(0.01)
+    assert manager.get(task_id)["status"] == "cancelled"
 
 
 def test_fetch_failure_without_jobs_is_failed_and_reported_consistently(monkeypatch, tmp_path: Path):

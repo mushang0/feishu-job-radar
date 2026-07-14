@@ -1,0 +1,91 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Callable
+
+from ..core import (
+    DatabaseBootstrapService,
+    MatchingService,
+    RecommendationService,
+)
+from .scanning import DailyWorkflowResult, run_daily_workflow
+
+
+@dataclass(frozen=True, slots=True)
+class LocalInitializationResult:
+    seeded: bool
+    baseline_items: int
+    baseline_recommended_items: int
+    daily: DailyWorkflowResult
+
+    def to_dict(self) -> dict:
+        payload = self.daily.to_dict()
+        payload.update(
+            {
+                "mode": "local",
+                "seeded": self.seeded,
+                "baseline_items": self.baseline_items,
+                "baseline_recommended_items": self.baseline_recommended_items,
+            }
+        )
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
+class LocalRematchResult:
+    items_seen: int
+    new_items: int
+    updated_items: int
+    relevant_items: int
+    recommended_items: int
+    matched_items: int
+
+
+class LocalApplicationService:
+    """Compose local entry-point use cases exclusively from shared core services."""
+
+    def __init__(self, database_path: str | Path, config: dict):
+        self.database_path = Path(database_path)
+        self.config = config
+
+    def initialize_and_update(
+        self,
+        *,
+        task_id: str | None = None,
+        cancel_check: Callable[[], bool] | None = None,
+    ) -> LocalInitializationResult:
+        database_existed = self.database_path.is_file()
+        repository = DatabaseBootstrapService(self.database_path).initialize()
+        matching = MatchingService(repository, self.config).rematch_all()
+        recommended = RecommendationService(repository).rebuild_all(matching.matches)
+        daily = run_daily_workflow(
+            self.config,
+            self.database_path,
+            skip_feishu=True,
+            task_id=task_id,
+            cancel_check=cancel_check,
+        )
+        return LocalInitializationResult(
+            seeded=not database_existed,
+            baseline_items=matching.matched_items,
+            baseline_recommended_items=recommended,
+            daily=daily,
+        )
+
+
+def rematch_local(database_path: str | Path, config: dict, recommendation_date: str | None = None):
+    repository = DatabaseBootstrapService(database_path).initialize()
+    items_seen = len(repository.list_stored_jobs())
+    matching = MatchingService(repository, config).rematch_all()
+    recommended = RecommendationService(repository).rebuild_all(
+        matching.matches, recommendation_date
+    )
+    return repository, LocalRematchResult(
+        items_seen=items_seen,
+        new_items=0,
+        updated_items=matching.matched_items,
+        relevant_items=matching.relevant_items,
+        recommended_items=recommended,
+        matched_items=matching.matched_items,
+    )
