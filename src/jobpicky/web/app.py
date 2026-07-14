@@ -47,7 +47,7 @@ class TaskManager:
         with self._lock:
             if self._active_task_id:
                 active = self._tasks.get(self._active_task_id, {})
-                if active.get("status") in {"queued", "running"}:
+                if active.get("status") in {"queued", "running", "cancelling"}:
                     raise RuntimeError(self._active_task_id)
             task_id = uuid4().hex
             self._tasks[task_id] = {"task_id": task_id, "kind": kind, "status": "queued"}
@@ -67,12 +67,18 @@ class TaskManager:
         try:
             payload = operation(task_id, lambda: self._cancelled(task_id))
             with self._lock:
-                self._tasks[task_id].update(payload)
+                task = self._tasks[task_id]
+                task.update(payload)
+                if task.get("cancel_requested"):
+                    task["status"] = "cancelled"
         except Exception:
             logging.error("Web background task failed")
             fallback = DailyWorkflowResult(status="failed", task_id=task_id, errors=(DailyStageError("workflow", "workflow_failed", "每日工作流失败"),))
             with self._lock:
-                self._tasks[task_id].update(fallback.to_dict())
+                task = self._tasks[task_id]
+                task.update(fallback.to_dict())
+                if task.get("cancel_requested"):
+                    task["status"] = "cancelled"
         finally:
             with self._lock:
                 if self._active_task_id == task_id:

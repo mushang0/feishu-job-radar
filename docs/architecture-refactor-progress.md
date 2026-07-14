@@ -302,6 +302,19 @@ git diff --check：通过
 
 阶段 4：重新接入飞书集成。
 
+### 阶段 3 独立审查修复（2026-07-14）
+
+```text
+修复 TaskManager 取消终态：收到取消请求后，即使 daily/local 返回失败结果，最终状态仍稳定为 cancelled；未收到取消请求的普通失败保持 failed。
+将 cancelling 纳入活动任务状态，上一任务真正结束前继续拒绝新的 local/daily 任务。
+取消测试改为通过 DELETE API 发起，验证 cancelling 期间的 409 互斥和最终 cancelled；各等待阶段使用独立超时并在超时时明确失败。
+新增 LocalApplicationService.initialize_and_update() 结果型集成测试，验证真实 seed/bootstrap、全量匹配、推荐重建、单次 daily 更新、数据库结果和无飞书配置运行。
+完整测试：247 passed in 39.24s
+发布检查：9/9 PASS
+git diff --check：通过
+提交：本修复提交（fix: preserve cancellation state and task exclusivity）
+```
+
 ## 阶段 4：重新接入飞书
 
 状态：未开始
