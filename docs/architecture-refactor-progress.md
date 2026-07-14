@@ -1,6 +1,6 @@
 # JobPicky 架构解耦重构进度
 
-状态：阶段 1 已完成，等待合并到集成分支
+状态：阶段 2 已完成，等待合并到集成分支
 
 计划文档：`docs/architecture-refactor-plan.md`
 
@@ -156,57 +156,78 @@ git diff --check：通过
 
 ## 阶段 2：重构公共核心
 
-状态：未开始
+状态：已完成（2026-07-14）
 
 ### 开始前
 
-- [ ] 只阅读核心服务、`pipeline.py`、`storage.py`、`matcher.py`、`wondercv.py` 和本阶段测试。
-- [ ] 确认阶段 1 的新 seed 已通过验收。
-- [ ] 确认本地流程可以在无飞书配置下运行。
+- [x] 只阅读核心服务、`pipeline.py`、`storage.py`、`matcher.py`、`wondercv.py` 和本阶段测试。
+- [x] 确认阶段 1 的新 seed 已通过验收。
+- [x] 确认本地流程可以在无飞书配置下运行。
 
 ### 实际修改文件
 
 ```text
-待填写
+src/jobpicky/core/__init__.py
+src/jobpicky/core/bootstrap.py
+src/jobpicky/core/ingestion.py
+src/jobpicky/core/matching.py
+src/jobpicky/core/recommendations.py
+src/jobpicky/core/daily_update.py
+src/jobpicky/core/queries.py
+src/jobpicky/pipeline.py
+src/jobpicky/storage.py
+tests/test_core_services.py
+docs/architecture-refactor-progress.md
 ```
 
 ### 关键设计决定
 
 ```text
-待填写
+1. `JobRepository.upsert_job()` 继续作为去重、变化判断和详情字段保护的唯一持久化实现；写入服务只补齐公司标准化与 dedupe key。
+2. `MatchingService` 原样复用 `Matcher`，只负责指定岗位或全量岗位匹配及结果保存；非 `detail_ready` 岗位不匹配。
+3. `RecommendationService.append_daily()` 只追加当日推荐；`rebuild_all()` 根据全量重匹配结果重建全局推荐集合。
+4. `DailyUpdateService` 只编排抓取、写入、匹配、推荐追加，并仅把新增或变化岗位交给匹配服务。
+5. 数据库行到 `Job` 的映射移入 `JobRepository`；旧 pipeline 的增量写入、重匹配和分页初始化改为复用核心服务。
+6. 核心服务不负责运行锁、扫描记录、Web 任务、CLI 输出、飞书回拉/推送、通知、审计或页面序列化。
+7. 实际代码的 seed 恢复函数保留“目标存在则不覆盖”语义，`DatabaseBootstrapService` 在恢复后统一执行 schema 初始化。
 ```
 
 ### 测试结果
 
 ```text
-待填写
+局部：28 passed in 11.33s（核心、pipeline、推荐、初始化、storage、seed）
+完整：244 passed in 24.66s
+git diff --check：通过
+发布检查：未运行；本阶段未修改打包资源、安装路径、入口或 wheel 内容
 ```
 
 ### 验收
 
-- [ ] `DatabaseBootstrapService` 可创建运行数据库。
-- [ ] `JobIngestionService` 可完成标准化、去重和写入。
-- [ ] `MatchingService` 可保存匹配结果。
-- [ ] `RecommendationService` 区分每日追加和全量重建。
-- [ ] `DailyUpdateService` 不导入飞书。
-- [ ] `JobQueryService` 可查询岗位、推荐和统计。
-- [ ] 初始化、每日更新、重新匹配和查询均不需要飞书。
+- [x] `DatabaseBootstrapService` 可创建运行数据库。
+- [x] `JobIngestionService` 可完成标准化、去重和写入。
+- [x] `MatchingService` 可保存匹配结果。
+- [x] `RecommendationService` 区分每日追加和全量重建。
+- [x] `DailyUpdateService` 不导入飞书。
+- [x] `JobQueryService` 可查询岗位、推荐和统计。
+- [x] 初始化、每日更新、重新匹配和查询均不需要飞书。
 
 ### 遗留问题
 
 ```text
-待填写
+阶段 2 无阻塞问题。旧 `pipeline.py` 中飞书回拉、详情回填和官网 URL 补全入口仍保留，供阶段 3/4 按入口与集成边界继续迁移；WebUI、CLI 和飞书流程本阶段未接入新服务。
 ```
 
 ### 阶段提交
 
 ```text
-commit: 待填写
+当前分支：`refactor/02-core-services`
+实现 commit：`328d32d`
+进度文档 commit：本节所在的后续文档提交
 ```
 
 ### 下一阶段入口
 
-阶段 3：让 Web 和 CLI 只调用公共应用服务。
+阶段 3：让 Web 和 CLI 只调用本阶段公共核心服务；不在入口层重复编排数据库、Matcher 或 crawler。
 
 ## 阶段 3：接入本地 Web 和 CLI
 
