@@ -253,7 +253,7 @@ def test_role_group_and_custom_keyword_expand_local_matching(tmp_path: Path):
     profile.update(
         {
             "graduate_years": [],
-            "batches": ["社招"],
+            "batches": ["实习"],
             "role_groups": ["FPGA"],
             "target_cities": [],
             "custom_keywords": ["AUTOSAR"],
@@ -264,13 +264,13 @@ def test_role_group_and_custom_keyword_expand_local_matching(tmp_path: Path):
     fpga_job = Job(
         company="示例公司",
         title="RTL 设计工程师",
-        batch="社招",
+        batch="实习",
         role_text="使用 Verilog 和 Vivado 完成 FPGA 开发",
     )
     custom_job = Job(
         company="示例公司",
         title="嵌入式软件工程师",
-        batch="社招",
+        batch="实习",
         role_text="负责 AUTOSAR 平台开发",
     )
 

@@ -9,7 +9,8 @@ from typing import Any
 import yaml
 
 
-ONBOARDING_BATCH_OPTIONS = ("秋招", "实习", "社招")
+ONBOARDING_BATCH_OPTIONS = ("校招", "实习")
+LEGACY_DEFAULT_EXCLUDED_ROLES = ("销售", "市场", "运营", "HR", "财务")
 
 ONBOARDING_ROLE_SECTIONS: tuple[dict[str, Any], ...] = (
     {
@@ -77,7 +78,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "target_cities": [],
         "custom_keywords": [],
         "must_watch_companies": [],
-        "exclude_role_groups": ["销售", "市场", "运营", "HR", "财务"],
+        "exclude_role_groups": [],
         "recall_mode": "balanced",
         "daily_push_limit": 20,
     },

@@ -43,11 +43,32 @@ def test_web_lists_local_jobs_and_health(tmp_path: Path):
     client = TestClient(create_app(paths))
 
     assert client.get("/api/health").json()["job_count"] == 1
-    assert client.get("/api/jobs").json()[0]["company"] == "示例公司"
+    jobs = client.get("/api/jobs").json()
+    assert jobs["items"][0]["company"] == "示例公司"
+    assert jobs["total"] == 1
+    assert jobs["recommended_total"] == 0
     page = client.get("/").text
     assert "JobPicky" in page
     assert "Your personalized job radar" in page
     assert "懂你偏好的个性化岗位雷达" in page
+    assert "四步" not in page  # Product copy stays user-facing, not implementation-facing.
+    assert 'href="/static/css/app.css?v=' in page
+    assert 'src="/static/js/app.js?v=' in page
+    assert client.get("/static/css/app.css").status_code == 200
+    assert client.get("/static/js/app.js").status_code == 200
+
+
+def test_web_ui_exposes_local_first_product_structure(tmp_path: Path):
+    client = TestClient(create_app(AppPaths(tmp_path / "profile")))
+    page = client.get("/").text
+
+    assert "岗位雷达" in page
+    assert "全部岗位" in page
+    assert "求职偏好" in page
+    assert "集成" in page
+    assert "完成设置并开始首次扫描" in page
+    assert 'aria-live="polite"' in page
+    assert "选择使用方式" not in page
 
 
 def test_web_setup_preview_describes_three_step_workspace_flow(tmp_path: Path):

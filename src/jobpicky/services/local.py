@@ -20,6 +20,7 @@ class LocalInitializationResult:
     baseline_items: int
     baseline_recommended_items: int
     daily: DailyWorkflowResult
+    current_recommended_total: int = 0
 
     def to_dict(self) -> dict:
         payload = self.daily.to_dict()
@@ -29,6 +30,9 @@ class LocalInitializationResult:
                 "seeded": self.seeded,
                 "baseline_items": self.baseline_items,
                 "baseline_recommended_items": self.baseline_recommended_items,
+                "new_recommended_count": self.daily.recommended_count,
+                "current_recommended_total": self.current_recommended_total,
+                "recommendation_delta": self.current_recommended_total - self.baseline_recommended_items,
             }
         )
         return payload
@@ -73,6 +77,7 @@ class LocalApplicationService:
             seeded=not database_was_initialized,
             baseline_items=matching.matched_items,
             baseline_recommended_items=recommended,
+            current_recommended_total=len(repository.list_recommended_jobs()),
             daily=daily,
         )
 

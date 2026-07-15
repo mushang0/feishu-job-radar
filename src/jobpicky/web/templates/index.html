@@ -3,447 +3,97 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>JobPicky · Your personalized job radar</title>
-  <style>
-    :root {
-      color-scheme: light;
-      --ink: #172033;
-      --muted: #667085;
-      --line: #d9dfeb;
-      --blue: #2563eb;
-      --blue-soft: #eff6ff;
-      --panel: #ffffff;
-      --background: #f6f8fc;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      background: var(--background);
-      color: var(--ink);
-      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-    }
-    main { max-width: 980px; margin: 0 auto; padding: 2.5rem 1rem 4rem; }
-    header { margin-bottom: 1.5rem; }
-    h1 { margin: 0 0 .5rem; font-size: 2rem; }
-    h2 { margin: 0 0 .8rem; font-size: 1.15rem; }
-    h3 { margin: 1.1rem 0 .6rem; font-size: .98rem; color: var(--muted); }
-    p { color: var(--muted); line-height: 1.6; }
-    section {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 16px;
-      padding: 1.25rem;
-      margin: 1rem 0;
-      box-shadow: 0 8px 24px rgba(31, 41, 55, .04);
-    }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; }
-    .choice-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; }
-    .choice {
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      padding: 1rem;
-      background: #fff;
-      text-align: left;
-    }
-    .choice h3 { margin-top: 0; color: var(--ink); }
-    .choice button { width: 100%; }
-    .chips { display: flex; flex-wrap: wrap; gap: .55rem; }
-    .chip {
-      display: inline-flex;
-      align-items: center;
-      gap: .4rem;
-      border: 1px solid var(--line);
-      border-radius: 999px;
-      padding: .45rem .8rem;
-      background: #fff;
-      cursor: pointer;
-      user-select: none;
-      color: var(--ink);
-    }
-    .chip:has(input:checked) {
-      border-color: var(--blue);
-      background: var(--blue-soft);
-      color: #1d4ed8;
-    }
-    .chip input { position: absolute; opacity: 0; pointer-events: none; }
-    .keyword-list { display: flex; flex-wrap: wrap; gap: .45rem; min-height: 2rem; margin: .5rem 0; }
-    .keyword {
-      display: inline-flex;
-      align-items: center;
-      gap: .35rem;
-      padding: .35rem .6rem;
-      border-radius: 999px;
-      background: var(--blue-soft);
-      color: #1d4ed8;
-      font-size: .9rem;
-    }
-    .keyword button {
-      margin: 0;
-      padding: 0;
-      border: 0;
-      background: transparent;
-      color: inherit;
-      font-size: 1rem;
-    }
-    input[type=text], input[type=password] {
-      width: 100%;
-      padding: .7rem .75rem;
-      border: 1px solid var(--line);
-      border-radius: 9px;
-      font: inherit;
-      margin: .25rem 0 .75rem;
-    }
-    button {
-      border: 0;
-      border-radius: 9px;
-      padding: .7rem 1rem;
-      margin: .5rem .5rem 0 0;
-      font: inherit;
-      cursor: pointer;
-      background: var(--blue);
-      color: #fff;
-    }
-    button.secondary { background: #eef2f7; color: var(--ink); }
-    button:disabled { opacity: .55; cursor: wait; }
-    details { margin-top: 1rem; border-top: 1px solid var(--line); padding-top: .9rem; }
-    summary { cursor: pointer; color: var(--muted); }
-    #status {
-      white-space: pre-wrap;
-      background: #f8fafc;
-      border-radius: 10px;
-      padding: .8rem;
-      color: var(--muted);
-      min-height: 2.5rem;
-    }
-    ul { padding-left: 1.2rem; }
-    li { margin: .5rem 0; line-height: 1.45; }
-    .hidden { display: none !important; }
-    .success { color: #047857; }
-    .error { color: #b42318; }
-    a { color: #1d4ed8; }
-  </style>
+  <meta name="theme-color" content="#f5f5f7">
+  <meta name="description" content="Your personalized job radar · 懂你偏好的个性化岗位雷达">
+  <title>JobPicky · 岗位雷达</title>
+  <link rel="stylesheet" href="/static/css/app.css?v=20260715-2">
 </head>
 <body>
-  <main>
-    <header>
-      <h1>JobPicky</h1>
-      <p class="brand-subtitle">Your personalized job radar</p>
-      <p>懂你偏好的个性化岗位雷达。先选择你的求职偏好；飞书不是必需项，不连接飞书也可以在本地扫描和查看岗位。</p>
-    </header>
+  <div id="loading-screen" class="loading-screen" aria-live="polite"><span class="spinner"></span><span>正在准备岗位雷达</span></div>
 
-    <section id="profile-panel">
-      <h2>首次配置</h2>
-      <form id="profile-form">
-        <div class="grid">
-          <div>
-            <h3>招聘类型</h3>
-            <div id="batch-options" class="chips"></div>
-          </div>
-          <div>
-            <h3>城市</h3>
-            <div id="city-options" class="chips"></div>
-          </div>
-        </div>
-        <div id="role-sections"></div>
-        <div>
-          <h3>自定义关键词（可选）</h3>
-          <div id="keyword-list" class="keyword-list"></div>
-          <input id="custom-keyword-input" type="text" placeholder="输入关键词后按回车，例如 CUDA、AUTOSAR">
-        </div>
-        <details>
-          <summary>高级设置：毕业届别（可选）</summary>
-          <p>不选择表示不限制毕业届别。</p>
-          <div id="graduate-options" class="chips"></div>
-        </details>
-        <button type="submit">保存配置</button>
-      </form>
-    </section>
-
-    <section id="choice-panel" class="hidden">
-      <h2>选择使用方式</h2>
-      <p>配置已保存。你可以先在本地查看岗位，也可以连接飞书并同步推荐。</p>
-      <div class="choice-grid">
-        <div class="choice">
-          <h3>开始本地使用</h3>
-          <p>复制岗位基线、重新匹配并扫描最新岗位，不调用飞书。</p>
-          <button id="local-button" type="button">开始本地使用</button>
-        </div>
-        <div class="choice">
-          <h3>连接飞书</h3>
-          <p>验证凭据后自动创建或修复工作台，并同步推荐岗位。</p>
-          <button id="feishu-button" type="button">连接飞书</button>
-        </div>
+  <main id="onboarding" class="onboarding hidden">
+    <div class="onboarding-brand"><span class="brand-mark">J</span><span>JobPicky</span></div>
+    <section class="onboarding-panel" aria-labelledby="onboarding-title">
+      <div id="welcome-step" class="wizard-step">
+        <p class="eyebrow">本地优先 · 隐私友好</p>
+        <h1 id="onboarding-title">开始建立你的岗位雷达</h1>
+        <p class="lead">告诉 JobPicky 你正在寻找什么，它会持续整理并筛选值得关注的招聘信息。</p>
+        <button class="button primary" type="button" data-wizard-next>开始设置</button>
+        <p class="hint">约需 1 分钟，之后可以随时修改。稍后也可以连接飞书。</p>
       </div>
-    </section>
-
-    <section id="local-panel" class="hidden">
-      <h2>本地岗位</h2>
-      <p>本地模式不会调用飞书。可以重复执行扫描，结果保存在本机。</p>
-      <button id="local-scan-button" type="button">开始本地扫描</button>
-      <button id="edit-profile-button" class="secondary" type="button">修改配置</button>
-    </section>
-
-    <section id="feishu-panel" class="hidden">
-      <h2>连接飞书</h2>
-      <p>测试成功后会自动创建或修复工作台，并同步当前推荐岗位。</p>
-      <form id="feishu-form">
-        <label>Base 链接
-          <input id="base-url" type="text" placeholder="https://租户.feishu.cn/base/...">
-        </label>
-        <label>App ID
-          <input id="app-id" type="text">
-        </label>
-        <label>App Secret
-          <input id="app-secret" type="password">
-        </label>
-        <button id="feishu-submit" type="submit">测试连接</button>
-        <button id="back-button" class="secondary" type="button">返回</button>
+      <form id="onboarding-form" class="hidden" novalidate>
+        <div class="wizard-progress" aria-label="设置进度"><span id="step-count">第 1 步，共 4 步</span><div><i id="step-bar"></i></div></div>
+        <div class="wizard-step" data-step="1">
+          <p class="eyebrow">求职阶段</p><h2>你正在关注哪类招聘？</h2><p>这会帮助我们排除不相关的招聘批次。</p>
+          <div id="onboarding-batches" class="option-grid"></div>
+        </div>
+        <div class="wizard-step hidden" data-step="2">
+          <p class="eyebrow">关注岗位</p><h2>你希望雷达重点留意什么？</h2><p>搜索预设方向，或加入更具体的技术关键词。</p>
+          <label class="search-field"><span class="sr-only">搜索岗位类别</span><input id="role-search" type="search" placeholder="搜索岗位类别，例如 FPGA"></label>
+          <div id="onboarding-roles" class="role-options"></div>
+          <div class="field-group"><label for="onboarding-keyword">自定义关键词</label><div class="inline-field"><input id="onboarding-keyword" type="text" placeholder="例如 CUDA、AUTOSAR"><button class="button secondary" type="button" data-add-keyword>添加</button></div><div id="onboarding-keywords" class="selected-list"></div></div>
+        </div>
+        <div class="wizard-step hidden" data-step="3">
+          <p class="eyebrow">期望城市</p><h2>你想在哪里工作？</h2><p>支持多选；选择不限城市时不会限制岗位地点。</p>
+          <label class="search-field"><span class="sr-only">搜索城市</span><input id="city-search" type="search" placeholder="搜索城市"></label>
+          <div id="onboarding-cities" class="choice-row"></div>
+        </div>
+        <div class="wizard-step hidden" data-step="4">
+          <p class="eyebrow">确认设置</p><h2>岗位雷达已准备就绪</h2><p>检查以下偏好，完成后即可在本地开始使用。</p>
+          <dl id="setup-summary" class="summary-list"></dl>
+        </div>
+        <p id="wizard-error" class="form-message error hidden" role="alert"></p>
+        <div class="wizard-actions"><button id="wizard-back" class="button ghost" type="button">返回</button><button id="wizard-next" class="button primary" type="button">继续</button><button id="wizard-finish" class="button primary hidden" type="submit">完成设置并开始首次扫描</button><button id="wizard-skip-scan" class="button ghost hidden" type="button">暂不扫描</button></div>
       </form>
-    </section>
-
-    <section id="result-panel">
-      <div id="status">正在读取配置……</div>
-      <ul id="jobs"></ul>
     </section>
   </main>
 
-  <script>
-    const state = { options: null, preferences: null, customKeywords: [] };
-    const $ = id => document.getElementById(id);
-    const views = ["profile-panel", "choice-panel", "local-panel", "feishu-panel"];
+  <div id="workspace" class="app-shell hidden">
+    <aside class="sidebar">
+      <a class="brand" href="#radar" aria-label="JobPicky 岗位雷达"><span class="brand-mark">J</span><span>JobPicky</span></a>
+      <nav aria-label="主导航">
+        <a href="#radar" data-route="radar"><span>⌁</span>岗位雷达</a>
+        <a href="#jobs" data-route="jobs"><span>▤</span>全部岗位</a>
+        <a href="#preferences" data-route="preferences"><span>◇</span>求职偏好</a>
+        <a href="#integrations" data-route="integrations"><span>↗</span>集成</a>
+      </nav>
+      <div class="sidebar-foot"><span class="local-dot"></span>数据保存在本机</div>
+    </aside>
+    <header class="mobile-header"><a class="brand" href="#radar"><span class="brand-mark">J</span><span>JobPicky</span></a><button id="menu-button" class="icon-button" type="button" aria-label="打开导航" aria-expanded="false">☰</button></header>
+    <div class="content-shell">
+      <section id="view-radar" class="view" data-view="radar">
+        <header class="page-header radar-header"><div><p class="eyebrow">工作台</p><h1>岗位雷达</h1><p>根据你的偏好，整理近期值得关注的招聘信息。</p></div><aside id="preference-summary" class="preference-summary"></aside><button class="button primary scan-button" type="button">扫描新岗位</button></header>
+        <section id="task-panel" class="task-panel hidden" aria-live="polite"></section>
+        <section id="stats" class="stats hidden" aria-label="岗位摘要"></section>
+        <div class="section-heading"><div><h2>推荐岗位</h2><p>优先展示与你当前偏好匹配的岗位。</p></div><a href="#jobs">查看全部</a></div>
+        <div id="radar-jobs" class="job-feed" aria-live="polite"></div>
+      </section>
 
-    function setStatus(message, kind) {
-      const node = $("status");
-      node.textContent = message;
-      node.className = kind || "";
-    }
+      <section id="view-jobs" class="view hidden" data-view="jobs">
+        <header class="page-header"><div><p class="eyebrow">岗位库</p><h1>全部岗位</h1><p>在本地岗位库中搜索和筛选。</p></div></header>
+        <div class="toolbar"><label class="search-field wide"><span class="sr-only">搜索岗位或公司</span><input id="job-search" type="search" placeholder="搜索岗位或公司"></label><select id="filter-city" aria-label="城市筛选"><option value="">全部城市</option></select><select id="filter-batch" aria-label="招聘类型筛选"><option value="">全部类型</option></select><select id="job-sort" aria-label="排序"><option value="deadline">截止日期</option><option value="newest">最近发现</option><option value="company">公司名称</option></select><button id="clear-filters" class="button ghost" type="button">清除筛选</button></div>
+        <div class="segmented" role="group" aria-label="岗位范围"><button class="active" data-scope="recommended" type="button">推荐</button><button data-scope="all" type="button">全部</button></div>
+        <p id="job-result-count" class="result-count"></p><div id="all-jobs" class="job-table"></div>
+      </section>
 
-    function detailText(detail) {
-      if (Array.isArray(detail)) return detail.join("；");
-      if (detail && typeof detail === "object") return detail.message || JSON.stringify(detail);
-      return String(detail || "请求失败");
-    }
+      <section id="view-preferences" class="view hidden" data-view="preferences">
+        <header class="page-header"><div><p class="eyebrow">个性化</p><h1>求职偏好</h1><p>这些设置用于本地筛选和推荐匹配。</p></div><button id="edit-preferences" class="button primary" type="button">修改偏好</button></header>
+        <section id="preferences-view" class="preference-view"></section>
+        <form id="preferences-form" class="settings-form hidden"><section><h2>招聘类型</h2><div id="pref-batches" class="choice-row"></div></section><section><h2>关注岗位</h2><div id="pref-roles" class="role-options"></div></section><section><h2>不感兴趣的岗位</h2><p>命中这些方向的岗位不会被推荐，并会显示对应原因。</p><div id="pref-excluded-roles" class="role-options"></div></section><section><h2>城市偏好</h2><div id="pref-cities" class="choice-row"></div></section><section><h2>自定义关键词</h2><div class="inline-field"><input id="pref-keyword" type="text" placeholder="输入关键词"><button class="button secondary" type="button" data-add-pref-keyword>添加</button></div><div id="pref-keywords" class="selected-list"></div></section></form>
+        <div id="save-bar" class="save-bar hidden"><span>你有尚未保存的修改</span><button id="save-preferences" class="button primary" type="button">保存修改</button></div>
+      </section>
 
-    async function request(url, options) {
-      const response = await fetch(url, options);
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(detailText(data.detail || data));
-      return data;
-    }
+      <section id="view-integrations" class="view hidden" data-view="integrations">
+        <header class="page-header"><div><p class="eyebrow">可选能力</p><h1>集成</h1><p>JobPicky 无需连接任何外部服务即可完整使用。</p></div></header>
+        <div id="integration-status" class="integration-status"></div>
+        <section class="integration-intro"><div><h2>将推荐结果同步到飞书</h2><p>连接后，JobPicky 可以把推荐岗位同步到飞书多维表格，并发送每日提醒。</p></div><span class="status-badge">可选</span></section>
+        <details class="setup-guide"><summary>查看三步配置方法</summary><ol><li>在飞书开放平台创建企业自建应用。</li><li>为应用开通多维表格读写权限。</li><li>复制 Base 链接与应用凭据，在下方验证。</li></ol></details>
+        <form id="feishu-form" class="credential-form"><label>Base 链接<input id="base-url" type="url" placeholder="https://租户.feishu.cn/base/..."></label><label>App ID<input id="app-id" type="text" autocomplete="off"></label><label>App Secret<span class="password-field"><input id="app-secret" type="password" autocomplete="new-password"><button id="toggle-secret" type="button">显示</button></span></label><p id="feishu-message" class="form-message hidden" role="alert"></p><button id="feishu-submit" class="button primary" type="submit">测试并连接</button></form>
+      </section>
 
-    function showView(id) {
-      views.forEach(view => $(view).classList.toggle("hidden", view !== id));
-    }
-
-    function renderOptions(container, items, name, selected) {
-      container.replaceChildren();
-      items.forEach(item => {
-        const label = document.createElement("label");
-        label.className = "chip";
-        const input = document.createElement("input");
-        input.type = "checkbox";
-        input.name = name;
-        input.value = item.value;
-        input.checked = selected.includes(item.value);
-        label.append(input, document.createTextNode(item.label));
-        container.append(label);
-      });
-    }
-
-    function renderRoleSections(sections, selected) {
-      const root = $("role-sections");
-      root.replaceChildren();
-      sections.forEach(section => {
-        const heading = document.createElement("h3");
-        heading.textContent = section.label;
-        const chips = document.createElement("div");
-        chips.className = "chips";
-        renderOptions(chips, section.options, "role_groups", selected);
-        root.append(heading, chips);
-      });
-    }
-
-    function selectedValues(name) {
-      return Array.from(document.querySelectorAll("input[name='" + name + "']:checked"))
-        .map(input => input.value);
-    }
-
-    function renderKeywords() {
-      const root = $("keyword-list");
-      root.replaceChildren();
-      state.customKeywords.forEach(keyword => {
-        const item = document.createElement("span");
-        item.className = "keyword";
-        const text = document.createTextNode(keyword);
-        const remove = document.createElement("button");
-        remove.type = "button";
-        remove.textContent = "×";
-        remove.setAttribute("aria-label", "删除 " + keyword);
-        remove.addEventListener("click", () => {
-          state.customKeywords = state.customKeywords.filter(value => value !== keyword);
-          renderKeywords();
-        });
-        item.append(text, remove);
-        root.append(item);
-      });
-    }
-
-    function renderProfile(preferences) {
-      const profile = preferences.user_profile || {};
-      renderOptions($("batch-options"), state.options.batches, "batches", profile.batches || []);
-      const cities = state.options.cities;
-      renderOptions($("city-options"), cities, "target_cities", profile.target_cities || []);
-      const cityInputs = document.querySelectorAll("input[name='target_cities']");
-      const unlimited = cityInputs[0];
-      unlimited.checked = !(profile.target_cities || []).length;
-      cityInputs.forEach(input => {
-        if (input !== unlimited) {
-          input.addEventListener("change", () => {
-            if (input.checked) unlimited.checked = false;
-          });
-        }
-      });
-      unlimited.addEventListener("change", () => {
-        if (unlimited.checked) cityInputs.forEach(input => { if (input !== unlimited) input.checked = false; });
-      });
-      renderRoleSections(state.options.role_sections, profile.role_groups || []);
-      state.customKeywords = Array.from(new Set(profile.custom_keywords || []));
-      renderKeywords();
-      renderOptions($("graduate-options"), state.options.graduate_years.map(value => ({value, label: value})), "graduate_years", profile.graduate_years || []);
-    }
-
-    async function loadApp() {
-      try {
-        state.options = await request("/api/onboarding/options");
-        state.preferences = await request("/api/preferences");
-        renderProfile(state.preferences);
-        if (state.preferences.onboarding_complete) {
-          showView("choice-panel");
-          await loadJobs();
-          setStatus("配置已读取，可以选择本地使用或连接飞书。");
-        } else {
-          showView("profile-panel");
-          setStatus("请选择招聘类型和岗位方向。");
-        }
-      } catch (error) {
-        setStatus(error.message, "error");
-      }
-    }
-
-    async function savePreferences(event) {
-      event.preventDefault();
-      const cities = selectedValues("target_cities").filter(Boolean);
-      const payload = {
-        user_profile: {
-          batches: selectedValues("batches"),
-          role_groups: selectedValues("role_groups"),
-          target_cities: cities,
-          custom_keywords: state.customKeywords,
-          graduate_years: selectedValues("graduate_years")
-        }
-      };
-      try {
-        const response = await request("/api/preferences", {
-          method: "PUT",
-          headers: {"Content-Type": "application/json"},
-          body: JSON.stringify(payload)
-        });
-        state.preferences = response;
-        showView("choice-panel");
-        setStatus("配置已保存，可以开始本地使用或连接飞书。", "success");
-      } catch (error) {
-        setStatus(error.message, "error");
-      }
-    }
-
-    async function startLocal() {
-      $("local-button").disabled = true;
-      $("local-scan-button").disabled = true;
-      showView("local-panel");
-      setStatus("正在准备岗位基线并启动本地扫描……");
-      try {
-        const data = await request("/api/local/start", {method: "POST"});
-        await pollTask(data.task_id);
-      } catch (error) {
-        setStatus(error.message, "error");
-      } finally {
-        $("local-button").disabled = false;
-        $("local-scan-button").disabled = false;
-      }
-    }
-
-    async function pollTask(taskId) {
-      const task = await request("/api/tasks/" + taskId);
-      if (task.status === "queued" || task.status === "running") {
-        setStatus("扫描进行中……");
-        window.setTimeout(() => pollTask(taskId), 1000);
-        return;
-      }
-      const errors = task.errors || [];
-      if (errors.length) {
-        setStatus(errors.map(item => item.message).join("；"), "error");
-      } else {
-        setStatus("扫描完成：抓取 " + (task.fetched_count || 0) + " 条，新发现 " + (task.created_count || 0) + " 条，推荐 " + (task.recommended_count || 0) + " 条。", "success");
-      }
-      await loadJobs();
-    }
-
-    async function connectFeishu(event) {
-      event.preventDefault();
-      $("feishu-submit").disabled = true;
-      setStatus("正在测试飞书连接、准备工作台并同步推荐……");
-      try {
-        const data = await request("/api/feishu/test", {
-          method: "POST",
-          headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({
-            base_url: $("base-url").value,
-            app_id: $("app-id").value,
-            app_secret: $("app-secret").value
-          })
-        });
-        $("app-secret").value = "";
-        showView("local-panel");
-        const sync = data.sync || {};
-        setStatus("飞书已连接，工作台已准备。\n" +
-          "推荐岗位：" + data.recommended_items + " 条；同步新增：" + (sync.created || 0) +
-          " 条；同步更新：" + (sync.updated || 0) + " 条。\n" + data.workspace_url, "success");
-        await loadJobs();
-      } catch (error) {
-        setStatus(error.message, "error");
-      } finally {
-        $("feishu-submit").disabled = false;
-      }
-    }
-
-    async function loadJobs() {
-      const rows = await request("/api/jobs");
-      const list = $("jobs");
-      list.replaceChildren();
-      rows.forEach(row => {
-        const item = document.createElement("li");
-        item.textContent = (row.company || "未知公司") + " - " +
-          (row.title || "") + " - " + (row.city || "城市待确认");
-        list.append(item);
-      });
-    }
-
-    $("custom-keyword-input").addEventListener("keydown", event => {
-      if (event.key !== "Enter") return;
-      event.preventDefault();
-      const value = event.target.value.trim();
-      if (value && !state.customKeywords.includes(value)) state.customKeywords.push(value);
-      event.target.value = "";
-      renderKeywords();
-    });
-    $("profile-form").addEventListener("submit", savePreferences);
-    $("local-button").addEventListener("click", startLocal);
-    $("local-scan-button").addEventListener("click", startLocal);
-    $("feishu-button").addEventListener("click", () => showView("feishu-panel"));
-    $("back-button").addEventListener("click", () => showView("choice-panel"));
-    $("edit-profile-button").addEventListener("click", () => showView("profile-panel"));
-    $("feishu-form").addEventListener("submit", connectFeishu);
-    loadApp();
-  </script>
+    </div>
+  </div>
+  <div id="toast-region" class="toast-region" aria-live="polite"></div>
+  <script type="module" src="/static/js/app.js?v=20260715-2"></script>
 </body>
 </html>

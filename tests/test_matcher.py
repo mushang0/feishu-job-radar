@@ -153,14 +153,23 @@ def test_industry_only_does_not_push():
     assert result.should_push is False
 
 
-def test_graduate_year_mismatch_does_not_push():
+def test_graduate_year_mismatch_is_ignored_for_recommendations():
     matcher = Matcher(_config())
     job = Job(company="必看科技", title="2026届校园招聘", batch="秋招", target_graduate_year="2026届")
 
     result = matcher.match(job)
 
-    assert result.should_push is False
-    assert result.match_reason == "届别不匹配"
+    assert result.should_push is True
+    assert result.match_reason == "命中必看公司"
+
+
+def test_campus_profile_excludes_spring_and_experienced_hires():
+    config = _config()
+    config["user_profile"]["batches"] = ["校招", "实习"]
+    matcher = Matcher(config)
+
+    assert matcher.match(Job(company="必看科技", title="春季校园招聘", batch="春招")).should_push is False
+    assert matcher.match(Job(company="必看科技", title="资深工程师招聘", batch="社招")).should_push is False
 
 
 def test_batch_mismatch_does_not_push():

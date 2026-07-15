@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .. import __version__
@@ -117,6 +118,8 @@ def create_app(paths: AppPaths | None = None) -> FastAPI:
     initialization = InitializationService(paths)
     tasks = TaskManager(paths)
     app = FastAPI(title="JobPicky", version=__version__)
+    static_dir = Path(__file__).with_name("static")
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
     app.state.paths = paths
     app.state.tasks = tasks
 
@@ -142,6 +145,10 @@ def create_app(paths: AppPaths | None = None) -> FastAPI:
         errors = state.save_preferences(payload.model_dump())
         if errors:
             raise HTTPException(status_code=422, detail=errors)
+        from ..core import inspect_local_database
+        if inspect_local_database(paths.database).valid:
+            from ..services.local import rematch_local
+            rematch_local(paths.database, load_config(paths.config))
         return state.preferences()
 
     @app.post("/api/local/start", status_code=202)
@@ -174,8 +181,8 @@ def create_app(paths: AppPaths | None = None) -> FastAPI:
         return {"task_id": task_id}
 
     @app.get("/api/jobs")
-    def jobs(limit: int = 100) -> list[dict[str, Any]]:
-        return state.jobs(limit)
+    def jobs(page: int = 1, page_size: int = 50, recommended: bool = False) -> dict[str, Any]:
+        return state.jobs(page=page, page_size=page_size, recommended=recommended)
 
     @app.get("/api/setup/preview")
     def setup_preview() -> dict[str, Any]:

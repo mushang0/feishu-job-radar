@@ -21,6 +21,7 @@ htmlcov/
 .test-results/
 .venv/
 venv/
+.test-venv/
 .worktrees/
 worktrees/
 
@@ -32,3 +33,4 @@ dist/
 
 # Local-only agent resources
 .agents/
+AGENTS.md

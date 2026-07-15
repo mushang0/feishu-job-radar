@@ -6,6 +6,7 @@ from typing import Any
 
 from ..config import (
     DEFAULT_CONFIG,
+    LEGACY_DEFAULT_EXCLUDED_ROLES,
     ONBOARDING_BATCH_OPTIONS,
     ONBOARDING_ROLE_SECTIONS,
     load_config,
@@ -25,8 +26,10 @@ class WebStateService:
     def preferences(self) -> dict[str, Any]:
         config = load_config(self.paths.config)
         profile = deepcopy(config.get("user_profile", {}))
+        if set(profile.get("exclude_role_groups", [])) == set(LEGACY_DEFAULT_EXCLUDED_ROLES):
+            profile["exclude_role_groups"] = []
         if not self.paths.config.is_file():
-            for key in ("graduate_years", "batches", "role_groups", "target_cities", "custom_keywords"):
+            for key in ("batches", "role_groups", "target_cities", "custom_keywords", "exclude_role_groups"):
                 profile[key] = []
         feishu = config.get("feishu", {})
         configuration_errors = validate_config(
@@ -51,7 +54,7 @@ class WebStateService:
             "role_sections": deepcopy(list(ONBOARDING_ROLE_SECTIONS)),
             "cities": [{"value": "", "label": "不限"}]
             + [{"value": city, "label": city} for city in KNOWN_CITY_NAMES],
-            "graduate_years": [f"{year}届" for year in range(2026, 2033)],
+            "exclude_role_sections": deepcopy(list(ONBOARDING_ROLE_SECTIONS)),
         }
 
     def save_preferences(self, payload: dict[str, Any]) -> list[str]:
@@ -59,15 +62,17 @@ class WebStateService:
         profile = config.setdefault("user_profile", {})
         incoming_profile = payload.get("user_profile") or {}
         for key in (
-            "graduate_years",
             "batches",
             "role_groups",
+            "exclude_role_groups",
             "target_cities",
             "custom_keywords",
             "must_watch_companies",
         ):
             if key in incoming_profile:
                 profile[key] = _list_values(incoming_profile[key])
+        if set(profile.get("exclude_role_groups", [])) == set(LEGACY_DEFAULT_EXCLUDED_ROLES):
+            profile["exclude_role_groups"] = []
 
         incoming_feishu = payload.get("feishu") or {}
         feishu = config.setdefault("feishu", {})
@@ -107,10 +112,24 @@ class WebStateService:
         )
         save_config(config, self.paths.config)
 
-    def jobs(self, limit: int = 100) -> list[dict[str, Any]]:
-        repo = DatabaseBootstrapService(self.paths.database).initialize()
-        rows = JobQueryService(repo).jobs()
-        return rows[: max(0, min(limit, 500))]
+    def jobs(self, *, page: int = 1, page_size: int = 50, recommended: bool = False) -> dict[str, Any]:
+        if not self.paths.database.is_file():
+            return {"items": [], "total": 0, "recommended_total": 0, "page": 1, "page_size": page_size}
+        # Reads must never bootstrap/restore the packaged seed database.
+        from ..storage import JobRepository
+        queries = JobQueryService(JobRepository(self.paths.database))
+        all_rows = queries.recommendations() if recommended else queries.jobs()
+        stats = queries.stats()
+        page = max(1, page)
+        page_size = max(1, min(page_size, 200))
+        start = (page - 1) * page_size
+        return {
+            "items": all_rows[start : start + page_size],
+            "total": stats["jobs"],
+            "recommended_total": stats["recommendations"],
+            "page": page,
+            "page_size": page_size,
+        }
 
     def health(self) -> dict[str, Any]:
         repo = DatabaseBootstrapService(self.paths.database).initialize()

@@ -645,6 +645,8 @@ class JobRepository:
                 CASE WHEN latest_recommendation.id IS NULL THEN NULL ELSE latest_recommendation.recommendation_date END AS recommendation_date,
                 COALESCE(jobs.collected_date, latest_recommendation.recommendation_date) AS feishu_collected_date,
                 COALESCE(latest_recommendation.recommend_reason, '') AS recommend_reason,
+                COALESCE(job_matches.match_reason, '') AS non_recommend_reason,
+                COALESCE(job_matches.negative_keywords, '') AS excluded_keywords,
                 COALESCE(job_user_state.status, '未看') AS user_status,
                 COALESCE(job_user_state.next_action, '') AS next_action,
                 COALESCE(job_user_state.note, '') AS note,

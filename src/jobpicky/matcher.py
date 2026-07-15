@@ -4,7 +4,7 @@ from datetime import datetime
 import re
 
 from .models import Job, MatchResult
-from .normalizer import infer_graduate_year, normalize_company
+from .normalizer import normalize_company
 
 
 class Matcher:
@@ -23,8 +23,6 @@ class Matcher:
         role_negative_hits = self._negative_hits(self._job_role_text(job))
         city_hit = self._match_one(job.city or "", self.profile.get("target_cities", []))
 
-        if not self._graduate_year_matches(job, text):
-            return self._result(False, "届别不匹配", negative_hits=negative_hits, city_hit=city_hit)
         if not self._batch_matches(job, text):
             return self._result(False, "批次不匹配", negative_hits=negative_hits, city_hit=city_hit)
         if self._city_is_clear_mismatch(job, city_hit):
@@ -114,13 +112,6 @@ class Matcher:
             recommend_reason=reason if should_push else "",
         )
 
-    def _graduate_year_matches(self, job: Job, text: str) -> bool:
-        expected = self.profile.get("graduate_years", [])
-        if not expected:
-            return True
-        actual = job.target_graduate_year or infer_graduate_year(text)
-        return not actual or self._contains_any(actual, expected)
-
     def _batch_matches(self, job: Job, text: str) -> bool:
         expected = self.profile.get("batches", [])
         if not expected:
@@ -128,7 +119,20 @@ class Matcher:
         batch_text = " ".join(part for part in [job.batch or "", text] if part)
         if not batch_text.strip():
             return True
-        return bool(self._match_many(batch_text, expected))
+        # JobPicky only recommends campus recruitment and internships. Spring
+        # and experienced-hire records remain queryable in the job database.
+        if self._match_many(batch_text, ["春招", "社招", "社会招聘", "experienced hire"]):
+            return False
+        expanded: list[str] = []
+        for value in expected:
+            if value == "校招":
+                expanded.extend(["校招", "校园招聘", "秋招", "提前批"])
+            elif value in {"秋招", "提前批", "fall"}:
+                # Read legacy profiles as the campus-recruitment umbrella.
+                expanded.extend(["校招", "校园招聘", "秋招", "提前批", "fall"])
+            elif value == "实习":
+                expanded.extend(["实习", "intern"])
+        return bool(self._match_many(batch_text, expanded))
 
     def _city_is_clear_mismatch(self, job: Job, city_hit: str | None) -> bool:
         target_cities = self.profile.get("target_cities", [])
