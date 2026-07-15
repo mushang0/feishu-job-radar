@@ -81,6 +81,14 @@ def test_web_ui_uses_one_reusable_radar_builder_and_no_social_recruitment(tmp_pa
     assert page.count('id="radar-builder-template"') == 1
     assert 'id="onboarding-builder-host"' in page
     assert 'id="preferences-builder-host"' in page
+    assert 'id="builder-radar-host"' in page
+    assert 'class="radar-preview-column"' in page
+    assert 'class="status-badge building"' in page
+    assert "orbit-radar" in script
+    assert "调整中" in script
+    assert "当前监控策略" not in page
+    assert "radar-progress" not in page
+    assert "radar-summary" not in page
     assert "保存并重新匹配岗位" in script
     assert "社会招聘" not in page
     assert "社会招聘" not in script

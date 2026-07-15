@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f4f3f0">
   <meta name="description" content="JobPicky 求职岗位工作台">
   <title>JobPicky · 岗位雷达</title>
-  <link rel="stylesheet" href="/static/css/app.css?v=20260716-1">
+  <link rel="stylesheet" href="/static/css/app.css?v=20260716-2">
 </head>
 <body>
   <svg class="svg-defs" aria-hidden="true"><symbol id="i-radar" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 4v5m0 6v5M4 12h5m6 0h5"/></symbol><symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></symbol><symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h10m4 0h2M4 17h2m4 0h10M14 4v6M6 14v6"/></symbol><symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1"/></symbol><symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></symbol><symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol><symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol><symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-5-5 5 5-5 5"/></symbol></svg>
@@ -93,12 +93,19 @@
         <p id="builder-error" class="form-message error hidden" role="alert"></p>
         <div class="builder-actions"><button id="cancel-builder" class="button ghost hidden" type="button">取消</button><button id="save-builder" class="button primary" type="submit">创建岗位雷达并开始扫描</button></div>
       </form>
-      <aside class="radar-preview" aria-live="polite"><div class="preview-heading"><div><h2>我的岗位雷达</h2><span id="radar-status" class="status-badge">构建中</span></div><p id="radar-mode-copy"></p></div><div id="radar-visual" class="radar-visual"><div class="radar-ring outer"></div><div class="radar-ring inner"></div><div id="radar-center" class="radar-center"><strong>待选择</strong><span>求职阶段</span></div><div id="radar-nodes"></div></div><dl id="radar-summary" class="radar-summary"></dl><section class="strategy-block"><h3>当前监控策略</h3><p id="radar-strategy"></p></section><div class="scope-row"><div><span>监控范围</span><strong id="radar-scope"></strong></div><p id="radar-scope-note"></p></div><div id="radar-progress" class="radar-progress"></div><section id="radar-diff" class="radar-diff hidden"><h3>本次调整</h3><div id="radar-diff-list"></div><p id="radar-diff-scope"></p></section></aside>
+      <div class="radar-preview-column">
+        <aside class="radar-preview" aria-live="polite">
+          <header class="preview-heading"><div><h2>我的岗位雷达</h2><span id="radar-status" class="status-badge building">构建中</span></div><p id="radar-mode-copy">选择后，雷达会从中心向外形成</p></header>
+          <div id="builder-radar-host" class="orbit-radar-host"></div>
+          <div id="builder-radar-meta"></div>
+        </aside>
+        <section id="radar-diff" class="radar-diff hidden"><h3>本次调整</h3><div id="radar-diff-list"></div><p id="radar-diff-scope"></p></section>
+      </div>
     </div>
   </template>
 
   <aside id="job-drawer" class="job-drawer hidden" aria-hidden="true" aria-labelledby="drawer-title"><div class="drawer-backdrop" data-action="close-drawer"></div><section><header><div><span class="eyebrow">岗位详情</span><h2 id="drawer-title"></h2></div><button class="icon-button" data-action="close-drawer" type="button" aria-label="关闭详情"><svg><use href="#i-close"/></svg></button></header><div id="drawer-content" class="drawer-content"></div><footer id="drawer-actions"></footer></section></aside>
   <div id="toast-region" class="toast-region" aria-live="polite"></div>
-  <script type="module" src="/static/js/app.js?v=20260716-1"></script>
+  <script type="module" src="/static/js/app.js?v=20260716-2"></script>
 </body>
 </html>
