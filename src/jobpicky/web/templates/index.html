@@ -3,97 +3,84 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#f5f5f7">
-  <meta name="description" content="Your personalized job radar · 懂你偏好的个性化岗位雷达">
+  <meta name="theme-color" content="#f4f3f0">
+  <meta name="description" content="JobPicky 求职岗位工作台">
   <title>JobPicky · 岗位雷达</title>
-  <link rel="stylesheet" href="/static/css/app.css?v=20260715-2">
+  <link rel="stylesheet" href="/static/css/app.css?v=20260715-3">
 </head>
 <body>
+  <svg class="svg-defs" aria-hidden="true"><symbol id="i-radar" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 4v5m0 6v5M4 12h5m6 0h5"/></symbol><symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></symbol><symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h10m4 0h2M4 17h2m4 0h10M14 4v6M6 14v6"/></symbol><symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1"/></symbol><symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></symbol><symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol><symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-5-5 5 5-5 5"/></symbol></svg>
   <div id="loading-screen" class="loading-screen" aria-live="polite"><span class="spinner"></span><span>正在准备岗位雷达</span></div>
 
   <main id="onboarding" class="onboarding hidden">
-    <div class="onboarding-brand"><span class="brand-mark">J</span><span>JobPicky</span></div>
-    <section class="onboarding-panel" aria-labelledby="onboarding-title">
-      <div id="welcome-step" class="wizard-step">
-        <p class="eyebrow">本地优先 · 隐私友好</p>
-        <h1 id="onboarding-title">开始建立你的岗位雷达</h1>
-        <p class="lead">告诉 JobPicky 你正在寻找什么，它会持续整理并筛选值得关注的招聘信息。</p>
-        <button class="button primary" type="button" data-wizard-next>开始设置</button>
-        <p class="hint">约需 1 分钟，之后可以随时修改。稍后也可以连接飞书。</p>
-      </div>
-      <form id="onboarding-form" class="hidden" novalidate>
-        <div class="wizard-progress" aria-label="设置进度"><span id="step-count">第 1 步，共 4 步</span><div><i id="step-bar"></i></div></div>
-        <div class="wizard-step" data-step="1">
-          <p class="eyebrow">求职阶段</p><h2>你正在关注哪类招聘？</h2><p>这会帮助我们排除不相关的招聘批次。</p>
-          <div id="onboarding-batches" class="option-grid"></div>
-        </div>
-        <div class="wizard-step hidden" data-step="2">
-          <p class="eyebrow">关注岗位</p><h2>你希望雷达重点留意什么？</h2><p>搜索预设方向，或加入更具体的技术关键词。</p>
-          <label class="search-field"><span class="sr-only">搜索岗位类别</span><input id="role-search" type="search" placeholder="搜索岗位类别，例如 FPGA"></label>
-          <div id="onboarding-roles" class="role-options"></div>
-          <div class="field-group"><label for="onboarding-keyword">自定义关键词</label><div class="inline-field"><input id="onboarding-keyword" type="text" placeholder="例如 CUDA、AUTOSAR"><button class="button secondary" type="button" data-add-keyword>添加</button></div><div id="onboarding-keywords" class="selected-list"></div></div>
-        </div>
-        <div class="wizard-step hidden" data-step="3">
-          <p class="eyebrow">期望城市</p><h2>你想在哪里工作？</h2><p>支持多选；选择不限城市时不会限制岗位地点。</p>
-          <label class="search-field"><span class="sr-only">搜索城市</span><input id="city-search" type="search" placeholder="搜索城市"></label>
-          <div id="onboarding-cities" class="choice-row"></div>
-        </div>
-        <div class="wizard-step hidden" data-step="4">
-          <p class="eyebrow">确认设置</p><h2>岗位雷达已准备就绪</h2><p>检查以下偏好，完成后即可在本地开始使用。</p>
-          <dl id="setup-summary" class="summary-list"></dl>
-        </div>
-        <p id="wizard-error" class="form-message error hidden" role="alert"></p>
-        <div class="wizard-actions"><button id="wizard-back" class="button ghost" type="button">返回</button><button id="wizard-next" class="button primary" type="button">继续</button><button id="wizard-finish" class="button primary hidden" type="submit">完成设置并开始首次扫描</button><button id="wizard-skip-scan" class="button ghost hidden" type="button">暂不扫描</button></div>
-      </form>
+    <header class="onboarding-header"><a class="brand" href="#radar"><span class="brand-mark">J</span><span>JobPicky</span></a></header>
+    <section class="builder-page" aria-labelledby="onboarding-title">
+      <div class="builder-heading"><p class="eyebrow">首次设置</p><h1 id="onboarding-title">建立你的岗位雷达</h1><p>一步一步确定关注范围，保存后再开始扫描岗位。</p></div>
+      <div id="onboarding-builder-host"></div>
     </section>
   </main>
 
   <div id="workspace" class="app-shell hidden">
-    <aside class="sidebar">
+    <header class="topbar">
       <a class="brand" href="#radar" aria-label="JobPicky 岗位雷达"><span class="brand-mark">J</span><span>JobPicky</span></a>
-      <nav aria-label="主导航">
-        <a href="#radar" data-route="radar"><span>⌁</span>岗位雷达</a>
-        <a href="#jobs" data-route="jobs"><span>▤</span>全部岗位</a>
-        <a href="#preferences" data-route="preferences"><span>◇</span>求职偏好</a>
-        <a href="#integrations" data-route="integrations"><span>↗</span>集成</a>
+      <button id="menu-button" class="icon-button menu-button" type="button" aria-label="打开导航" aria-expanded="false"><span></span><span></span><span></span></button>
+      <nav id="main-nav" aria-label="主导航">
+        <a href="#radar" data-route="radar"><svg><use href="#i-radar"/></svg>岗位雷达</a>
+        <a href="#jobs" data-route="jobs"><svg><use href="#i-list"/></svg>全部岗位</a>
+        <a href="#preferences" data-route="preferences"><svg><use href="#i-sliders"/></svg>求职偏好</a>
+        <a href="#integrations" data-route="integrations"><svg><use href="#i-link"/></svg>集成</a>
       </nav>
-      <div class="sidebar-foot"><span class="local-dot"></span>数据保存在本机</div>
-    </aside>
-    <header class="mobile-header"><a class="brand" href="#radar"><span class="brand-mark">J</span><span>JobPicky</span></a><button id="menu-button" class="icon-button" type="button" aria-label="打开导航" aria-expanded="false">☰</button></header>
-    <div class="content-shell">
+      <div class="topbar-actions"><span id="top-last-scan" class="last-scan"></span><button class="button primary scan-button" type="button">扫描新岗位</button></div>
+    </header>
+
+    <main class="content-shell">
       <section id="view-radar" class="view" data-view="radar">
-        <header class="page-header radar-header"><div><p class="eyebrow">工作台</p><h1>岗位雷达</h1><p>根据你的偏好，整理近期值得关注的招聘信息。</p></div><aside id="preference-summary" class="preference-summary"></aside><button class="button primary scan-button" type="button">扫描新岗位</button></header>
+        <header class="page-header radar-header"><div><h1>岗位雷达</h1><button id="preference-summary" class="preference-line" type="button"></button></div><button class="button primary scan-button mobile-scan" type="button">扫描新岗位</button></header>
         <section id="task-panel" class="task-panel hidden" aria-live="polite"></section>
         <section id="stats" class="stats hidden" aria-label="岗位摘要"></section>
-        <div class="section-heading"><div><h2>推荐岗位</h2><p>优先展示与你当前偏好匹配的岗位。</p></div><a href="#jobs">查看全部</a></div>
+        <div class="section-heading"><div><h2>值得关注</h2><p>本次新增、符合偏好和即将截止的岗位。</p></div><a href="#jobs">浏览岗位库 <svg><use href="#i-arrow"/></svg></a></div>
         <div id="radar-jobs" class="job-feed" aria-live="polite"></div>
       </section>
 
       <section id="view-jobs" class="view hidden" data-view="jobs">
-        <header class="page-header"><div><p class="eyebrow">岗位库</p><h1>全部岗位</h1><p>在本地岗位库中搜索和筛选。</p></div></header>
-        <div class="toolbar"><label class="search-field wide"><span class="sr-only">搜索岗位或公司</span><input id="job-search" type="search" placeholder="搜索岗位或公司"></label><select id="filter-city" aria-label="城市筛选"><option value="">全部城市</option></select><select id="filter-batch" aria-label="招聘类型筛选"><option value="">全部类型</option></select><select id="job-sort" aria-label="排序"><option value="deadline">截止日期</option><option value="newest">最近发现</option><option value="company">公司名称</option></select><button id="clear-filters" class="button ghost" type="button">清除筛选</button></div>
-        <div class="segmented" role="group" aria-label="岗位范围"><button class="active" data-scope="recommended" type="button">推荐</button><button data-scope="all" type="button">全部</button></div>
-          <p id="job-result-count" class="result-count"></p><div id="all-jobs" class="job-table"></div><nav id="job-pagination" class="pagination hidden" aria-label="岗位列表分页"></nav>
+        <header class="page-header"><div><h1>全部岗位</h1><p>搜索和浏览本地岗位库中的全部记录。</p></div><strong id="all-job-total" class="total-number"></strong></header>
+        <div class="toolbar"><label class="search-field wide"><svg><use href="#i-search"/></svg><span class="sr-only">搜索岗位或公司</span><input id="job-search" type="search" placeholder="搜索岗位或公司"></label><select id="filter-city" aria-label="城市筛选"><option value="">全部城市</option></select><select id="filter-batch" aria-label="招聘类型筛选"><option value="">全部类型</option></select><select id="job-sort" aria-label="排序"><option value="deadline">截止日期</option><option value="newest">最近发现</option><option value="company">公司名称</option></select><button id="clear-filters" class="button ghost" type="button">清除</button></div>
+        <p id="job-result-count" class="result-count"></p><div id="all-jobs" class="job-table"></div><nav id="job-pagination" class="pagination hidden" aria-label="岗位列表分页"></nav>
       </section>
 
       <section id="view-preferences" class="view hidden" data-view="preferences">
-        <header class="page-header"><div><p class="eyebrow">个性化</p><h1>求职偏好</h1><p>这些设置用于本地筛选和推荐匹配。</p></div><button id="edit-preferences" class="button primary" type="button">修改偏好</button></header>
+        <header class="page-header"><div><h1>我的岗位雷达</h1><p>查看当前监控范围，或只调整需要修改的部分。</p></div><button id="edit-preferences" class="button primary" type="button">调整岗位雷达</button></header>
         <section id="preferences-view" class="preference-view"></section>
-        <form id="preferences-form" class="settings-form hidden"><section><h2>招聘类型</h2><div id="pref-batches" class="choice-row"></div></section><section><h2>关注岗位</h2><div id="pref-roles" class="role-options"></div></section><section><h2>不感兴趣的岗位</h2><p>命中这些方向的岗位不会被推荐，并会显示对应原因。</p><div id="pref-excluded-roles" class="role-options"></div></section><section><h2>城市偏好</h2><div id="pref-cities" class="choice-row"></div></section><section><h2>自定义关键词</h2><div class="inline-field"><input id="pref-keyword" type="text" placeholder="输入关键词"><button class="button secondary" type="button" data-add-pref-keyword>添加</button></div><div id="pref-keywords" class="selected-list"></div></section></form>
-        <div id="save-bar" class="save-bar hidden"><span>你有尚未保存的修改</span><button id="save-preferences" class="button primary" type="button">保存修改</button></div>
+        <div id="preferences-builder-host" class="hidden"></div>
       </section>
 
       <section id="view-integrations" class="view hidden" data-view="integrations">
-        <header class="page-header"><div><p class="eyebrow">可选能力</p><h1>集成</h1><p>JobPicky 无需连接任何外部服务即可完整使用。</p></div></header>
+        <header class="page-header"><div><h1>集成</h1><p>按需将推荐结果同步到飞书。</p></div></header>
         <div id="integration-status" class="integration-status"></div>
-        <section class="integration-intro"><div><h2>将推荐结果同步到飞书</h2><p>连接后，JobPicky 可以把推荐岗位同步到飞书多维表格，并发送每日提醒。</p></div><span class="status-badge">可选</span></section>
-        <details class="setup-guide"><summary>查看三步配置方法</summary><ol><li>在飞书开放平台创建企业自建应用。</li><li>为应用开通多维表格读写权限。</li><li>复制 Base 链接与应用凭据，在下方验证。</li></ol></details>
+        <section class="integration-intro"><div><h2>飞书多维表格</h2><p>连接后可同步推荐岗位并发送每日提醒。</p></div><span class="status-badge">可选</span></section>
+        <details class="setup-guide"><summary>配置方法</summary><ol><li>在飞书开放平台创建企业自建应用。</li><li>为应用开通多维表格读写权限。</li><li>复制 Base 链接与应用凭据，在下方验证。</li></ol></details>
         <form id="feishu-form" class="credential-form"><label>Base 链接<input id="base-url" type="url" placeholder="https://租户.feishu.cn/base/..."></label><label>App ID<input id="app-id" type="text" autocomplete="off"></label><label>App Secret<span class="password-field"><input id="app-secret" type="password" autocomplete="new-password"><button id="toggle-secret" type="button">显示</button></span></label><p id="feishu-message" class="form-message hidden" role="alert"></p><button id="feishu-submit" class="button primary" type="submit">测试并连接</button></form>
       </section>
-
-    </div>
+    </main>
   </div>
+
+  <template id="radar-builder-template">
+    <div id="radar-builder" class="radar-builder">
+      <form id="builder-form" class="builder-steps" novalidate>
+        <section class="builder-step" data-builder-step="stage"><header><span class="step-index">1</span><div><h2>求职阶段</h2><p class="step-summary"></p></div><button class="step-edit hidden" type="button">修改</button></header><div class="step-body"><p class="step-question">你正在关注哪类招聘？</p><div id="builder-batches" class="stage-grid"></div></div></section>
+        <section class="builder-step" data-builder-step="roles"><header><span class="step-index">2</span><div><h2>关注方向</h2><p class="step-summary"></p></div><button class="step-edit hidden" type="button">修改</button></header><div class="step-body"><p class="step-question">你希望重点关注哪些岗位方向？</p><label class="search-field"><svg><use href="#i-search"/></svg><span class="sr-only">搜索岗位方向</span><input id="builder-role-search" type="search" placeholder="搜索岗位方向，例如 FPGA、嵌入式、算法"></label><div id="role-tabs" class="role-tabs" role="tablist"></div><div id="builder-roles" class="role-options"></div><div class="selection-summary"><span id="role-selection-count"></span><div id="selected-roles" class="selected-list"></div><p id="role-guidance" class="field-hint"></p></div><button class="button secondary step-continue" type="button">继续选择城市</button></div></section>
+        <section class="builder-step" data-builder-step="cities"><header><span class="step-index">3</span><div><h2>期望城市</h2><p class="step-summary"></p></div><button class="step-edit hidden" type="button">修改</button></header><div class="step-body"><p class="step-question">你希望重点关注哪些城市？</p><label class="search-field"><svg><use href="#i-search"/></svg><span class="sr-only">搜索城市</span><input id="builder-city-search" type="search" placeholder="搜索城市"></label><div id="selected-cities" class="selected-list"></div><div id="builder-cities" class="city-options"></div><button class="button secondary step-continue" type="button">继续添加信号</button></div></section>
+        <section class="builder-step" data-builder-step="keywords"><header><span class="step-index">4</span><div><h2>补充关键词 <small>可选</small></h2><p class="step-summary"></p></div><button class="step-edit hidden" type="button">修改</button></header><div class="step-body"><p class="step-question">还有哪些技术、方向或岗位名称值得重点关注？</p><div class="inline-field"><input id="builder-keyword" type="text" placeholder="例如：Verilog、C++、驱动开发、数字电源"><button id="add-builder-keyword" class="button secondary" type="button">添加</button></div><div id="builder-keywords" class="selected-list signal-list"></div><p id="keyword-guidance" class="field-hint">支持回车、中文或英文逗号分隔。</p><button class="button secondary step-continue" type="button">完成配置</button></div></section>
+        <details id="advanced-preferences" class="advanced-preferences"><summary>高级偏好 <span>可选</span></summary><div><h3>不感兴趣的岗位方向</h3><p>命中这些方向的岗位不会被推荐。</p><div id="builder-excluded-roles" class="role-options compact"></div></div></details>
+        <p id="builder-error" class="form-message error hidden" role="alert"></p>
+        <div class="builder-actions"><button id="cancel-builder" class="button ghost hidden" type="button">取消</button><button id="save-builder" class="button primary" type="submit">创建岗位雷达并开始扫描</button></div>
+      </form>
+      <aside class="radar-preview" aria-live="polite"><div class="preview-heading"><div><h2>我的岗位雷达</h2><span id="radar-status" class="status-badge">构建中</span></div><p id="radar-mode-copy"></p></div><div id="radar-visual" class="radar-visual"><div class="radar-ring outer"></div><div class="radar-ring inner"></div><div id="radar-center" class="radar-center"><strong>待选择</strong><span>求职阶段</span></div><div id="radar-nodes"></div></div><dl id="radar-summary" class="radar-summary"></dl><section class="strategy-block"><h3>当前监控策略</h3><p id="radar-strategy"></p></section><div class="scope-row"><div><span>监控范围</span><strong id="radar-scope"></strong></div><p id="radar-scope-note"></p></div><div id="radar-progress" class="radar-progress"></div><section id="radar-diff" class="radar-diff hidden"><h3>本次调整</h3><div id="radar-diff-list"></div><p id="radar-diff-scope"></p></section></aside>
+    </div>
+  </template>
+
+  <aside id="job-drawer" class="job-drawer hidden" aria-hidden="true" aria-labelledby="drawer-title"><div class="drawer-backdrop" data-action="close-drawer"></div><section><header><div><span class="eyebrow">岗位详情</span><h2 id="drawer-title"></h2></div><button class="icon-button" data-action="close-drawer" type="button" aria-label="关闭详情"><svg><use href="#i-close"/></svg></button></header><div id="drawer-content" class="drawer-content"></div><footer id="drawer-actions"></footer></section></aside>
   <div id="toast-region" class="toast-region" aria-live="polite"></div>
-  <script type="module" src="/static/js/app.js?v=20260715-2"></script>
+  <script type="module" src="/static/js/app.js?v=20260715-3"></script>
 </body>
 </html>

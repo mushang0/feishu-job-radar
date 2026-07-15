@@ -49,8 +49,9 @@ def test_web_lists_local_jobs_and_health(tmp_path: Path):
     assert jobs["recommended_total"] == 0
     page = client.get("/").text
     assert "JobPicky" in page
-    assert "Your personalized job radar" in page
-    assert "懂你偏好的个性化岗位雷达" in page
+    assert "Your personalized job radar" not in page
+    assert "懂你偏好的个性化岗位雷达" not in page
+    assert "建立你的岗位雷达" in page
     assert "四步" not in page  # Product copy stays user-facing, not implementation-facing.
     assert 'href="/static/css/app.css?v=' in page
     assert 'src="/static/js/app.js?v=' in page
@@ -66,9 +67,23 @@ def test_web_ui_exposes_local_first_product_structure(tmp_path: Path):
     assert "全部岗位" in page
     assert "求职偏好" in page
     assert "集成" in page
-    assert "完成设置并开始首次扫描" in page
+    assert "创建岗位雷达并开始扫描" in page
     assert 'aria-live="polite"' in page
     assert "选择使用方式" not in page
+
+
+def test_web_ui_uses_one_reusable_radar_builder_and_no_social_recruitment(tmp_path: Path):
+    client = TestClient(create_app(AppPaths(tmp_path / "profile")))
+    page = client.get("/").text
+    script = client.get("/static/js/app.js").text
+
+    assert page.count('id="radar-builder-template"') == 1
+    assert 'id="onboarding-builder-host"' in page
+    assert 'id="preferences-builder-host"' in page
+    assert "保存并重新匹配岗位" in script
+    assert "社会招聘" not in page
+    assert "社会招聘" not in script
+    assert 'scope:"all"' in script
 
 
 def test_web_setup_preview_describes_three_step_workspace_flow(tmp_path: Path):
