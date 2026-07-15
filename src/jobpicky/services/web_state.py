@@ -112,23 +112,36 @@ class WebStateService:
         )
         save_config(config, self.paths.config)
 
-    def jobs(self, *, page: int = 1, page_size: int = 50, recommended: bool = False) -> dict[str, Any]:
+    def jobs(self, *, page: int = 1, page_size: int = 25, scope: str = "all", query: str = "",
+             city: str = "", batch: str = "", sort: str = "deadline", recommended: bool = False) -> dict[str, Any]:
         if not self.paths.database.is_file():
-            return {"items": [], "total": 0, "recommended_total": 0, "page": 1, "page_size": page_size}
+            return {"items": [], "page": 1, "page_size": page_size, "total": 0, "pages": 0,
+                    "summary": {"all": 0, "recommended": 0, "expiring": 0}, "facets": {"cities": [], "batches": []}}
         # Reads must never bootstrap/restore the packaged seed database.
         from ..storage import JobRepository
-        queries = JobQueryService(JobRepository(self.paths.database))
-        all_rows = queries.recommendations() if recommended else queries.jobs()
-        stats = queries.stats()
+        repo = JobRepository(self.paths.database)
+        queries = JobQueryService(repo)
         page = max(1, page)
         page_size = max(1, min(page_size, 200))
-        start = (page - 1) * page_size
+        recommended = recommended or scope == "recommended"
+        items, total = repo.search_jobs(recommended=recommended, query=query.strip(), city=city, batch=batch,
+                                        sort=sort, limit=page_size, offset=(page - 1) * page_size)
+        stats = queries.stats()
+        for item in items:
+            item["detail_url"] = item.pop("original_url", None)
+            apply_url = str(item.get("apply_url") or "").strip()
+            if not _valid_apply_url(apply_url):
+                item["apply_url"] = None
         return {
-            "items": all_rows[start : start + page_size],
-            "total": stats["jobs"],
+            "items": items,
+            "total": total,
+            "pages": (total + page_size - 1) // page_size,
             "recommended_total": stats["recommendations"],
             "page": page,
             "page_size": page_size,
+            "summary": {"all": stats["jobs"], "recommended": stats["recommendations"],
+                        "expiring": repo.count_expiring_jobs()},
+            "facets": repo.job_facets(),
         }
 
     def health(self) -> dict[str, Any]:
@@ -153,3 +166,10 @@ def _list_values(value: Any) -> list[str]:
     if not isinstance(value, (list, tuple, set)):
         return []
     return list(dict.fromkeys(str(item).strip() for item in value if str(item).strip()))
+
+
+def _valid_apply_url(value: str) -> bool:
+    if not value.lower().startswith(("http://", "https://")):
+        return False
+    normalized = value.rstrip("/").lower()
+    return normalized not in {"https://www.wondercv.com", "http://www.wondercv.com", "https://www.wondercv.com/jobs", "http://www.wondercv.com/jobs"}

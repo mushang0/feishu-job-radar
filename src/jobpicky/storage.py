@@ -485,6 +485,50 @@ class JobRepository:
         with self.connect() as conn:
             return [dict(row) for row in conn.execute(self._all_jobs_query()).fetchall()]
 
+    def search_jobs(
+        self, *, recommended: bool = False, query: str = "", city: str = "",
+        batch: str = "", sort: str = "deadline", limit: int = 25, offset: int = 0,
+    ) -> tuple[list[dict[str, Any]], int]:
+        conditions: list[str] = []
+        params: list[Any] = []
+        if recommended:
+            conditions.append("latest_recommendation.id IS NOT NULL")
+        if query:
+            conditions.append("(LOWER(COALESCE(jobs.clean_title, jobs.title, '')) LIKE ? OR LOWER(COALESCE(jobs.company, '')) LIKE ?)")
+            term = f"%{query.lower()}%"
+            params.extend((term, term))
+        if city:
+            conditions.append("jobs.city = ?")
+            params.append(city)
+        if batch:
+            conditions.append("jobs.batch = ?")
+            params.append(batch)
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        order = {
+            "company": "COALESCE(jobs.company, '') COLLATE NOCASE ASC, jobs.id ASC",
+            "newest": "COALESCE(jobs.first_seen, jobs.collected_date, '') DESC, jobs.id ASC",
+            "deadline": "(jobs.deadline IS NULL OR jobs.deadline = ''), jobs.deadline ASC, jobs.id ASC",
+        }.get(sort, "(jobs.deadline IS NULL OR jobs.deadline = ''), jobs.deadline ASC, jobs.id ASC")
+        base = self._all_jobs_query(where).rsplit("ORDER BY", 1)[0]
+        count_query = f"SELECT COUNT(*) FROM ({base}) filtered_jobs"
+        with self.connect() as conn:
+            total = int(conn.execute(count_query, params).fetchone()[0])
+            rows = conn.execute(f"{base} ORDER BY {order} LIMIT ? OFFSET ?", (*params, limit, offset)).fetchall()
+        return [dict(row) for row in rows], total
+
+    def job_facets(self) -> dict[str, list[str]]:
+        with self.connect() as conn:
+            cities = [row[0] for row in conn.execute("SELECT DISTINCT city FROM jobs WHERE city IS NOT NULL AND city != '' ORDER BY city")]
+            batches = [row[0] for row in conn.execute("SELECT DISTINCT batch FROM jobs WHERE batch IS NOT NULL AND batch != '' ORDER BY batch")]
+        return {"cities": cities, "batches": batches}
+
+    def count_expiring_jobs(self, days: int = 7) -> int:
+        with self.connect() as conn:
+            return int(conn.execute(
+                "SELECT COUNT(*) FROM jobs WHERE date(deadline) BETWEEN date('now') AND date('now', ?)",
+                (f"+{days} days",),
+            ).fetchone()[0])
+
     def list_feishu_sync_candidates(self) -> list[dict[str, Any]]:
         """Return only jobs that belong in the user-facing Feishu workspace."""
         tracked_statuses = ("收藏", "已投递", "笔试中", "面试中", "Offer", "已结束")
@@ -718,6 +762,10 @@ class JobRepository:
     def count_jobs(self) -> int:
         with self.connect() as conn:
             return int(conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0])
+
+    def count_recommended_jobs(self) -> int:
+        with self.connect() as conn:
+            return int(conn.execute("SELECT COUNT(DISTINCT job_id) FROM recommended_jobs").fetchone()[0])
 
     def vacuum(self) -> None:
         with self.connect() as conn:

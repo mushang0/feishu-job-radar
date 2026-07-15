@@ -17,5 +17,5 @@ class JobQueryService:
     def stats(self) -> dict[str, int]:
         return {
             "jobs": self.repository.count_jobs(),
-            "recommendations": len(self.repository.list_recommended_jobs()),
+            "recommendations": self.repository.count_recommended_jobs(),
         }

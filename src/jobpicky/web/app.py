@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from copy import deepcopy
 import logging
+import os
+import shutil
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
@@ -19,6 +21,7 @@ from ..config import load_config, validate_config
 from ..error_safety import safe_exception_detail
 from ..integrations.feishu import FeishuIntegrationService
 from ..paths import AppPaths
+from ..runtime import RunReporter
 from ..services.scanning import DailyStageError, DailyWorkflowResult, run_daily_workflow
 from ..services.initialization import InitializationService, existing_local_repository
 from ..services.local import LocalApplicationService
@@ -110,11 +113,61 @@ class TaskManager:
                 return None
             return {key: value for key, value in task.items() if key != "future"}
 
+    def active(self) -> dict[str, Any] | None:
+        with self._lock:
+            if not self._active_task_id:
+                return None
+            task = self._tasks.get(self._active_task_id)
+            if not task or task.get("status") not in {"queued", "running", "cancelling"}:
+                return None
+            return {key: value for key, value in task.items() if key != "future"}
+
+    def progress(self, task_id: str, event) -> None:
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if task:
+                task.update({"stage": event.command, "stage_label": event.name,
+                             "stage_current": event.step, "stage_total": event.total_steps,
+                             "message": event.detail or event.name})
+
 
 def create_app(paths: AppPaths | None = None) -> FastAPI:
     paths = paths or AppPaths.default()
     paths.ensure_runtime_directories()
     state = WebStateService(paths)
+
+    def run_published_scan(config: dict, task_id: str, cancelled) -> dict[str, Any]:
+        """Build a complete scan in isolation and publish it with one atomic swap."""
+        staging = paths.root / f"jobs.{task_id}.staging.sqlite"
+        if paths.database.is_file():
+            shutil.copy2(paths.database, staging)
+        try:
+            result = run_daily_workflow(
+                config, staging, task_id=task_id, cancel_check=cancelled,
+                reporter=RunReporter(event_sink=lambda event: tasks.progress(task_id, event)),
+            )
+            if result.status == "success" and not cancelled() and staging.is_file():
+                os.replace(staging, paths.database)
+            return result.to_dict()
+        finally:
+            if staging.exists():
+                staging.unlink()
+
+    def run_published_local(config: dict, task_id: str, cancelled) -> dict[str, Any]:
+        staging = paths.root / f"jobs.{task_id}.staging.sqlite"
+        if paths.database.is_file():
+            shutil.copy2(paths.database, staging)
+        try:
+            result = LocalApplicationService(staging, config).initialize_and_update(
+                task_id=task_id, cancel_check=cancelled,
+                reporter=RunReporter(event_sink=lambda event: tasks.progress(task_id, event)),
+            )
+            if result.daily.status == "success" and not cancelled() and staging.is_file():
+                os.replace(staging, paths.database)
+            return result.to_dict()
+        finally:
+            if staging.exists():
+                staging.unlink()
     initialization = InitializationService(paths)
     tasks = TaskManager(paths)
     app = FastAPI(title="JobPicky", version=__version__)
@@ -162,12 +215,9 @@ def create_app(paths: AppPaths | None = None) -> FastAPI:
         if errors:
             raise HTTPException(status_code=422, detail=errors)
         try:
-            service = LocalApplicationService(paths.database, config)
             task_id = tasks.start(
                 "local",
-                lambda task_id, cancelled: service.initialize_and_update(
-                    task_id=task_id, cancel_check=cancelled
-                ).to_dict(),
+                lambda task_id, cancelled: run_published_local(config, task_id, cancelled),
             )
         except RuntimeError:
             raise HTTPException(
@@ -181,8 +231,10 @@ def create_app(paths: AppPaths | None = None) -> FastAPI:
         return {"task_id": task_id}
 
     @app.get("/api/jobs")
-    def jobs(page: int = 1, page_size: int = 50, recommended: bool = False) -> dict[str, Any]:
-        return state.jobs(page=page, page_size=page_size, recommended=recommended)
+    def jobs(page: int = 1, page_size: int = 25, scope: str = "all", query: str = "",
+             city: str = "", batch: str = "", sort: str = "deadline", recommended: bool = False) -> dict[str, Any]:
+        return state.jobs(page=page, page_size=page_size, scope=scope, query=query, city=city,
+                          batch=batch, sort=sort, recommended=recommended)
 
     @app.get("/api/setup/preview")
     def setup_preview() -> dict[str, Any]:
@@ -369,12 +421,7 @@ def create_app(paths: AppPaths | None = None) -> FastAPI:
         try:
             task_id = tasks.start(
                 "daily",
-                lambda task_id, cancelled: run_daily_workflow(
-                    config,
-                    paths.database,
-                    task_id=task_id,
-                    cancel_check=cancelled,
-                ).to_dict(),
+                lambda task_id, cancelled: run_published_scan(config, task_id, cancelled),
             )
         except RuntimeError:
             raise HTTPException(
@@ -386,6 +433,10 @@ def create_app(paths: AppPaths | None = None) -> FastAPI:
                 },
             ) from None
         return {"task_id": task_id}
+
+    @app.get("/api/tasks/active")
+    def active_task() -> dict[str, Any]:
+        return tasks.active() or {"status": "idle"}
 
     @app.get("/api/tasks/{task_id}")
     def task(task_id: str) -> dict[str, Any]:

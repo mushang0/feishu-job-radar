@@ -73,7 +73,7 @@
         <header class="page-header"><div><p class="eyebrow">岗位库</p><h1>全部岗位</h1><p>在本地岗位库中搜索和筛选。</p></div></header>
         <div class="toolbar"><label class="search-field wide"><span class="sr-only">搜索岗位或公司</span><input id="job-search" type="search" placeholder="搜索岗位或公司"></label><select id="filter-city" aria-label="城市筛选"><option value="">全部城市</option></select><select id="filter-batch" aria-label="招聘类型筛选"><option value="">全部类型</option></select><select id="job-sort" aria-label="排序"><option value="deadline">截止日期</option><option value="newest">最近发现</option><option value="company">公司名称</option></select><button id="clear-filters" class="button ghost" type="button">清除筛选</button></div>
         <div class="segmented" role="group" aria-label="岗位范围"><button class="active" data-scope="recommended" type="button">推荐</button><button data-scope="all" type="button">全部</button></div>
-        <p id="job-result-count" class="result-count"></p><div id="all-jobs" class="job-table"></div>
+          <p id="job-result-count" class="result-count"></p><div id="all-jobs" class="job-table"></div><nav id="job-pagination" class="pagination hidden" aria-label="岗位列表分页"></nav>
       </section>
 
       <section id="view-preferences" class="view hidden" data-view="preferences">

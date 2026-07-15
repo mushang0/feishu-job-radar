@@ -12,6 +12,7 @@ from ..core import (
     inspect_local_database,
 )
 from .scanning import DailyWorkflowResult, run_daily_workflow
+from ..runtime import RunReporter
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +61,7 @@ class LocalApplicationService:
         *,
         task_id: str | None = None,
         cancel_check: Callable[[], bool] | None = None,
+        reporter: RunReporter | None = None,
     ) -> LocalInitializationResult:
         database_was_initialized = inspect_local_database(self.database_path).valid
         repository = DatabaseBootstrapService(self.database_path).initialize()
@@ -72,6 +74,7 @@ class LocalApplicationService:
             self.database_path,
             task_id=task_id,
             cancel_check=cancel_check,
+            reporter=reporter,
         )
         return LocalInitializationResult(
             seeded=not database_was_initialized,

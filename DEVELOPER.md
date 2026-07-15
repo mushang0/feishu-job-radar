@@ -21,6 +21,80 @@ python -m venv .venv
 
 日常开发直接使用该虚拟环境运行测试；普通用户不需要执行这套源码安装流程。
 
+## 固定的 UI 沙盒测试流程
+
+需要在浏览器中检查 UI、首次安装、扫描过程或多次使用后的状态时，统一使用
+`scripts/ui_sandbox.py`。默认沙盒位于 `.test-results/ui-sandbox/`，已经被 Git
+忽略，其中的虚拟环境、配置、SQLite、日志和导出内容都不会进入用户的
+`%LOCALAPPDATA%\JobPicky\`，也不会写入仓库源码目录。
+
+### 从头部署并测试
+
+```powershell
+python scripts/ui_sandbox.py fresh
+```
+
+这条命令固定执行以下流程：
+
+1. 只删除 `.test-results/ui-sandbox/` 中的旧测试环境；
+2. 创建全新的隔离虚拟环境；
+3. 从当前工作区源码构建并安装一份非 editable 的项目副本；
+4. 使用空白的独立 profile 启动 WebUI，并自动打开浏览器。
+
+因此，每次修改 UI 后需要验证“新用户第一次安装”时，使用 `fresh`。页面中的
+引导、配置保存和首次扫描都是真实流程；停止服务后，这次产生的数据会保留。
+安装的是命令执行时的代码快照，后续源文件修改不会悄悄改变现有沙盒。
+
+### 保留上次状态继续测试
+
+```powershell
+python scripts/ui_sandbox.py continue
+```
+
+`continue` 不重新安装、不清空配置、不重置数据库，适合验证：
+
+- 第二次及后续启动；
+- 多次扫描后的岗位数量、分页和推荐变化；
+- 浏览器刷新、任务恢复和偏好持久化；
+- 用户已经完成引导后的日常界面；
+- 失败或取消扫描后，上一次已发布结果是否仍然可用。
+
+如果源码已经再次修改，要先执行 `fresh` 才能测试新代码；`continue` 的目的就是
+稳定复现上一次安装和数据状态。
+
+服务运行时按 `Ctrl+C` 停止。默认从 `8877` 开始寻找空闲端口；终端会打印实际
+地址。自动打开浏览器不方便时使用：
+
+```powershell
+python scripts/ui_sandbox.py fresh --no-browser
+python scripts/ui_sandbox.py continue --no-browser --port 9000
+```
+
+### 查看和清理沙盒
+
+```powershell
+python scripts/ui_sandbox.py status
+python scripts/ui_sandbox.py clean
+```
+
+`status` 只读取沙盒状态，显示安装、配置和数据库是否存在。`clean` 只允许删除
+仓库内部明确指定的沙盒目录，并带有路径保护，不会删除仓库根目录。通常无需手动
+清理，因为下一次 `fresh` 会自动重建。
+
+### 建议的常见验收顺序
+
+一次 UI 改动建议按以下顺序检查：
+
+1. 运行 `fresh`，检查首次引导、空状态、偏好保存和首次扫描；
+2. 停止后运行 `continue`，检查已有数据、分页、筛选和再次扫描；
+3. 在扫描中刷新页面、取消任务，确认进度能恢复且旧结果不变；
+4. 再次运行 `continue`，确认配置和数据库跨进程保留；
+5. 最后运行自动化测试；需要模拟正式发行包时，仍使用下文的
+   `scripts/release_check.py`。
+
+UI 沙盒用于人工交互回归，不替代 pytest 或发布验收。不要把真实飞书密钥填入
+沙盒；如确实需要测试集成，只使用专门的测试应用和测试 Base。
+
 ## 必须注意的坑
 
 ### 中文和文件编码
