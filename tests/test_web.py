@@ -1,4 +1,5 @@
 from pathlib import Path
+from datetime import datetime, timedelta
 
 from fastapi.testclient import TestClient
 
@@ -84,6 +85,91 @@ def test_web_ui_uses_one_reusable_radar_builder_and_no_social_recruitment(tmp_pa
     assert "社会招聘" not in page
     assert "社会招聘" not in script
     assert 'scope:"all"' in script
+
+
+def test_scan_status_restores_persisted_success_and_failure(tmp_path: Path):
+    paths = AppPaths(tmp_path / "profile")
+    repo = JobRepository(paths.database)
+    repo.init_schema()
+    assert TestClient(create_app(paths)).get("/api/scan/status").json()["state"] == "never"
+
+    repo.record_scan_run({
+        "run_type": "daily", "task_id": "success-1",
+        "started_at": "2026-07-16T19:40:00", "finished_at": "2026-07-16T19:42:00",
+        "status": "success", "pages_scanned": 2, "items_seen": 426,
+        "new_items": 44, "updated_items": 3, "recommended_items": 12,
+        "expiring_items": 5, "failure_stage": None, "error_message": None,
+        "notification_status": "skipped",
+    })
+    client = TestClient(create_app(paths))
+    restored = client.get("/api/scan/status").json()
+    assert restored["state"] == "success"
+    assert restored["last_success_at"] == "2026-07-16T19:42:00"
+    assert restored["last_run"]["new_items"] == 44
+    assert restored["last_run"]["recommended_items"] == 12
+
+    repo.record_scan_run({
+        "run_type": "daily", "task_id": "failed-1",
+        "started_at": "2026-07-16T20:00:00", "finished_at": "2026-07-16T20:01:00",
+        "status": "failed", "pages_scanned": 0, "items_seen": 0,
+        "new_items": 0, "updated_items": 0, "recommended_items": 0,
+        "expiring_items": 5, "failure_stage": "link_enrichment",
+        "error_message": "redacted", "notification_status": "skipped",
+    })
+    restored = client.get("/api/scan/status").json()
+    assert restored["state"] == "failed"
+    assert restored["last_success_at"] == "2026-07-16T19:42:00"
+    assert restored["last_run"]["failure_stage"] == "link_enrichment"
+
+
+def test_recommended_jobs_support_scopes_filters_pagination_and_detail(tmp_path: Path):
+    paths = AppPaths(tmp_path / "profile")
+    repo = JobRepository(paths.database)
+    repo.init_schema()
+    now = datetime.now().replace(microsecond=0)
+    first = repo.upsert_job(Job(
+        dedupe_key="web:recommended-1", company="示例科技", title="算法工程师",
+        summary="负责机器学习模型训练与部署", city="北京", batch="秋招",
+        degree="硕士", target_graduate_year="2027届", company_type="民营企业",
+        industry="人工智能", role_signals=["算法", "机器学习"],
+        deadline=(now + timedelta(days=3)).date().isoformat(),
+        source_url="https://example.com/jobs/1", apply_url=None,
+    ))
+    second = repo.upsert_job(Job(
+        dedupe_key="web:recommended-2", company="示例研究院", title="深度学习研究员",
+        city="上海", batch="提前批", role_signals=["深度学习"],
+        deadline=(now + timedelta(days=20)).date().isoformat(),
+    ))
+    repo.save_match(first.job_id, {"matched_keywords": ["算法"], "needs_verify": True})
+    repo.append_recommendations(now.date().isoformat(), [
+        {"job_id": first.job_id, "recommend_reason": "命中算法方向"},
+        {"job_id": second.job_id, "recommend_reason": "命中深度学习方向"},
+    ])
+    repo.record_scan_run({
+        "run_type": "daily", "task_id": "scan-1",
+        "started_at": (now - timedelta(minutes=1)).isoformat(), "finished_at": now.isoformat(),
+        "status": "success", "pages_scanned": 1, "items_seen": 2, "new_items": 2,
+        "updated_items": 0, "recommended_items": 2, "expiring_items": 1,
+        "failure_stage": None, "error_message": None, "notification_status": "skipped",
+    })
+    client = TestClient(create_app(paths))
+
+    result = client.get(
+        "/api/jobs?scope=new&direction=算法&city=北京&deadline_status=expiring&page=1&page_size=1"
+    ).json()
+    assert result["total"] == 1
+    assert result["pages"] == 1
+    assert result["items"][0]["title"] == "算法工程师"
+    assert result["summary"]["new_recommended"] == 2
+    assert result["summary"]["expiring"] == 1
+    assert "民营企业" in result["facets"]["company_types"]
+
+    detail = client.get(f"/api/jobs/{first.job_id}").json()
+    assert detail["recommend_reason"] == "命中算法方向"
+    assert detail["matched_keywords"] == "算法"
+    assert detail["detail_url"] == "https://example.com/jobs/1"
+    assert detail["apply_url"] is None
+    assert client.get("/api/jobs/999999").status_code == 404
 
 
 def test_web_setup_preview_describes_three_step_workspace_flow(tmp_path: Path):

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import datetime
+import json
 import logging
 import os
 import shutil
@@ -46,6 +48,39 @@ class TaskManager:
         self._lock = threading.Lock()
         self._tasks: dict[str, dict[str, Any]] = {}
         self._active_task_id: str | None = None
+        self._snapshot_path = paths.root / "scan-task.json"
+        self._restore_snapshot()
+
+    def _restore_snapshot(self) -> None:
+        if not self._snapshot_path.is_file():
+            return
+        try:
+            task = json.loads(self._snapshot_path.read_text(encoding="utf-8"))
+            if not isinstance(task, dict) or not task.get("task_id"):
+                return
+            if task.get("status") in {"queued", "running", "cancelling"}:
+                task.update({
+                    "status": "failed",
+                    "finished_at": datetime.now().isoformat(timespec="seconds"),
+                    "errors": [{
+                        "stage": task.get("stage") or "runtime",
+                        "code": "service_restarted",
+                        "message": "扫描服务已重启，本次任务未完成。",
+                    }],
+                })
+            self._tasks[str(task["task_id"])] = task
+        except (OSError, ValueError, TypeError):
+            logging.warning("Ignoring unreadable scan task snapshot")
+
+    def _persist_locked(self, task_id: str) -> None:
+        task = self._tasks.get(task_id)
+        if not task:
+            return
+        self._snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {key: value for key, value in task.items() if key != "future"}
+        temporary = self._snapshot_path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        os.replace(temporary, self._snapshot_path)
 
     def start(self, kind: str, operation) -> str:
         with self._lock:
@@ -54,10 +89,16 @@ class TaskManager:
                 if active.get("status") in {"queued", "running", "cancelling"}:
                     raise RuntimeError(self._active_task_id)
             task_id = uuid4().hex
-            self._tasks[task_id] = {"task_id": task_id, "kind": kind, "status": "queued"}
+            self._tasks[task_id] = {
+                "task_id": task_id,
+                "kind": kind,
+                "status": "queued",
+                "started_at": datetime.now().isoformat(timespec="seconds"),
+            }
             self._active_task_id = task_id
             future = self._executor.submit(self._run, task_id, operation)
             self._tasks[task_id]["future"] = future
+            self._persist_locked(task_id)
             return task_id
 
     def _run(self, task_id: str, operation) -> None:
@@ -68,6 +109,7 @@ class TaskManager:
                     self._active_task_id = None
                 return
             self._tasks[task_id]["status"] = "running"
+            self._persist_locked(task_id)
         try:
             payload = operation(task_id, lambda: self._cancelled(task_id))
             with self._lock:
@@ -75,6 +117,7 @@ class TaskManager:
                 task.update(payload)
                 if task.get("cancel_requested"):
                     task["status"] = "cancelled"
+                self._persist_locked(task_id)
         except Exception:
             logging.error("Web background task failed")
             fallback = DailyWorkflowResult(status="failed", task_id=task_id, errors=(DailyStageError("workflow", "workflow_failed", "每日工作流失败"),))
@@ -83,8 +126,11 @@ class TaskManager:
                 task.update(fallback.to_dict())
                 if task.get("cancel_requested"):
                     task["status"] = "cancelled"
+                self._persist_locked(task_id)
         finally:
             with self._lock:
+                self._tasks[task_id]["finished_at"] = datetime.now().isoformat(timespec="seconds")
+                self._persist_locked(task_id)
                 if self._active_task_id == task_id:
                     self._active_task_id = None
 
@@ -104,6 +150,7 @@ class TaskManager:
                 task["status"] = "cancelled"
                 if self._active_task_id == task_id:
                     self._active_task_id = None
+            self._persist_locked(task_id)
             return True
 
     def get(self, task_id: str) -> dict[str, Any] | None:
@@ -122,6 +169,14 @@ class TaskManager:
                 return None
             return {key: value for key, value in task.items() if key != "future"}
 
+    def latest(self) -> dict[str, Any] | None:
+        with self._lock:
+            finished = [task for task in self._tasks.values() if task.get("finished_at")]
+            if not finished:
+                return None
+            task = max(finished, key=lambda item: str(item.get("finished_at") or ""))
+            return {key: value for key, value in task.items() if key != "future"}
+
     def progress(self, task_id: str, event) -> None:
         with self._lock:
             task = self._tasks.get(task_id)
@@ -129,6 +184,7 @@ class TaskManager:
                 task.update({"stage": event.command, "stage_label": event.name,
                              "stage_current": event.step, "stage_total": event.total_steps,
                              "message": event.detail or event.name})
+                self._persist_locked(task_id)
 
 
 def create_app(paths: AppPaths | None = None) -> FastAPI:
@@ -232,9 +288,22 @@ def create_app(paths: AppPaths | None = None) -> FastAPI:
 
     @app.get("/api/jobs")
     def jobs(page: int = 1, page_size: int = 25, scope: str = "all", query: str = "",
-             city: str = "", batch: str = "", sort: str = "deadline", recommended: bool = False) -> dict[str, Any]:
+             city: str = "", batch: str = "", direction: str = "", deadline_status: str = "",
+             company_type: str = "", sort: str = "deadline", recommended: bool = False) -> dict[str, Any]:
         return state.jobs(page=page, page_size=page_size, scope=scope, query=query, city=city,
-                          batch=batch, sort=sort, recommended=recommended)
+                          batch=batch, direction=direction, deadline_status=deadline_status,
+                          company_type=company_type, sort=sort, recommended=recommended)
+
+    @app.get("/api/jobs/{job_id}")
+    def job_detail(job_id: int) -> dict[str, Any]:
+        item = state.job_detail(job_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="岗位不存在")
+        return item
+
+    @app.get("/api/scan/status")
+    def scan_status() -> dict[str, Any]:
+        return state.scan_status(tasks.active(), tasks.latest())
 
     @app.get("/api/setup/preview")
     def setup_preview() -> dict[str, Any]:

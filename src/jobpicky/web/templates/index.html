@@ -6,10 +6,10 @@
   <meta name="theme-color" content="#f4f3f0">
   <meta name="description" content="JobPicky 求职岗位工作台">
   <title>JobPicky · 岗位雷达</title>
-  <link rel="stylesheet" href="/static/css/app.css?v=20260715-3">
+  <link rel="stylesheet" href="/static/css/app.css?v=20260716-1">
 </head>
 <body>
-  <svg class="svg-defs" aria-hidden="true"><symbol id="i-radar" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 4v5m0 6v5M4 12h5m6 0h5"/></symbol><symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></symbol><symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h10m4 0h2M4 17h2m4 0h10M14 4v6M6 14v6"/></symbol><symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1"/></symbol><symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></symbol><symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol><symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-5-5 5 5-5 5"/></symbol></svg>
+  <svg class="svg-defs" aria-hidden="true"><symbol id="i-radar" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 4v5m0 6v5M4 12h5m6 0h5"/></symbol><symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></symbol><symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h10m4 0h2M4 17h2m4 0h10M14 4v6M6 14v6"/></symbol><symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1"/></symbol><symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></symbol><symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol><symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol><symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-5-5 5 5-5 5"/></symbol></svg>
   <div id="loading-screen" class="loading-screen" aria-live="polite"><span class="spinner"></span><span>正在准备岗位雷达</span></div>
 
   <main id="onboarding" class="onboarding hidden">
@@ -26,9 +26,9 @@
       <button id="menu-button" class="icon-button menu-button" type="button" aria-label="打开导航" aria-expanded="false"><span></span><span></span><span></span></button>
       <nav id="main-nav" aria-label="主导航">
         <a href="#radar" data-route="radar"><svg><use href="#i-radar"/></svg>岗位雷达</a>
-        <a href="#jobs" data-route="jobs"><svg><use href="#i-list"/></svg>全部岗位</a>
         <a href="#preferences" data-route="preferences"><svg><use href="#i-sliders"/></svg>求职偏好</a>
         <a href="#integrations" data-route="integrations"><svg><use href="#i-link"/></svg>集成</a>
+        <a href="#jobs" data-route="jobs" class="nav-secondary"><svg><use href="#i-list"/></svg>全部岗位</a>
       </nav>
       <div class="topbar-actions"><span id="top-last-scan" class="last-scan"></span><button class="button primary scan-button" type="button">扫描新岗位</button></div>
     </header>
@@ -37,19 +37,37 @@
       <section id="view-radar" class="view" data-view="radar">
         <header class="page-header radar-header"><div><h1>岗位雷达</h1><button id="preference-summary" class="preference-line" type="button"></button></div><button class="button primary scan-button mobile-scan" type="button">扫描新岗位</button></header>
         <section id="task-panel" class="task-panel hidden" aria-live="polite"></section>
-        <section id="stats" class="stats hidden" aria-label="岗位摘要"></section>
-        <div class="section-heading"><div><h2>值得关注</h2><p>本次新增、符合偏好和即将截止的岗位。</p></div><a href="#jobs">浏览岗位库 <svg><use href="#i-arrow"/></svg></a></div>
-        <div id="radar-jobs" class="job-feed" aria-live="polite"></div>
+        <div id="radar-results">
+          <section id="scan-summary" class="scan-summary hidden" aria-live="polite"></section>
+          <section id="stats" class="stats hidden" aria-label="岗位摘要"></section>
+          <div class="recommendation-heading"><h2>推荐岗位</h2><a href="#jobs" class="library-link">浏览全部岗位库 <svg><use href="#i-arrow"/></svg></a></div>
+          <div id="recommendation-tabs" class="recommendation-tabs" role="tablist">
+            <button type="button" data-recommendation-scope="new" role="tab">新增推荐</button>
+            <button type="button" data-recommendation-scope="recommended" role="tab">全部推荐</button>
+            <button type="button" data-recommendation-scope="expiring" role="tab">即将截止</button>
+          </div>
+          <div class="toolbar recommendation-toolbar">
+            <select id="radar-filter-city" aria-label="推荐岗位城市筛选"><option value="">全部城市</option></select>
+            <select id="radar-filter-batch" aria-label="推荐岗位招聘类型筛选"><option value="">全部类型</option></select>
+            <select id="radar-filter-direction" aria-label="推荐岗位关注方向筛选"><option value="">全部方向</option></select>
+            <select id="radar-filter-deadline" aria-label="推荐岗位截止状态筛选"><option value="">全部截止状态</option><option value="open">仍在招聘</option><option value="expiring">7 天内截止</option><option value="expired">已截止</option></select>
+            <select id="radar-sort" aria-label="推荐岗位排序"><option value="newest">最近收录</option><option value="deadline">截止日期</option><option value="company">公司名称</option></select>
+            <button id="clear-radar-filters" class="button ghost" type="button">清除筛选</button>
+          </div>
+          <p id="radar-result-count" class="result-count"></p>
+          <div id="radar-jobs" class="job-grid" aria-live="polite"></div>
+          <nav id="radar-pagination" class="pagination hidden" aria-label="推荐岗位分页"></nav>
+        </div>
       </section>
 
       <section id="view-jobs" class="view hidden" data-view="jobs">
-        <header class="page-header"><div><h1>全部岗位</h1><p>搜索和浏览本地岗位库中的全部记录。</p></div><strong id="all-job-total" class="total-number"></strong></header>
-        <div class="toolbar"><label class="search-field wide"><svg><use href="#i-search"/></svg><span class="sr-only">搜索岗位或公司</span><input id="job-search" type="search" placeholder="搜索岗位或公司"></label><select id="filter-city" aria-label="城市筛选"><option value="">全部城市</option></select><select id="filter-batch" aria-label="招聘类型筛选"><option value="">全部类型</option></select><select id="job-sort" aria-label="排序"><option value="deadline">截止日期</option><option value="newest">最近发现</option><option value="company">公司名称</option></select><button id="clear-filters" class="button ghost" type="button">清除</button></div>
-        <p id="job-result-count" class="result-count"></p><div id="all-jobs" class="job-table"></div><nav id="job-pagination" class="pagination hidden" aria-label="岗位列表分页"></nav>
+        <header class="page-header"><div><h1>全部岗位</h1></div><strong id="all-job-total" class="total-number"></strong></header>
+        <div class="toolbar all-job-toolbar"><label class="search-field wide"><svg><use href="#i-search"/></svg><span class="sr-only">搜索岗位或公司</span><input id="job-search" type="search" placeholder="搜索岗位或公司"></label><select id="filter-city" aria-label="城市筛选"><option value="">全部城市</option></select><select id="filter-batch" aria-label="招聘类型筛选"><option value="">全部类型</option></select><select id="filter-deadline" aria-label="截止状态筛选"><option value="">全部截止状态</option><option value="open">仍在招聘</option><option value="expiring">7 天内截止</option><option value="expired">已截止</option></select><select id="filter-company-type" aria-label="企业性质筛选"><option value="">全部企业性质</option></select><select id="job-sort" aria-label="排序"><option value="deadline">截止日期</option><option value="newest">最近收录</option><option value="company">公司名称</option></select><button id="clear-filters" class="button ghost" type="button">清除筛选</button></div>
+        <p id="job-result-count" class="result-count"></p><div id="all-jobs" class="job-grid"></div><nav id="job-pagination" class="pagination hidden" aria-label="岗位列表分页"></nav>
       </section>
 
       <section id="view-preferences" class="view hidden" data-view="preferences">
-        <header class="page-header"><div><h1>我的岗位雷达</h1><p>查看当前监控范围，或只调整需要修改的部分。</p></div><button id="edit-preferences" class="button primary" type="button">调整岗位雷达</button></header>
+        <header class="page-header"><div><h1>我的岗位雷达</h1></div><button id="edit-preferences" class="button primary" type="button">调整岗位雷达</button></header>
         <section id="preferences-view" class="preference-view"></section>
         <div id="preferences-builder-host" class="hidden"></div>
       </section>
@@ -81,6 +99,6 @@
 
   <aside id="job-drawer" class="job-drawer hidden" aria-hidden="true" aria-labelledby="drawer-title"><div class="drawer-backdrop" data-action="close-drawer"></div><section><header><div><span class="eyebrow">岗位详情</span><h2 id="drawer-title"></h2></div><button class="icon-button" data-action="close-drawer" type="button" aria-label="关闭详情"><svg><use href="#i-close"/></svg></button></header><div id="drawer-content" class="drawer-content"></div><footer id="drawer-actions"></footer></section></aside>
   <div id="toast-region" class="toast-region" aria-live="polite"></div>
-  <script type="module" src="/static/js/app.js?v=20260715-3"></script>
+  <script type="module" src="/static/js/app.js?v=20260716-1"></script>
 </body>
 </html>

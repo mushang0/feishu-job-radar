@@ -364,6 +364,7 @@ def _finalize_result(
     if write_scan_run:
         values = {
             "run_type": "daily",
+            "task_id": result.task_id,
             "started_at": started_at,
             "finished_at": datetime.now().isoformat(timespec="seconds"),
             "status": "partial" if result.status == "partial_success" else result.status,
@@ -371,6 +372,9 @@ def _finalize_result(
             "items_seen": result.fetched_count,
             "new_items": result.created_count,
             "updated_items": result.updated_count,
+            "recommended_items": result.recommended_count,
+            "expiring_items": 0,
+            "failure_stage": result.errors[0].stage if result.errors else None,
             "error_message": result.error_summary or None,
             "notification_status": result.notification_status,
         }
@@ -384,9 +388,8 @@ def _finalize_result(
             finally:
                 conn.close()
             if object_row and object_row["type"] == "table" and columns:
-                if "notification_status" not in columns:
-                    values.pop("notification_status", None)
-                repo.record_scan_run(values)
+                values["expiring_items"] = repo.count_expiring_jobs(recommended=True)
+                repo.record_scan_run({key: value for key, value in values.items() if key in columns})
             else:
                 raise RuntimeError("scan_runs table unavailable")
         except Exception as exc:

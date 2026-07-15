@@ -1,5 +1,6 @@
 from pathlib import Path
 from types import SimpleNamespace
+from threading import Event
 import time
 
 from fastapi.testclient import TestClient
@@ -94,6 +95,47 @@ def test_local_start_runs_shared_workflow_without_feishu(tmp_path: Path, monkeyp
     assert task["seeded"] is True
     assert task["baseline_recommended_items"] == 2
     assert calls == [("local", ["AUTOSAR"])]
+
+
+def test_scan_running_state_is_recoverable_and_duplicate_start_is_rejected(tmp_path: Path, monkeypatch):
+    paths = AppPaths(tmp_path / "profile")
+    client = TestClient(create_app(paths))
+    assert client.put("/api/preferences", json=_profile_payload()).status_code == 200
+    entered, release = Event(), Event()
+
+    def slow_local(_service, **kwargs):
+        from jobpicky.services.local import LocalInitializationResult
+        entered.set()
+        assert release.wait(timeout=5)
+        return LocalInitializationResult(
+            seeded=True,
+            baseline_items=0,
+            baseline_recommended_items=0,
+            daily=DailyWorkflowResult(status="success", task_id=kwargs["task_id"]),
+        )
+
+    monkeypatch.setattr("jobpicky.web.app.LocalApplicationService.initialize_and_update", slow_local)
+    first = client.post("/api/local/start")
+    assert first.status_code == 202
+    assert entered.wait(timeout=2)
+
+    restored = client.get("/api/scan/status").json()
+    assert restored["state"] == "running"
+    assert restored["active_task"]["task_id"] == first.json()["task_id"]
+    assert restored["active_task"]["started_at"]
+    duplicate = client.post("/api/local/start")
+    assert duplicate.status_code == 409
+    assert duplicate.json()["detail"]["code"] == "already_running"
+    release.set()
+    for _ in range(100):
+        terminal = client.get(f"/api/tasks/{first.json()['task_id']}").json()
+        if terminal["status"] not in {"queued", "running", "cancelling"}:
+            break
+        time.sleep(0.01)
+    assert terminal["status"] == "success"
+    restarted = TestClient(create_app(paths)).get("/api/scan/status").json()
+    assert restarted["state"] == "success"
+    assert restarted["last_run"]["task_id"] == first.json()["task_id"]
 
 
 def test_feishu_test_initializes_workspace_and_syncs(tmp_path: Path, monkeypatch):

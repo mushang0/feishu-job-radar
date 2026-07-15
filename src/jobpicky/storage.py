@@ -52,7 +52,8 @@ _SCHEMA_COLUMNS: dict[str, dict[str, str]] = {
     "scan_runs": {
         "id": "INTEGER", "run_type": "TEXT", "started_at": "DATETIME", "finished_at": "DATETIME",
         "status": "TEXT", "pages_scanned": "INTEGER", "items_seen": "INTEGER", "new_items": "INTEGER",
-        "updated_items": "INTEGER", "error_message": "TEXT", "notification_status": "TEXT",
+        "updated_items": "INTEGER", "recommended_items": "INTEGER", "expiring_items": "INTEGER",
+        "failure_stage": "TEXT", "task_id": "TEXT", "error_message": "TEXT", "notification_status": "TEXT",
     },
     "feishu_sync": {
         "job_id": "INTEGER", "feishu_record_id": "TEXT", "last_synced_at": "DATETIME", "sync_status": "TEXT",
@@ -173,6 +174,10 @@ class JobRepository:
                     items_seen INTEGER,
                     new_items INTEGER,
                     updated_items INTEGER,
+                    recommended_items INTEGER,
+                    expiring_items INTEGER,
+                    failure_stage TEXT,
+                    task_id TEXT,
                     error_message TEXT,
                     notification_status TEXT
                 );
@@ -229,6 +234,10 @@ class JobRepository:
             })
             self._ensure_columns(conn, "scan_runs", {
                 "notification_status": "TEXT",
+                "recommended_items": "INTEGER",
+                "expiring_items": "INTEGER",
+                "failure_stage": "TEXT",
+                "task_id": "TEXT",
             })
             for table, columns in _SCHEMA_COLUMNS.items():
                 self._ensure_columns(conn, table, columns)
@@ -487,7 +496,9 @@ class JobRepository:
 
     def search_jobs(
         self, *, recommended: bool = False, query: str = "", city: str = "",
-        batch: str = "", sort: str = "deadline", limit: int = 25, offset: int = 0,
+        batch: str = "", direction: str = "", deadline_status: str = "",
+        company_type: str = "", new_since: str = "", sort: str = "deadline",
+        limit: int = 25, offset: int = 0,
     ) -> tuple[list[dict[str, Any]], int]:
         conditions: list[str] = []
         params: list[Any] = []
@@ -498,11 +509,27 @@ class JobRepository:
             term = f"%{query.lower()}%"
             params.extend((term, term))
         if city:
-            conditions.append("jobs.city = ?")
-            params.append(city)
+            conditions.append("(';' || REPLACE(COALESCE(jobs.city, ''), '；', ';') || ';') LIKE ?")
+            params.append(f"%;{city};%")
         if batch:
             conditions.append("jobs.batch = ?")
             params.append(batch)
+        if direction:
+            conditions.append("(COALESCE(jobs.role_signals, '') LIKE ? OR COALESCE(job_matches.matched_keywords, '') LIKE ? OR COALESCE(job_matches.matched_strong_keywords, '') LIKE ? OR COALESCE(job_matches.matched_weak_keywords, '') LIKE ?)")
+            term = f"%{direction}%"
+            params.extend((term, term, term, term))
+        if company_type:
+            conditions.append("jobs.company_type = ?")
+            params.append(company_type)
+        if deadline_status == "open":
+            conditions.append("(jobs.deadline IS NULL OR jobs.deadline = '' OR date(jobs.deadline) >= date('now'))")
+        elif deadline_status == "expiring":
+            conditions.append("date(jobs.deadline) BETWEEN date('now') AND date('now', '+7 days')")
+        elif deadline_status == "expired":
+            conditions.append("date(jobs.deadline) < date('now')")
+        if new_since:
+            conditions.append("datetime(COALESCE(jobs.first_seen, jobs.collected_date)) >= datetime(?)")
+            params.append(new_since)
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         order = {
             "company": "COALESCE(jobs.company, '') COLLATE NOCASE ASC, jobs.id ASC",
@@ -518,16 +545,26 @@ class JobRepository:
 
     def job_facets(self) -> dict[str, list[str]]:
         with self.connect() as conn:
-            cities = [row[0] for row in conn.execute("SELECT DISTINCT city FROM jobs WHERE city IS NOT NULL AND city != '' ORDER BY city")]
+            city_values = [row[0] for row in conn.execute("SELECT DISTINCT city FROM jobs WHERE city IS NOT NULL AND city != '' ORDER BY city")]
             batches = [row[0] for row in conn.execute("SELECT DISTINCT batch FROM jobs WHERE batch IS NOT NULL AND batch != '' ORDER BY batch")]
-        return {"cities": cities, "batches": batches}
+            company_types = [row[0] for row in conn.execute("SELECT DISTINCT company_type FROM jobs WHERE company_type IS NOT NULL AND company_type != '' ORDER BY company_type")]
+        cities = sorted({part.strip() for value in city_values for part in str(value).replace("；", ";").split(";") if part.strip()})
+        return {"cities": cities, "batches": batches, "company_types": company_types}
 
-    def count_expiring_jobs(self, days: int = 7) -> int:
+    def count_expiring_jobs(self, days: int = 7, *, recommended: bool = False) -> int:
+        recommendation_join = "JOIN recommended_jobs recommended ON recommended.job_id = jobs.id" if recommended else ""
+        distinct = "DISTINCT jobs.id" if recommended else "*"
         with self.connect() as conn:
             return int(conn.execute(
-                "SELECT COUNT(*) FROM jobs WHERE date(deadline) BETWEEN date('now') AND date('now', ?)",
+                f"SELECT COUNT({distinct}) FROM jobs {recommendation_join} WHERE date(deadline) BETWEEN date('now') AND date('now', ?)",
                 (f"+{days} days",),
             ).fetchone()[0])
+
+    def get_job_detail(self, job_id: int) -> dict[str, Any]:
+        query = self._all_jobs_query("WHERE jobs.id = ?").rsplit("ORDER BY", 1)[0]
+        with self.connect() as conn:
+            row = conn.execute(query, (job_id,)).fetchone()
+        return dict(row) if row else {}
 
     def list_feishu_sync_candidates(self) -> list[dict[str, Any]]:
         """Return only jobs that belong in the user-facing Feishu workspace."""
@@ -672,18 +709,28 @@ class JobRepository:
                 jobs.target_graduate_year,
                 jobs.degree,
                 jobs.city,
+                jobs.location_text,
                 jobs.collected_date,
                 jobs.deadline,
                 jobs.industry,
                 jobs.company_type,
                 jobs.job_tags,
                 jobs.special_marks,
+                jobs.role_signals,
+                jobs.raw_text,
+                jobs.role_text,
+                jobs.announcement_text,
                 COALESCE(jobs.detail_url, jobs.source_url) AS original_url,
                 jobs.apply_url,
                 jobs.official_url,
+                jobs.parse_status,
                 jobs.first_seen,
                 jobs.last_seen,
                 COALESCE(job_matches.verify_status, '') AS verify_status,
+                COALESCE(job_matches.needs_verify, 0) AS needs_verify,
+                COALESCE(job_matches.matched_keywords, '') AS matched_keywords,
+                COALESCE(job_matches.matched_strong_keywords, '') AS matched_strong_keywords,
+                COALESCE(job_matches.matched_weak_keywords, '') AS matched_weak_keywords,
                 CASE WHEN latest_recommendation.id IS NULL THEN '不推荐' ELSE '推荐' END AS recommendation_status,
                 CASE WHEN latest_recommendation.id IS NULL THEN 0 ELSE 1 END AS recommendation_active,
                 CASE WHEN latest_recommendation.id IS NULL THEN NULL ELSE latest_recommendation.recommendation_date END AS recommendation_date,
@@ -758,6 +805,14 @@ class JobRepository:
                 (run_type,),
             ).fetchone()
             return row["run_date"] if row else None
+
+    def latest_scan_run(self, *, successful_only: bool = False) -> dict[str, Any]:
+        where = "WHERE status = 'success'" if successful_only else ""
+        with self.connect() as conn:
+            row = conn.execute(
+                f"SELECT * FROM scan_runs {where} ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+        return dict(row) if row else {}
 
     def count_jobs(self) -> int:
         with self.connect() as conn:

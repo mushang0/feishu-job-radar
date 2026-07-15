@@ -113,25 +113,39 @@ class WebStateService:
         save_config(config, self.paths.config)
 
     def jobs(self, *, page: int = 1, page_size: int = 25, scope: str = "all", query: str = "",
-             city: str = "", batch: str = "", sort: str = "deadline", recommended: bool = False) -> dict[str, Any]:
+             city: str = "", batch: str = "", direction: str = "", deadline_status: str = "",
+             company_type: str = "", sort: str = "deadline", recommended: bool = False) -> dict[str, Any]:
         if not self.paths.database.is_file():
             return {"items": [], "page": 1, "page_size": page_size, "total": 0, "pages": 0,
-                    "summary": {"all": 0, "recommended": 0, "expiring": 0}, "facets": {"cities": [], "batches": []}}
+                    "summary": {"all": 0, "recommended": 0, "new_recommended": 0, "expiring": 0},
+                    "facets": {"cities": [], "batches": [], "company_types": [], "directions": []}}
         # Reads must never bootstrap/restore the packaged seed database.
         from ..storage import JobRepository
         repo = JobRepository(self.paths.database)
         queries = JobQueryService(repo)
         page = max(1, page)
         page_size = max(1, min(page_size, 200))
-        recommended = recommended or scope == "recommended"
-        items, total = repo.search_jobs(recommended=recommended, query=query.strip(), city=city, batch=batch,
-                                        sort=sort, limit=page_size, offset=(page - 1) * page_size)
+        recommended = recommended or scope in {"recommended", "new", "expiring"}
+        latest_success = repo.latest_scan_run(successful_only=True)
+        new_since = str(latest_success.get("started_at") or "") if scope == "new" else ""
+        if scope == "expiring":
+            deadline_status = "expiring"
+        items, total = repo.search_jobs(
+            recommended=recommended, query=query.strip(), city=city, batch=batch,
+            direction=direction, deadline_status=deadline_status, company_type=company_type,
+            new_since=new_since, sort=sort, limit=page_size, offset=(page - 1) * page_size,
+        )
         stats = queries.stats()
         for item in items:
             item["detail_url"] = item.pop("original_url", None)
             apply_url = str(item.get("apply_url") or "").strip()
             if not _valid_apply_url(apply_url):
                 item["apply_url"] = None
+        _, new_recommended_total = repo.search_jobs(
+            recommended=True, new_since=str(latest_success.get("started_at") or ""), limit=1,
+        ) if latest_success else ([], 0)
+        facets = repo.job_facets()
+        facets["directions"] = _list_values(load_config(self.paths.config).get("user_profile", {}).get("role_groups", []))
         return {
             "items": items,
             "total": total,
@@ -140,8 +154,50 @@ class WebStateService:
             "page": page,
             "page_size": page_size,
             "summary": {"all": stats["jobs"], "recommended": stats["recommendations"],
-                        "expiring": repo.count_expiring_jobs()},
-            "facets": repo.job_facets(),
+                        "new_recommended": new_recommended_total,
+                        "expiring": repo.count_expiring_jobs(recommended=True)},
+            "facets": facets,
+        }
+
+    def job_detail(self, job_id: int) -> dict[str, Any]:
+        if not self.paths.database.is_file():
+            return {}
+        from ..storage import JobRepository
+        item = JobRepository(self.paths.database).get_job_detail(job_id)
+        if item:
+            item["detail_url"] = item.pop("original_url", None)
+            if not _valid_apply_url(str(item.get("apply_url") or "")):
+                item["apply_url"] = None
+        return item
+
+    def scan_status(self, active_task: dict[str, Any] | None = None,
+                    recent_task: dict[str, Any] | None = None) -> dict[str, Any]:
+        latest: dict[str, Any] = {}
+        last_success: dict[str, Any] = {}
+        if self.paths.database.is_file():
+            from ..storage import JobRepository
+            repo = JobRepository(self.paths.database)
+            latest = repo.latest_scan_run()
+            last_success = repo.latest_scan_run(successful_only=True)
+        if active_task:
+            return {
+                "state": "running",
+                "active_task": active_task,
+                "last_run": _scan_summary(latest),
+                "last_success_at": last_success.get("finished_at"),
+            }
+        if recent_task and str(recent_task.get("finished_at") or "") > str(latest.get("finished_at") or ""):
+            latest = recent_task
+            if recent_task.get("status") == "success":
+                last_success = recent_task
+        if not latest:
+            return {"state": "never", "active_task": None, "last_run": None, "last_success_at": None}
+        status = str(latest.get("status") or "failed")
+        return {
+            "state": "success" if status == "success" else "failed",
+            "active_task": None,
+            "last_run": _scan_summary(latest),
+            "last_success_at": last_success.get("finished_at"),
         }
 
     def health(self) -> dict[str, Any]:
@@ -173,3 +229,27 @@ def _valid_apply_url(value: str) -> bool:
         return False
     normalized = value.rstrip("/").lower()
     return normalized not in {"https://www.wondercv.com", "http://www.wondercv.com", "https://www.wondercv.com/jobs", "http://www.wondercv.com/jobs"}
+
+
+def _scan_summary(run: dict[str, Any]) -> dict[str, Any] | None:
+    if not run:
+        return None
+    errors = run.get("errors") or []
+    failure_stage = run.get("failure_stage")
+    if not failure_stage and errors:
+        failure_stage = errors[0].get("stage")
+    recommended_items = run.get("recommended_items")
+    if recommended_items is None:
+        recommended_items = run.get("new_recommended_count", run.get("recommended_count"))
+    return {
+        "task_id": run.get("task_id"),
+        "status": run.get("status"),
+        "started_at": run.get("started_at"),
+        "finished_at": run.get("finished_at"),
+        "items_seen": run.get("items_seen", run.get("fetched_count", 0)) or 0,
+        "new_items": run.get("new_items", run.get("created_count", 0)) or 0,
+        "recommended_items": recommended_items,
+        "expiring_items": run.get("expiring_items", 0) or 0,
+        "failure_stage": failure_stage,
+        "error_message": run.get("error_message") or run.get("error") or "",
+    }
