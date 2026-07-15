@@ -66,8 +66,11 @@ def test_web_ui_exposes_local_first_product_structure(tmp_path: Path):
 
     assert "岗位雷达" in page
     assert "全部岗位" in page
-    assert "求职偏好" in page
     assert "集成" in page
+    assert 'data-route="preferences"' not in page
+    assert 'data-route="jobs"' not in page
+    assert '<a href="#jobs" class="library-link">' in page
+    assert 'id="home-radar-host"' in page
     assert "创建岗位雷达并开始扫描" in page
     assert 'aria-live="polite"' in page
     assert "选择使用方式" not in page
@@ -82,10 +85,18 @@ def test_web_ui_uses_one_reusable_radar_builder_and_no_social_recruitment(tmp_pa
     assert 'id="onboarding-builder-host"' in page
     assert 'id="preferences-builder-host"' in page
     assert 'id="builder-radar-host"' in page
+    assert 'id="home-radar-meta"' in page
+    assert 'id="preferences-view"' not in page
+    assert 'id="edit-preferences"' not in page
     assert 'class="radar-preview-column"' in page
     assert 'class="status-badge building"' in page
     assert "orbit-radar" in script
+    assert "focusScore" in script
+    assert "偏好聚焦度" in script
     assert "调整中" in script
+    assert "监控中心" not in script
+    assert "监控范围" not in script
+    assert "非常宽泛" not in script
     assert "当前监控策略" not in page
     assert "radar-progress" not in page
     assert "radar-summary" not in page
