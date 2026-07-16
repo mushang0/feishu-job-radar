@@ -33,11 +33,34 @@
 
     <main class="content-shell">
       <section id="view-radar" class="view" data-view="radar">
-        <header class="page-header radar-header"><div><h1>岗位雷达</h1></div><button class="button primary scan-button mobile-scan" type="button">扫描新岗位</button></header>
-        <section class="dashboard-overview" aria-label="岗位雷达概览">
-          <div class="dashboard-status">
-            <section id="scan-summary" class="scan-summary hidden" aria-live="polite"></section>
-            <section id="stats" class="stats hidden" aria-label="岗位摘要"></section>
+        <section class="dashboard-workspace" aria-label="岗位雷达概览">
+          <div class="dashboard-main">
+            <div class="dashboard-primary">
+              <div class="mobile-radar-actions"><span>岗位更新</span><button class="button primary scan-button" type="button">扫描新岗位</button></div>
+              <section id="scan-summary" class="scan-summary hidden" aria-live="polite"></section>
+              <section id="scan-empty" class="scan-empty hidden"><div><strong>岗位雷达已就绪</strong><span>开始扫描后，这里会显示与你偏好匹配的岗位。</span></div><button class="button primary" data-action="scan" type="button">开始扫描</button></section>
+              <section id="stats" class="stats hidden" aria-label="岗位摘要"></section>
+              <section id="task-panel" class="task-panel hidden" aria-live="polite"></section>
+            </div>
+            <div id="radar-results">
+              <div class="recommendation-heading"><h2>推荐岗位</h2><a href="#jobs" class="library-link">浏览全部岗位库 <svg><use href="#i-arrow"/></svg></a></div>
+              <div id="recommendation-tabs" class="recommendation-tabs" role="tablist">
+                <button type="button" data-recommendation-scope="new" role="tab">新增推荐</button>
+                <button type="button" data-recommendation-scope="recommended" role="tab">全部推荐</button>
+                <button type="button" data-recommendation-scope="expiring" role="tab">即将截止</button>
+              </div>
+              <div class="toolbar recommendation-toolbar">
+                <select id="radar-filter-city" aria-label="推荐岗位城市筛选"><option value="">全部城市</option></select>
+                <select id="radar-filter-batch" aria-label="推荐岗位招聘类型筛选"><option value="">全部类型</option></select>
+                <select id="radar-filter-direction" aria-label="推荐岗位关注方向筛选"><option value="">全部方向</option></select>
+                <select id="radar-filter-deadline" aria-label="推荐岗位截止状态筛选"><option value="">全部截止状态</option><option value="open">仍在招聘</option><option value="expiring">7 天内截止</option><option value="expired">已截止</option></select>
+                <select id="radar-sort" aria-label="推荐岗位排序"><option value="newest">最近收录</option><option value="deadline">截止日期</option><option value="company">公司名称</option></select>
+                <button id="clear-radar-filters" class="button ghost" type="button">清除筛选</button>
+              </div>
+              <p id="radar-result-count" class="result-count"></p>
+              <div id="radar-jobs" class="job-grid" aria-live="polite"></div>
+              <nav id="radar-pagination" class="pagination hidden" aria-label="推荐岗位分页"></nav>
+            </div>
           </div>
           <button class="home-radar-card" type="button" data-action="edit-preferences" aria-label="调整岗位雷达偏好">
             <header class="profile-radar-heading"><div><h2>我的岗位雷达</h2><p id="home-radar-copy"></p></div><span id="home-radar-status" class="status-badge ready">已就绪</span></header>
@@ -45,26 +68,6 @@
             <div id="home-radar-meta"></div>
           </button>
         </section>
-        <section id="task-panel" class="task-panel hidden" aria-live="polite"></section>
-        <div id="radar-results">
-          <div class="recommendation-heading"><h2>推荐岗位</h2><a href="#jobs" class="library-link">浏览全部岗位库 <svg><use href="#i-arrow"/></svg></a></div>
-          <div id="recommendation-tabs" class="recommendation-tabs" role="tablist">
-            <button type="button" data-recommendation-scope="new" role="tab">新增推荐</button>
-            <button type="button" data-recommendation-scope="recommended" role="tab">全部推荐</button>
-            <button type="button" data-recommendation-scope="expiring" role="tab">即将截止</button>
-          </div>
-          <div class="toolbar recommendation-toolbar">
-            <select id="radar-filter-city" aria-label="推荐岗位城市筛选"><option value="">全部城市</option></select>
-            <select id="radar-filter-batch" aria-label="推荐岗位招聘类型筛选"><option value="">全部类型</option></select>
-            <select id="radar-filter-direction" aria-label="推荐岗位关注方向筛选"><option value="">全部方向</option></select>
-            <select id="radar-filter-deadline" aria-label="推荐岗位截止状态筛选"><option value="">全部截止状态</option><option value="open">仍在招聘</option><option value="expiring">7 天内截止</option><option value="expired">已截止</option></select>
-            <select id="radar-sort" aria-label="推荐岗位排序"><option value="newest">最近收录</option><option value="deadline">截止日期</option><option value="company">公司名称</option></select>
-            <button id="clear-radar-filters" class="button ghost" type="button">清除筛选</button>
-          </div>
-          <p id="radar-result-count" class="result-count"></p>
-          <div id="radar-jobs" class="job-grid" aria-live="polite"></div>
-          <nav id="radar-pagination" class="pagination hidden" aria-label="推荐岗位分页"></nav>
-        </div>
       </section>
 
       <section id="view-jobs" class="view hidden" data-view="jobs">
