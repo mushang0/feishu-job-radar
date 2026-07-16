@@ -119,14 +119,14 @@ class Matcher:
         batch_text = " ".join(part for part in [job.batch or "", text] if part)
         if not batch_text.strip():
             return True
-        # JobPicky only recommends campus recruitment and internships. Spring
-        # and experienced-hire records remain queryable in the job database.
-        if self._match_many(batch_text, ["春招", "社招", "社会招聘", "experienced hire"]):
+        # JobPicky recommends campus recruitment (including spring recruitment)
+        # and internships. Experienced-hire records remain queryable only.
+        if self._match_many(batch_text, ["社招", "社会招聘", "experienced hire"]):
             return False
         expanded: list[str] = []
         for value in expected:
             if value == "校招":
-                expanded.extend(["校招", "校园招聘", "秋招", "提前批"])
+                expanded.extend(["校招", "校园招聘", "秋招", "春招", "提前批", "补录"])
             elif value in {"秋招", "提前批", "fall"}:
                 # Read legacy profiles as the campus-recruitment umbrella.
                 expanded.extend(["校招", "校园招聘", "秋招", "提前批", "fall"])

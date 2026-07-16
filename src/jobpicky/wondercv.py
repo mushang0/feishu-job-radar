@@ -347,6 +347,16 @@ DETAIL_SIGNAL_MARKERS = [
     "岗位信息",
 ]
 
+DETAIL_SECTION_END_MARKERS = [
+    "招聘流程",
+    "投递建议",
+    "福利待遇",
+    "常见问题",
+    "FAQ",
+    "公司介绍",
+    "申请方式",
+]
+
 DETAIL_KEYWORDS = [
     "嵌入式",
     "GNSS",
@@ -390,6 +400,10 @@ def _extract_detail_signal_text(text: str) -> str:
             next_index = text.find(next_marker, start + len(marker))
             if next_index > start:
                 end = min(end, next_index)
+        for end_marker in DETAIL_SECTION_END_MARKERS:
+            end_index = text.find(end_marker, start + len(marker))
+            if end_index > start:
+                end = min(end, end_index)
         snippets.append(text[start : min(end, start + 1600)])
     return _clean(" ".join(snippets))
 

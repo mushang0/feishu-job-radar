@@ -131,6 +131,26 @@ def test_parse_wondercv_detail_ignores_recommended_job_tail():
     assert "IC" not in detail.keywords
 
 
+def test_parse_wondercv_detail_stops_role_text_before_workflow_and_advice():
+    html = """
+    <main>
+      <h2>关联岗位</h2>
+      <p>研究助理：负责行业数据整理与研究报告撰写。</p>
+      <h2>招聘流程</h2>
+      <p>面试名单按笔试成绩排序，HR负责候选人搜索。</p>
+      <h2>投递建议</h2>
+      <p>表现优秀者可获得职业推荐。</p>
+    </main>
+    """
+
+    detail = parse_wondercv_detail(html)
+
+    assert "研究助理" in detail.role_text
+    assert "排序" not in detail.role_text
+    assert "搜索" not in detail.role_text
+    assert "推荐" not in detail.role_text
+
+
 def test_parse_wondercv_detail_keeps_body_after_plain_text_navigation():
     html = """
     <html><body>

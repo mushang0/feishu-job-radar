@@ -1,3 +1,6 @@
+from copy import deepcopy
+
+from jobpicky.config import DEFAULT_CONFIG
 from jobpicky.matcher import Matcher
 from jobpicky.models import Job
 
@@ -168,8 +171,71 @@ def test_campus_profile_excludes_spring_and_experienced_hires():
     config["user_profile"]["batches"] = ["校招", "实习"]
     matcher = Matcher(config)
 
-    assert matcher.match(Job(company="必看科技", title="春季校园招聘", batch="春招")).should_push is False
+    assert matcher.match(Job(company="必看科技", title="春季校园招聘", batch="春招")).should_push is True
     assert matcher.match(Job(company="必看科技", title="资深工程师招聘", batch="社招")).should_push is False
+
+
+def test_ambiguous_algorithm_words_do_not_recommend_non_algorithm_jobs():
+    config = deepcopy(DEFAULT_CONFIG)
+    config["user_profile"].update(
+        batches=["校招"],
+        role_groups=["算法"],
+        target_cities=[],
+        custom_keywords=[],
+        must_watch_companies=[],
+        exclude_role_groups=[],
+    )
+    matcher = Matcher(config)
+
+    jobs = [
+        Job(title="研究助理", batch="校招", role_text="协助整理研究所观点及推荐标的。", extraction_version="v1"),
+        Job(title="集团工作人员", batch="校招", role_text="面试名单按笔试成绩排序。", extraction_version="v1"),
+        Job(title="招聘实习生", batch="校招", role_text="负责候选人搜索和背景调查。", extraction_version="v1"),
+        Job(title="电气培训生", batch="校招", role_text="培养为复合型研发工程师。", extraction_version="v1"),
+    ]
+
+    assert all(matcher.match(job).should_push is False for job in jobs)
+
+
+def test_qualified_algorithm_phrases_still_recommend():
+    config = deepcopy(DEFAULT_CONFIG)
+    config["user_profile"].update(
+        batches=["校招"],
+        role_groups=["算法"],
+        target_cities=[],
+        custom_keywords=[],
+        must_watch_companies=[],
+        exclude_role_groups=[],
+    )
+
+    result = Matcher(config).match(Job(title="推荐系统算法工程师", batch="校招"))
+
+    assert result.should_push is True
+    assert {"算法", "算法工程师", "推荐系统"}.issubset(result.matched_keywords)
+
+
+def test_robot_industry_mentions_do_not_recommend_non_robot_roles():
+    config = deepcopy(DEFAULT_CONFIG)
+    config["user_profile"].update(
+        batches=["校招"],
+        role_groups=["具身智能/机器人"],
+        target_cities=[],
+        custom_keywords=[],
+        must_watch_companies=[],
+        exclude_role_groups=[],
+    )
+    matcher = Matcher(config)
+
+    industry_report = Job(
+        title="证券研究助理",
+        batch="校招",
+        role_text="研究范围包括汽车、机器人、军工和新能源行业。",
+        extraction_version="v1",
+    )
+    robot_role = Job(title="机器人算法工程师", batch="校招")
+
+    assert matcher.match(industry_report).should_push is False
+    assert matcher.match(robot_role).should_push is True
 
 
 def test_batch_mismatch_does_not_push():
