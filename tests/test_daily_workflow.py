@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import time
 import json
 import io
@@ -456,6 +457,36 @@ def test_task_manager_does_not_turn_normal_failure_into_cancellation(tmp_path: P
     else:
         pytest.fail("ordinary failed task did not finish within 2 seconds")
     assert task["status"] == "failed"
+
+
+def test_task_manager_continues_when_snapshot_replace_fails(monkeypatch, tmp_path: Path):
+    real_replace = os.replace
+
+    def fail_snapshot_replace(source, destination):
+        if Path(destination).name == "scan-task.json":
+            raise PermissionError("snapshot is temporarily locked")
+        real_replace(source, destination)
+
+    monkeypatch.setattr(os, "replace", fail_snapshot_replace)
+    manager = web_app.TaskManager(AppPaths(tmp_path / "profile"))
+    task_id = manager.start(
+        "test",
+        lambda operation_task_id, _cancelled: DailyWorkflowResult(
+            status="success",
+            task_id=operation_task_id,
+        ).to_dict(),
+    )
+
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        task = manager.get(task_id)
+        if task and task["status"] == "success" and manager.active() is None:
+            break
+        time.sleep(0.01)
+    else:
+        pytest.fail("snapshot failure left the task running")
+
+    assert task["status"] == "success"
 
 
 def test_fetch_failure_without_jobs_is_failed_and_reported_consistently(monkeypatch, tmp_path: Path):

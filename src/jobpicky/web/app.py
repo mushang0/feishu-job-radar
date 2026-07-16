@@ -80,7 +80,15 @@ class TaskManager:
         payload = {key: value for key, value in task.items() if key != "future"}
         temporary = self._snapshot_path.with_suffix(".tmp")
         temporary.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-        os.replace(temporary, self._snapshot_path)
+        for attempt in range(3):
+            try:
+                os.replace(temporary, self._snapshot_path)
+                return
+            except OSError:
+                if attempt == 2:
+                    logging.exception("Failed to persist scan task snapshot")
+                    return
+                threading.Event().wait(0.05)
 
     def start(self, kind: str, operation) -> str:
         with self._lock:
@@ -102,15 +110,13 @@ class TaskManager:
             return task_id
 
     def _run(self, task_id: str, operation) -> None:
-        with self._lock:
-            if self._tasks[task_id].get("cancel_requested"):
-                self._tasks[task_id]["status"] = "cancelled"
-                if self._active_task_id == task_id:
-                    self._active_task_id = None
-                return
-            self._tasks[task_id]["status"] = "running"
-            self._persist_locked(task_id)
         try:
+            with self._lock:
+                if self._tasks[task_id].get("cancel_requested"):
+                    self._tasks[task_id]["status"] = "cancelled"
+                    return
+                self._tasks[task_id]["status"] = "running"
+                self._persist_locked(task_id)
             payload = operation(task_id, lambda: self._cancelled(task_id))
             with self._lock:
                 task = self._tasks[task_id]

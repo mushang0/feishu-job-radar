@@ -22,18 +22,25 @@ class LocalInitializationResult:
     baseline_recommended_items: int
     daily: DailyWorkflowResult
     current_recommended_total: int = 0
+    new_recommended_count: int | None = None
 
     def to_dict(self) -> dict:
         payload = self.daily.to_dict()
+        new_recommended_count = (
+            self.daily.recommended_count
+            if self.new_recommended_count is None
+            else self.new_recommended_count
+        )
         payload.update(
             {
                 "mode": "local",
                 "seeded": self.seeded,
                 "baseline_items": self.baseline_items,
                 "baseline_recommended_items": self.baseline_recommended_items,
-                "new_recommended_count": self.daily.recommended_count,
+                "recommended_items": new_recommended_count,
+                "new_recommended_count": new_recommended_count,
                 "current_recommended_total": self.current_recommended_total,
-                "recommendation_delta": self.current_recommended_total - self.baseline_recommended_items,
+                "recommendation_delta": new_recommended_count,
             }
         )
         return payload
@@ -65,6 +72,9 @@ class LocalApplicationService:
     ) -> LocalInitializationResult:
         database_was_initialized = inspect_local_database(self.database_path).valid
         repository = DatabaseBootstrapService(self.database_path).initialize()
+        recommendations_before = {
+            int(row["job_id"]) for row in repository.list_recommended_jobs()
+        }
         matching = MatchingService(repository, self.config).rematch_all()
         recommended = RecommendationService(repository).rebuild_all(matching.matches)
         local_config = deepcopy(self.config)
@@ -76,11 +86,16 @@ class LocalApplicationService:
             cancel_check=cancel_check,
             reporter=reporter,
         )
+        current_recommendations = repository.list_recommended_jobs()
         return LocalInitializationResult(
             seeded=not database_was_initialized,
             baseline_items=matching.matched_items,
             baseline_recommended_items=recommended,
-            current_recommended_total=len(repository.list_recommended_jobs()),
+            current_recommended_total=len(current_recommendations),
+            new_recommended_count=len(
+                {int(row["job_id"]) for row in current_recommendations}
+                - recommendations_before
+            ),
             daily=daily,
         )
 

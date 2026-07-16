@@ -80,6 +80,8 @@ def test_initialize_and_update_bootstraps_rematches_recommends_and_runs_daily_on
     assert result.seeded is True
     assert 0 < result.baseline_items <= 802
     assert result.baseline_recommended_items > 0
+    assert result.new_recommended_count == len(recommendations)
+    assert result.to_dict()["recommended_items"] == len(recommendations)
     assert result.daily.status == "success"
     assert result.daily.created_count == 1
     assert daily_runs == 1

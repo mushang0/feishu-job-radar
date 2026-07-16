@@ -528,12 +528,12 @@ class JobRepository:
         elif deadline_status == "expired":
             conditions.append("date(jobs.deadline) < date('now')")
         if new_since:
-            conditions.append("datetime(COALESCE(jobs.first_seen, jobs.collected_date)) >= datetime(?)")
+            conditions.append("date(jobs.collected_date) >= date(?)")
             params.append(new_since)
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         order = {
             "company": "COALESCE(jobs.company, '') COLLATE NOCASE ASC, jobs.id ASC",
-            "newest": "COALESCE(jobs.first_seen, jobs.collected_date, '') DESC, jobs.id ASC",
+            "newest": "(jobs.collected_date IS NULL), jobs.collected_date DESC, jobs.id ASC",
             "deadline": "(jobs.deadline IS NULL OR jobs.deadline = ''), jobs.deadline ASC, jobs.id ASC",
         }.get(sort, "(jobs.deadline IS NULL OR jobs.deadline = ''), jobs.deadline ASC, jobs.id ASC")
         base = self._all_jobs_query(where).rsplit("ORDER BY", 1)[0]
@@ -596,7 +596,7 @@ class JobRepository:
     def list_daily_new_jobs(self, date: str) -> list[dict[str, Any]]:
         query = self._all_jobs_query(
             """
-            WHERE COALESCE(date(jobs.first_seen), jobs.collected_date) = ?
+            WHERE date(jobs.collected_date) = date(?)
             """
         )
         with self.connect() as conn:
@@ -667,11 +667,11 @@ class JobRepository:
         where = ""
         params: tuple[Any, ...] = ()
         if recommendation_date:
-            where = "WHERE COALESCE(jobs.collected_date, recommended_jobs.recommendation_date) = ?"
+            where = "WHERE recommended_jobs.recommendation_date = ?"
             params = (recommendation_date,)
         query = f"""
             SELECT
-                COALESCE(jobs.collected_date, recommended_jobs.recommendation_date) AS feishu_collected_date,
+                jobs.collected_date AS feishu_collected_date,
                 recommended_jobs.job_id,
                 jobs.company,
                 COALESCE(jobs.clean_title, jobs.title) AS title,
@@ -734,7 +734,7 @@ class JobRepository:
                 CASE WHEN latest_recommendation.id IS NULL THEN '不推荐' ELSE '推荐' END AS recommendation_status,
                 CASE WHEN latest_recommendation.id IS NULL THEN 0 ELSE 1 END AS recommendation_active,
                 CASE WHEN latest_recommendation.id IS NULL THEN NULL ELSE latest_recommendation.recommendation_date END AS recommendation_date,
-                COALESCE(jobs.collected_date, latest_recommendation.recommendation_date) AS feishu_collected_date,
+                jobs.collected_date AS feishu_collected_date,
                 COALESCE(latest_recommendation.recommend_reason, '') AS recommend_reason,
                 COALESCE(job_matches.match_reason, '') AS non_recommend_reason,
                 COALESCE(job_matches.negative_keywords, '') AS excluded_keywords,

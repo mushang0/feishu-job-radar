@@ -55,7 +55,7 @@ def test_alljobs_export_hides_matching_debug_fields(tmp_path: Path):
     assert "匹配分数" not in record["fields"]
 
 
-def test_repository_lists_daily_new_jobs_by_first_seen_date(tmp_path: Path):
+def test_repository_lists_daily_new_jobs_by_collected_date(tmp_path: Path):
     repo = JobRepository(tmp_path / "jobs.sqlite")
     repo.init_schema()
     repo.upsert_job(
@@ -81,7 +81,7 @@ def test_repository_lists_daily_new_jobs_by_first_seen_date(tmp_path: Path):
 
     rows = repo.list_daily_new_jobs("2026-07-03")
 
-    assert [row["company"] for row in rows] == ["TodayCo"]
+    assert [row["company"] for row in rows] == ["OldCo"]
     assert set(rows[0]) >= {"job_id", "company", "title", "user_status", "note"}
     assert "match_score" not in rows[0]
 
@@ -98,6 +98,7 @@ def test_daily_pipeline_appends_only_push_recommendations_idempotently(tmp_path:
             batch="秋招",
             target_graduate_year="2027届",
             city="Shanghai",
+            collected_date="2026-07-03",
         ),
         Job(
             source="WonderCV",
@@ -107,6 +108,7 @@ def test_daily_pipeline_appends_only_push_recommendations_idempotently(tmp_path:
             batch="秋招",
             target_graduate_year="2027届",
             city="Shanghai",
+            collected_date="2026-07-03",
         ),
     ]
 
@@ -132,6 +134,7 @@ def test_alljobs_rows_include_recommendation_fields_for_feishu_views(tmp_path: P
             company="TargetCo",
             title="FPGA engineer",
             first_seen="2026-07-03T08:00:00",
+            collected_date="2026-07-03",
         )
     )
     repo.append_recommendations("2026-07-03", [{"job_id": inserted.job_id, "recommend_reason": "命中岗位方向"}])

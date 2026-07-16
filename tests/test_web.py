@@ -82,6 +82,9 @@ def test_web_ui_uses_one_reusable_radar_builder_and_no_social_recruitment(tmp_pa
     script = client.get("/static/js/app.js").text
 
     assert page.count('id="radar-builder-template"') == 1
+    assert "job.first_seen||job.collected_date" not in script
+    assert "formatDateTime(job.collected_date)" in script
+    assert '"本次新增"' not in script
     assert 'id="onboarding-builder-host"' in page
     assert 'id="preferences-builder-host"' in page
     assert 'id="builder-radar-host"' in page
@@ -152,12 +155,14 @@ def test_recommended_jobs_support_scopes_filters_pagination_and_detail(tmp_path:
         degree="硕士", target_graduate_year="2027届", company_type="民营企业",
         industry="人工智能", role_signals=["算法", "机器学习"],
         deadline=(now + timedelta(days=3)).date().isoformat(),
+        collected_date=now.date().isoformat(),
         source_url="https://example.com/jobs/1", apply_url=None,
     ))
     second = repo.upsert_job(Job(
         dedupe_key="web:recommended-2", company="示例研究院", title="深度学习研究员",
         city="上海", batch="提前批", role_signals=["深度学习"],
         deadline=(now + timedelta(days=20)).date().isoformat(),
+        collected_date=now.date().isoformat(),
     ))
     repo.save_match(first.job_id, {"matched_keywords": ["算法"], "needs_verify": True})
     repo.append_recommendations(now.date().isoformat(), [

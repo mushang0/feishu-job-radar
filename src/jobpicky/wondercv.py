@@ -84,7 +84,7 @@ def parse_wondercv_list(html: str, page_url: str, aliases: dict[str, list[str]] 
         title = parsed["clean_title"]
         company = card.company or parsed["company"] or _infer_company(title)
         city = card.city or infer_city(raw_title)
-        date_text = card.date or raw_title
+        date_text = card.date
         tags = card.tags or parsed["raw_tags"]
         company_normalized = normalize_company(company, aliases)
         collected_date = normalize_date(date_text)
