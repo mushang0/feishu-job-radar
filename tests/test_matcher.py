@@ -2,7 +2,7 @@ from copy import deepcopy
 
 from jobpicky.config import DEFAULT_CONFIG
 from jobpicky.matcher import Matcher
-from jobpicky.models import Job
+from jobpicky.models import Job, Position
 
 
 def _config() -> dict:
@@ -132,6 +132,102 @@ def test_province_selection_matches_a_city_inside_that_province():
 
     assert result.should_push is True
     assert result.matched_city_rule == "广东省"
+
+
+def test_structured_positions_are_filtered_and_ranked_independently():
+    config = deepcopy(DEFAULT_CONFIG)
+    config["user_profile"].update(
+        batches=["校招"],
+        role_groups=["hardware.embedded"],
+        exclude_role_groups=["sales"],
+        target_cities=["city:4403"],
+    )
+    job = Job(
+        company="示例科技",
+        title="2027届校园招聘",
+        batch="校招",
+        role_text="销售经理 嵌入式工程师",
+        positions=[
+            Position(title="销售经理", city="深圳市", requirements="负责客户拓展"),
+            Position(
+                title="嵌入式工程师",
+                direction_id="hardware.embedded",
+                city="深圳市",
+                skills=["BSP", "RTOS"],
+                source_text="负责 BSP 驱动和 RTOS 开发",
+                position_key="embedded-1",
+            ),
+        ],
+    )
+
+    result = Matcher(config).match(job)
+
+    assert result.should_push is True
+    assert result.matched_role_group_id == "hardware.embedded"
+    assert result.matched_position_title == "嵌入式工程师"
+    assert result.matched_position_key == "embedded-1"
+    assert {"BSP", "RTOS"} <= set(result.matched_keywords)
+    assert result.matched_city_rule == "深圳市"
+    assert result.match_evidence["position"] == "嵌入式工程师"
+    assert result.decision_trace == ["hard_filters:passed", "recall:role_taxonomy", "rank:best_position"]
+
+
+def test_selected_company_cannot_bypass_when_every_structured_position_is_excluded():
+    config = deepcopy(DEFAULT_CONFIG)
+    config["user_profile"].update(
+        batches=["校招"],
+        role_groups=["hardware.embedded"],
+        exclude_role_groups=["sales"],
+        custom_companies=["必看科技"],
+    )
+    job = Job(
+        company="必看科技",
+        title="2027届校园招聘",
+        batch="校招",
+        positions=[Position(title="销售经理", requirements="负责商务拓展")],
+    )
+
+    result = Matcher(config).match(job)
+
+    assert result.should_push is False
+    assert result.match_reason == "命中排除岗位"
+
+
+def test_unknown_position_location_survives_city_filter_with_pending_evidence():
+    config = deepcopy(DEFAULT_CONFIG)
+    config["user_profile"].update(
+        batches=["校招"], role_groups=["hardware.embedded"], target_cities=["city:4403"]
+    )
+    job = Job(
+        company="示例科技",
+        title="2027届校园招聘",
+        batch="校招",
+        city=None,
+        positions=[Position(title="嵌入式工程师", direction_id="hardware.embedded", city=None)],
+    )
+
+    result = Matcher(config).match(job)
+
+    assert result.should_push is True
+    assert result.matched_city_rule == ""
+    assert result.matched_position_title == "嵌入式工程师"
+
+
+def test_weak_association_term_cannot_trigger_a_direction_by_itself():
+    config = deepcopy(DEFAULT_CONFIG)
+    config["user_profile"].update(batches=["校招"], role_groups=["hardware.embedded"])
+
+    weak_only = Matcher(config).match(
+        Job(company="示例软件", title="C++后端开发工程师", batch="校招", role_text="负责服务端 C++ 开发")
+    )
+    strong_with_weak = Matcher(config).match(
+        Job(company="示例硬件", title="嵌入式工程师", batch="校招", role_text="负责嵌入式 C++ 开发")
+    )
+
+    assert weak_only.should_push is False
+    assert strong_with_weak.should_push is True
+    assert "嵌入式" in strong_with_weak.matched_strong_keywords
+    assert "C++" in strong_with_weak.matched_weak_keywords
 
 
 def test_must_watch_company_cannot_bypass_an_explicit_excluded_role():

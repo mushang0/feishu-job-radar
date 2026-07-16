@@ -38,9 +38,16 @@ def role_groups() -> dict[str, list[str]]:
         for direction in section["directions"]:
             groups[direction["id"]] = list(dict.fromkeys([
                 *direction.get("terms", []),
-                *direction.get("weak_terms", []),
             ]))
     return groups
+
+
+def role_weak_groups() -> dict[str, list[str]]:
+    return {
+        direction["id"]: list(dict.fromkeys(direction.get("weak_terms", [])))
+        for section in job_taxonomy()["sections"]
+        for direction in section["directions"]
+    }
 
 
 def role_labels() -> dict[str, str]:

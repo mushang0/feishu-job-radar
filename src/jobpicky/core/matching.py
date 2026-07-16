@@ -31,15 +31,20 @@ class MatchingService:
         for job_id in job_ids:
             row = self.repository.get_stored_job(int(job_id))
             if row and row.get("parse_status") == "detail_ready":
-                pairs.append((int(job_id), self.repository.job_from_row(row)))
+                job = self.repository.job_from_row(row)
+                job.positions = self.repository.positions_from_rows(self.repository.list_positions(int(job_id)))
+                pairs.append((int(job_id), job))
         return self._match(pairs)
 
     def rematch_all(self) -> MatchingSummary:
-        pairs = (
-            (int(row["id"]), self.repository.job_from_row(row))
-            for row in self.repository.list_stored_jobs()
-            if row.get("parse_status") == "detail_ready"
-        )
+        pairs = []
+        for row in self.repository.list_stored_jobs():
+            if row.get("parse_status") != "detail_ready":
+                continue
+            job_id = int(row["id"])
+            job = self.repository.job_from_row(row)
+            job.positions = self.repository.positions_from_rows(self.repository.list_positions(job_id))
+            pairs.append((job_id, job))
         return self._match(pairs)
 
     def _match(self, pairs) -> MatchingSummary:

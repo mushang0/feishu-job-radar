@@ -8,7 +8,7 @@ from typing import Any
 
 import yaml
 
-from .taxonomy import canonical_role_id, role_aliases, role_groups, role_labels, role_sections
+from .taxonomy import canonical_role_id, role_aliases, role_groups, role_labels, role_sections, role_weak_groups
 from .organizations import organization_aliases, organization_groups
 
 
@@ -110,8 +110,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "财务": ["财务", "会计", "审计"],
         },
         "generic_role_terms": ["研发类", "技术类", "工程师类", "校招生", "管培生", "研究员", "技术培训生"],
-        "important_company_types": ["上市公司", "央企", "国企", "外企", "事业单位"],
-        "important_company_marks": ["知名大厂", "研究院", "有内推"],
+        "matching_policy": {
+            "company_groups_require_explicit_selection": True,
+            "unknown_location": "include",
+            "structured_position_scope": "match_each_position",
+            "implicit_important_company_fallback": False,
+        },
         "role_input_aliases": {
             "嵌入式开发": "嵌入式",
             "电气": "电气/电力电子",
@@ -168,6 +172,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
 # The bundled taxonomy is the single source of truth. Legacy values remain in
 # saved profiles and are canonicalized by ``load_config``.
 DEFAULT_CONFIG["system_taxonomy"]["role_groups"] = role_groups()
+DEFAULT_CONFIG["system_taxonomy"]["role_weak_groups"] = role_weak_groups()
 DEFAULT_CONFIG["system_taxonomy"]["role_input_aliases"].update(role_aliases())
 DEFAULT_CONFIG["system_taxonomy"]["role_labels"] = role_labels()
 DEFAULT_CONFIG["system_taxonomy"]["company_aliases"].update(organization_aliases())

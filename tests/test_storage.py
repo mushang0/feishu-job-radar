@@ -1,4 +1,5 @@
 import sqlite3
+import json
 from pathlib import Path
 
 import pytest
@@ -121,12 +122,20 @@ def test_repository_saves_match_result(tmp_path: Path):
             "match_reason": "命中岗位方向：硬件/嵌入式",
             "verify_status": "未核验",
             "suggested_search_terms": [],
+            "matched_role_group_id": "hardware.fpga",
+            "matched_position_title": "FPGA工程师",
+            "matched_position_key": "fpga-1",
+            "match_evidence": {"keywords": ["FPGA"]},
+            "decision_trace": ["hard_filters:passed", "recall:role_taxonomy"],
         },
     )
 
     saved = repo.get_job_with_match(inserted.job_id)
     assert saved["priority"] == "push"
     assert saved["matched_keywords"] == "FPGA"
+    assert saved["matched_role_group_id"] == "hardware.fpga"
+    assert saved["matched_position_title"] == "FPGA工程师"
+    assert json.loads(saved["match_evidence"])["keywords"] == ["FPGA"]
 
 
 def test_repository_updates_user_state(tmp_path: Path):

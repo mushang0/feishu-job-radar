@@ -45,7 +45,9 @@ _SCHEMA_COLUMNS: dict[str, dict[str, str]] = {
         "matched_city_rule": "TEXT", "negative_keywords": "TEXT", "match_score": "INTEGER", "priority": "TEXT",
         "is_relevant": "INTEGER", "should_push": "INTEGER", "needs_verify": "INTEGER", "match_reason": "TEXT",
         "verify_status": "TEXT", "suggested_search_terms": "TEXT", "match_config_version": "TEXT",
-        "matched_at": "DATETIME", "recommend_reason": "TEXT",
+        "matched_at": "DATETIME", "recommend_reason": "TEXT", "matched_role_group_id": "TEXT",
+        "matched_position_title": "TEXT", "matched_position_key": "TEXT", "match_evidence": "TEXT",
+        "decision_trace": "TEXT",
     },
     "job_user_state": {
         "job_id": "INTEGER", "status": "TEXT", "official_url": "TEXT", "apply_url_manual": "TEXT",
@@ -166,6 +168,11 @@ class JobRepository:
                     match_config_version TEXT,
                     matched_at DATETIME,
                     recommend_reason TEXT,
+                    matched_role_group_id TEXT,
+                    matched_position_title TEXT,
+                    matched_position_key TEXT,
+                    match_evidence TEXT,
+                    decision_trace TEXT,
                     FOREIGN KEY(job_id) REFERENCES jobs(id)
                 );
                 CREATE TABLE IF NOT EXISTS job_user_state (
@@ -268,6 +275,11 @@ class JobRepository:
                 "needs_verify": "INTEGER",
                 "match_config_version": "TEXT",
                 "recommend_reason": "TEXT",
+                "matched_role_group_id": "TEXT",
+                "matched_position_title": "TEXT",
+                "matched_position_key": "TEXT",
+                "match_evidence": "TEXT",
+                "decision_trace": "TEXT",
             })
             self._ensure_columns(conn, "job_user_state", {
                 "apply_url_manual": "TEXT",
@@ -493,6 +505,27 @@ class JobRepository:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    @staticmethod
+    def positions_from_rows(rows: list[dict[str, Any]]) -> list[Position]:
+        positions: list[Position] = []
+        for row in rows:
+            positions.append(
+                Position(
+                    **{
+                        name: (
+                            [part for part in str(row.get(name) or "").split(";") if part]
+                            if name in {"majors", "skills"}
+                            else json.loads(row.get(name) or "{}")
+                            if name == "field_evidence"
+                            else row.get(name)
+                        )
+                        for name in Position.__dataclass_fields__
+                        if name in row
+                    }
+                )
+            )
+        return positions
+
     def save_match(self, job_id: int, match: MatchResult | dict[str, Any]) -> None:
         data = asdict(match) if isinstance(match, MatchResult) else dict(match)
         values = {
@@ -515,6 +548,11 @@ class JobRepository:
             "match_config_version": data.get("match_config_version", ""),
             "matched_at": data.get("matched_at", ""),
             "recommend_reason": data.get("recommend_reason", ""),
+            "matched_role_group_id": data.get("matched_role_group_id", ""),
+            "matched_position_title": data.get("matched_position_title", ""),
+            "matched_position_key": data.get("matched_position_key", ""),
+            "match_evidence": json.dumps(data.get("match_evidence", {}), ensure_ascii=False, sort_keys=True),
+            "decision_trace": json.dumps(data.get("decision_trace", []), ensure_ascii=False),
         }
         columns = list(values)
         update_columns = [column for column in columns if column != "job_id"]
@@ -846,6 +884,11 @@ class JobRepository:
                 COALESCE(job_matches.matched_keywords, '') AS matched_keywords,
                 COALESCE(job_matches.matched_strong_keywords, '') AS matched_strong_keywords,
                 COALESCE(job_matches.matched_weak_keywords, '') AS matched_weak_keywords,
+                COALESCE(job_matches.matched_role_group_id, '') AS matched_role_group_id,
+                COALESCE(job_matches.matched_position_title, '') AS matched_position_title,
+                COALESCE(job_matches.matched_position_key, '') AS matched_position_key,
+                COALESCE(job_matches.match_evidence, '{{}}') AS match_evidence,
+                COALESCE(job_matches.decision_trace, '[]') AS decision_trace,
                 CASE WHEN latest_recommendation.id IS NULL THEN '不推荐' ELSE '推荐' END AS recommendation_status,
                 CASE WHEN latest_recommendation.id IS NULL THEN 0 ELSE 1 END AS recommendation_active,
                 CASE WHEN latest_recommendation.id IS NULL THEN NULL ELSE latest_recommendation.recommendation_date END AS recommendation_date,

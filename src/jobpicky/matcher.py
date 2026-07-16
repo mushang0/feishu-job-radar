@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 import re
 
-from .models import Job, MatchResult
+from .models import Job, MatchResult, Position
 from .normalizer import normalize_company
 from .locations import match_target_location
 
@@ -15,6 +15,7 @@ class Matcher:
         self.taxonomy = config.get("system_taxonomy", {})
         self.company_aliases = self.taxonomy.get("company_aliases", {})
         self.role_labels = self.taxonomy.get("role_labels", {})
+        self.role_weak_groups = self.taxonomy.get("role_weak_groups", {})
         self.organization_groups = self.taxonomy.get("organization_groups", {})
         self.role_groups = self._expand_role_groups()
         self.must_watch_companies = self._expand_must_watch_companies()
@@ -22,17 +23,25 @@ class Matcher:
 
     def match(self, job: Job) -> MatchResult:
         text = self._job_text(job)
-        negative_hits = self._negative_hits(text)
-        role_negative_hits = self._negative_hits(self._job_role_text(job))
-        city_hit = match_target_location(job.city, self.profile.get("target_cities", []))
-
+        context_negative_hits = self._negative_hits(text)
         if not self._batch_matches(job, text):
-            return self._result(False, "批次不匹配", negative_hits=negative_hits, city_hit=city_hit)
-        if self._city_is_clear_mismatch(job, city_hit):
-            return self._result(False, "城市不匹配", negative_hits=negative_hits, city_hit=city_hit)
+            return self._result(False, "批次不匹配", decision_trace=["hard_filter:batch_mismatch"])
 
-        if role_negative_hits:
-            return self._result(False, "命中排除岗位", negative_hits=role_negative_hits, city_hit=city_hit)
+        candidates, rejected_negative, rejected_city = self._eligible_candidates(job)
+        if not candidates:
+            if rejected_negative:
+                return self._result(
+                    False,
+                    "命中排除岗位",
+                    negative_hits=rejected_negative,
+                    decision_trace=["hard_filter:all_positions_excluded"],
+                )
+            if rejected_city:
+                return self._result(False, "城市不匹配", decision_trace=["hard_filter:all_positions_city_mismatch"])
+            return self._result(False, "", decision_trace=["no_eligible_position"])
+
+        candidate = candidates[0]
+        city_hit = candidate["city_hit"]
 
         company_hit = self._must_watch_company_hit(job)
         if company_hit:
@@ -41,8 +50,11 @@ class Matcher:
                 "命中必看公司",
                 score=100,
                 matched_company=company_hit,
-                negative_hits=negative_hits,
+                negative_hits=context_negative_hits,
                 city_hit=city_hit,
+                position=candidate["position"],
+                evidence={"company_rule": company_hit, "position": candidate["title"]},
+                decision_trace=["hard_filters:passed", "recall:custom_company"],
             )
 
         organization_hit = self._organization_group_hit(job)
@@ -53,46 +65,79 @@ class Matcher:
                 f"命中关注单位：{group_label}",
                 score=95,
                 matched_company=evidence,
-                negative_hits=negative_hits,
+                negative_hits=context_negative_hits,
                 city_hit=city_hit,
+                position=candidate["position"],
+                evidence={"organization_group": group_label, "company_evidence": evidence},
+                decision_trace=["hard_filters:passed", "recall:organization_group"],
             )
 
-        role_group, keyword_hits = self._role_group_hit(text)
+        role_group, strong_hits, weak_hits, candidate = self._best_role_candidate(candidates)
         if role_group:
             role_label = self.role_labels.get(role_group, role_group)
+            position_title = candidate["title"]
+            suffix = f"（{position_title}）" if position_title else ""
             return self._result(
                 True,
-                f"命中岗位方向：{role_label}",
-                score=90,
-                matched_keywords=keyword_hits,
-                negative_hits=negative_hits,
-                city_hit=city_hit,
+                f"命中岗位方向：{role_label}{suffix}",
+                score=candidate["score"],
+                matched_keywords=[*strong_hits, *weak_hits],
+                matched_strong_keywords=strong_hits,
+                matched_weak_keywords=weak_hits,
+                negative_hits=context_negative_hits,
+                city_hit=candidate["city_hit"],
+                role_group_id=role_group,
+                position=candidate["position"],
+                evidence={
+                    "role_group_id": role_group,
+                    "role_label": role_label,
+                    "position": position_title,
+                    "strong_keywords": strong_hits,
+                    "weak_keywords": weak_hits,
+                    "source_excerpt": candidate["text"][:240],
+                },
+                decision_trace=["hard_filters:passed", "recall:role_taxonomy", "rank:best_position"],
             )
 
-        custom_hits = self._match_many(text, self.custom_keywords)
-        if custom_hits:
+        custom_candidate, custom_hits = self._best_keyword_candidate(candidates, self.custom_keywords)
+        if custom_candidate:
+            custom_suffix = f"（{custom_candidate['title']}）" if custom_candidate["title"] else ""
             return self._result(
                 True,
-                "命中自定义关键词",
+                f"命中自定义关键词{custom_suffix}",
                 score=85,
                 matched_keywords=custom_hits,
-                negative_hits=negative_hits,
-                city_hit=city_hit,
+                negative_hits=context_negative_hits,
+                city_hit=custom_candidate["city_hit"],
+                position=custom_candidate["position"],
+                evidence={"keywords": custom_hits, "position": custom_candidate["title"]},
+                decision_trace=["hard_filters:passed", "recall:custom_keywords"],
             )
 
         industry_hit = self._target_industry_hit(job, text)
-        generic_hits = self._match_many(text, self.taxonomy.get("generic_role_terms", []))
-        if industry_hit and generic_hits and not negative_hits:
+        generic_candidate, generic_hits = self._best_keyword_candidate(
+            candidates, self.taxonomy.get("generic_role_terms", [])
+        )
+        if industry_hit and generic_candidate:
             return self._result(
                 True,
                 "目标行业下的研发/技术类岗位",
                 score=70,
                 matched_keywords=generic_hits,
-                negative_hits=negative_hits,
-                city_hit=city_hit,
+                negative_hits=context_negative_hits,
+                city_hit=generic_candidate["city_hit"],
+                position=generic_candidate["position"],
+                evidence={"industry": industry_hit, "keywords": generic_hits},
+                decision_trace=["hard_filters:passed", "recall:industry_generic_role"],
             )
 
-        return self._result(False, "", negative_hits=negative_hits, city_hit=city_hit)
+        return self._result(
+            False,
+            "",
+            negative_hits=context_negative_hits,
+            city_hit=candidate["city_hit"],
+            decision_trace=["hard_filters:passed", "recall:no_rule_hit"],
+        )
 
     def _result(
         self,
@@ -101,16 +146,22 @@ class Matcher:
         *,
         score: int = 0,
         matched_keywords: list[str] | None = None,
+        matched_strong_keywords: list[str] | None = None,
+        matched_weak_keywords: list[str] | None = None,
         matched_company: str = "",
         negative_hits: list[str] | None = None,
         city_hit: str | None = None,
         needs_verify: bool = False,
         verify_status: str = "未核验",
+        role_group_id: str = "",
+        position: Position | None = None,
+        evidence: dict | None = None,
+        decision_trace: list[str] | None = None,
     ) -> MatchResult:
         return MatchResult(
             matched_keywords=matched_keywords or [],
-            matched_strong_keywords=matched_keywords or [],
-            matched_weak_keywords=[],
+            matched_strong_keywords=matched_strong_keywords if matched_strong_keywords is not None else (matched_keywords or []),
+            matched_weak_keywords=matched_weak_keywords or [],
             matched_industry_keywords=[],
             matched_company_rule=matched_company,
             matched_city_rule=city_hit or "",
@@ -126,6 +177,11 @@ class Matcher:
             match_config_version=str(self.config.get("profile", {}).get("version", "")),
             matched_at=datetime.now().isoformat(timespec="seconds"),
             recommend_reason=reason if should_push else "",
+            matched_role_group_id=role_group_id,
+            matched_position_title=position.title if position else "",
+            matched_position_key=position.position_key if position else "",
+            match_evidence=evidence or {},
+            decision_trace=decision_trace or [],
         )
 
     def _batch_matches(self, job: Job, text: str) -> bool:
@@ -149,6 +205,81 @@ class Matcher:
             elif value == "实习":
                 expanded.extend(["实习", "intern"])
         return bool(self._match_many(batch_text, expanded))
+
+    def _eligible_candidates(self, job: Job) -> tuple[list[dict], list[str], bool]:
+        target_cities = self.profile.get("target_cities", [])
+        source_positions: list[Position | None] = list(job.positions) if job.positions else [None]
+        eligible: list[dict] = []
+        rejected_negative: list[str] = []
+        rejected_city = False
+        for position in source_positions:
+            text = self._position_text(position) if position else self._job_text(job)
+            negative_text = text if position else self._job_role_text(job)
+            title = position.title if position else ""
+            location = (position.city if position else None) or job.city
+            city_hit = match_target_location(location, target_cities)
+            if target_cities and location and not city_hit:
+                rejected_city = True
+                continue
+            negative_hits = self._negative_hits(negative_text)
+            if negative_hits:
+                rejected_negative.extend(negative_hits)
+                continue
+            eligible.append(
+                {
+                    "position": position,
+                    "title": title,
+                    "text": text,
+                    "city_hit": city_hit,
+                    "direction_id": position.direction_id if position else None,
+                    "score": 0,
+                }
+            )
+        return eligible, list(dict.fromkeys(rejected_negative)), rejected_city
+
+    def _best_role_candidate(self, candidates: list[dict]) -> tuple[str, list[str], list[str], dict]:
+        best: tuple[int, str, list[str], list[str], dict] | None = None
+        for candidate in candidates:
+            for group, keywords in self.role_groups:
+                title_hits = self._match_many(candidate["title"], keywords)
+                hits = list(dict.fromkeys([*title_hits, *self._match_many(candidate["text"], keywords)]))
+                direction_hit = candidate["direction_id"] == group
+                if not hits and not direction_hit:
+                    continue
+                weak_hits = self._match_many(candidate["text"], self.role_weak_groups.get(group, []))
+                score = 90 + min(8, len(title_hits) * 2 + len(hits) + len(weak_hits) + (3 if direction_hit else 0))
+                if not hits and candidate["title"]:
+                    hits = [candidate["title"]]
+                ranked = dict(candidate, score=score)
+                item = (score, group, hits, weak_hits, ranked)
+                if best is None or item[0] > best[0]:
+                    best = item
+        return (best[1], best[2], best[3], best[4]) if best else ("", [], [], candidates[0])
+
+    def _best_keyword_candidate(self, candidates: list[dict], keywords: list[str]) -> tuple[dict | None, list[str]]:
+        best_candidate: dict | None = None
+        best_hits: list[str] = []
+        for candidate in candidates:
+            hits = self._match_many(candidate["text"], keywords)
+            if len(hits) > len(best_hits):
+                best_candidate, best_hits = candidate, hits
+        return best_candidate, best_hits
+
+    @staticmethod
+    def _position_text(position: Position) -> str:
+        return " ".join(
+            part
+            for part in (
+                position.title,
+                position.department or "",
+                position.responsibilities or "",
+                position.requirements or "",
+                " ".join(position.skills),
+                " ".join(position.majors),
+                position.source_text or "",
+            )
+            if part
+        )
 
     def _city_is_clear_mismatch(self, job: Job, city_hit: str | None) -> bool:
         target_cities = self.profile.get("target_cities", [])
@@ -222,15 +353,6 @@ class Matcher:
     def _target_industry_hit(self, job: Job, text: str) -> str:
         haystack = " ".join(part for part in [job.industry or "", text] if part)
         return self._match_one(haystack, self.profile.get("target_industries", [])) or ""
-
-    def _important_company_fallback(self, job: Job, text: str) -> bool:
-        campus_terms = ["校园招聘", "校招", "秋招", "提前批", "实习", "春招"]
-        if not self._match_many(text, campus_terms):
-            return False
-        company_type_hit = self._match_one(job.company_type or "", self.taxonomy.get("important_company_types", []))
-        marks_text = " ".join(job.special_marks)
-        mark_hit = self._match_one(marks_text, self.taxonomy.get("important_company_marks", []))
-        return bool(company_type_hit or mark_hit)
 
     def _negative_hits(self, text: str) -> list[str]:
         groups = self.taxonomy.get("exclude_role_groups", {})

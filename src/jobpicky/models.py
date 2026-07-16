@@ -141,3 +141,8 @@ class MatchResult:
     match_config_version: str
     matched_at: str
     recommend_reason: str = ""
+    matched_role_group_id: str = ""
+    matched_position_title: str = ""
+    matched_position_key: str = ""
+    match_evidence: dict[str, Any] = field(default_factory=dict)
+    decision_trace: list[str] = field(default_factory=list)

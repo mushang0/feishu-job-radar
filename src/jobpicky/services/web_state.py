@@ -66,6 +66,7 @@ class WebStateService:
             "location_sections": location_options(),
             "exclude_role_sections": deepcopy(list(ONBOARDING_ROLE_SECTIONS)),
             "organization_groups": organization_options(),
+            "matching_policy": deepcopy(DEFAULT_CONFIG["system_taxonomy"]["matching_policy"]),
         }
 
     def save_preferences(self, payload: dict[str, Any]) -> list[str]:
