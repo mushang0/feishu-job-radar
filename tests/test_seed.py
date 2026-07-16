@@ -65,7 +65,7 @@ def _jobs_snapshot(path: Path, columns: list[str] | None = None) -> tuple[list[s
 def test_canonical_source_preserves_every_seed_job_value_and_null(tmp_path: Path):
     exported = tmp_path / "jobs.json"
 
-    assert export_seed_source(SEED, exported) == 747
+    assert export_seed_source(SEED, exported) == 802
     assert json.loads(exported.read_text(encoding="utf-8")) == json.loads(
         SOURCE.read_text(encoding="utf-8")
     )
@@ -74,8 +74,8 @@ def test_canonical_source_preserves_every_seed_job_value_and_null(tmp_path: Path
     columns, rows = _jobs_snapshot(SEED)
     assert document["columns"] == columns
     assert [[job[column] for column in columns] for job in document["jobs"]] == [list(row) for row in rows]
-    assert sum(job["deadline"] is None for job in document["jobs"]) == 151
-    assert sum(job["last_checked"] is None for job in document["jobs"]) == 747
+    assert sum(job["deadline"] is None for job in document["jobs"]) == 172
+    assert sum(job["last_checked"] is None for job in document["jobs"]) == 802
     assert all(job["collected_date"] and job["first_seen"] and job["last_seen"] for job in document["jobs"])
 
 
@@ -84,7 +84,7 @@ def test_built_seed_matches_source_and_initializes_new_runtime_database(tmp_path
     runtime = tmp_path / "fresh" / "jobs.sqlite"
     columns = json.loads(SOURCE.read_text(encoding="utf-8"))["columns"]
 
-    assert build_seed(SOURCE, generated) == 747
+    assert build_seed(SOURCE, generated) == 802
     generated_columns, generated_rows = _jobs_snapshot(generated, columns)
     old_columns, old_rows = _jobs_snapshot(SEED, columns)
     assert set(generated_columns) == set(old_columns) == set(columns)

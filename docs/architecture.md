@@ -31,7 +31,7 @@ src/jobpicky/
 ├── pipeline.py                   # 仍在使用的维护/补全与回拉函数
 ├── feishu.py                     # 飞书 HTTP 客户端
 ├── wondercv.py                   # 岗位抓取与解析
-└── resources/                    # 747 条岗位 seed 及 Web 模板
+└── resources/                    # 802 条岗位 seed 及 Web 模板
 ```
 
 ## 核心服务职责
