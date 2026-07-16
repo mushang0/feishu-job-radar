@@ -6,6 +6,28 @@ from typing import Any
 
 
 @dataclass(slots=True)
+class Position:
+    title: str
+    position_key: str = ""
+    direction_id: str | None = None
+    department: str | None = None
+    employment_type: str | None = None
+    city: str | None = None
+    location_status: str = "confirmed"
+    degree: str | None = None
+    majors: list[str] = field(default_factory=list)
+    responsibilities: str | None = None
+    requirements: str | None = None
+    skills: list[str] = field(default_factory=list)
+    headcount: int | None = None
+    source_text: str | None = None
+    field_evidence: dict[str, Any] = field(default_factory=dict)
+    confidence: float = 0.0
+    extraction_version: str | None = None
+    ordinal: int = 0
+
+
+@dataclass(slots=True)
 class Job:
     source: str = "WonderCV"
     source_job_id: str | None = None
@@ -50,6 +72,7 @@ class Job:
     last_checked: str | None = None
     content_hash: str | None = None
     is_active: int = 1
+    positions: list[Position] = field(default_factory=list)
 
     def as_db_values(self) -> dict[str, Any]:
         now = datetime.now().isoformat(timespec="seconds")

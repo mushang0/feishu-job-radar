@@ -5,13 +5,15 @@ import gc
 import os
 import sqlite3
 import tempfile
+import hashlib
+from datetime import datetime
 from dataclasses import dataclass
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Iterable
 
 from .backup import BackupService
-from .models import Job, MatchResult
+from .models import Job, MatchResult, Position
 
 
 class _ClosingConnection(sqlite3.Connection):
@@ -63,8 +65,19 @@ _SCHEMA_COLUMNS: dict[str, dict[str, str]] = {
         "id": "INTEGER", "recommendation_date": "DATE", "job_id": "INTEGER", "recommend_reason": "TEXT",
         "created_at": "DATETIME",
     },
+    "job_positions": {
+        "id": "INTEGER", "job_id": "INTEGER", "position_key": "TEXT", "title": "TEXT",
+        "direction_id": "TEXT", "department": "TEXT", "employment_type": "TEXT", "city": "TEXT",
+        "location_status": "TEXT", "degree": "TEXT", "majors": "TEXT", "responsibilities": "TEXT",
+        "requirements": "TEXT", "skills": "TEXT", "headcount": "INTEGER", "source_text": "TEXT",
+        "field_evidence": "TEXT", "confidence": "REAL", "extraction_version": "TEXT", "ordinal": "INTEGER",
+        "created_at": "DATETIME", "updated_at": "DATETIME",
+    },
 }
-_SCHEMA_INDEXES = {"idx_recommended_jobs_job_id": "recommended_jobs"}
+_SCHEMA_INDEXES = {
+    "idx_recommended_jobs_job_id": "recommended_jobs",
+    "idx_job_positions_job_id": "job_positions",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -200,6 +213,33 @@ class JobRepository:
                     FOREIGN KEY(job_id) REFERENCES jobs(id)
                 );
                 CREATE INDEX IF NOT EXISTS idx_recommended_jobs_job_id ON recommended_jobs(job_id);
+                CREATE TABLE IF NOT EXISTS job_positions (
+                    id INTEGER PRIMARY KEY,
+                    job_id INTEGER NOT NULL,
+                    position_key TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    direction_id TEXT,
+                    department TEXT,
+                    employment_type TEXT,
+                    city TEXT,
+                    location_status TEXT DEFAULT 'pending',
+                    degree TEXT,
+                    majors TEXT,
+                    responsibilities TEXT,
+                    requirements TEXT,
+                    skills TEXT,
+                    headcount INTEGER,
+                    source_text TEXT,
+                    field_evidence TEXT,
+                    confidence REAL,
+                    extraction_version TEXT,
+                    ordinal INTEGER,
+                    created_at DATETIME,
+                    updated_at DATETIME,
+                    UNIQUE(job_id, position_key),
+                    FOREIGN KEY(job_id) REFERENCES jobs(id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_job_positions_job_id ON job_positions(job_id);
                 """
             )
             self._ensure_columns(conn, "jobs", {
@@ -366,6 +406,7 @@ class JobRepository:
             )
             row = conn.execute("SELECT id FROM jobs WHERE dedupe_key = ?", (values["dedupe_key"],)).fetchone()
             job_id = int(row["id"])
+            positions_changed = self._sync_positions(conn, job_id, job.positions)
             changed = before is None
             if before:
                 visible_fields = (
@@ -385,7 +426,72 @@ class JobRepository:
                 )
                 if changed:
                     conn.execute("UPDATE feishu_sync SET sync_status = 'pending' WHERE job_id = ?", (job_id,))
+            changed = changed or positions_changed
             return UpsertResult(job_id=job_id, created=before is None, changed=changed)
+
+    def _sync_positions(self, conn: sqlite3.Connection, job_id: int, positions: list[Position]) -> bool:
+        if not positions:
+            return False
+        before = [dict(row) for row in conn.execute(
+            "SELECT * FROM job_positions WHERE job_id = ? ORDER BY ordinal, id", (job_id,)
+        ).fetchall()]
+        now = datetime.now().isoformat(timespec="seconds")
+        active_keys: list[str] = []
+        for ordinal, position in enumerate(positions):
+            key = position.position_key or _position_key(position, ordinal)
+            active_keys.append(key)
+            values = {
+                "job_id": job_id,
+                "position_key": key,
+                "title": position.title,
+                "direction_id": position.direction_id,
+                "department": position.department,
+                "employment_type": position.employment_type,
+                "city": position.city,
+                "location_status": position.location_status if position.city else "pending",
+                "degree": position.degree,
+                "majors": self._join(position.majors),
+                "responsibilities": position.responsibilities,
+                "requirements": position.requirements,
+                "skills": self._join(position.skills),
+                "headcount": position.headcount,
+                "source_text": position.source_text,
+                "field_evidence": json.dumps(position.field_evidence, ensure_ascii=False, sort_keys=True),
+                "confidence": position.confidence,
+                "extraction_version": position.extraction_version,
+                "ordinal": position.ordinal or ordinal,
+                "created_at": now,
+                "updated_at": now,
+            }
+            columns = list(values)
+            assignments = ", ".join(
+                f"{column}=excluded.{column}" for column in columns if column not in {"job_id", "position_key", "created_at"}
+            )
+            conn.execute(
+                f"INSERT INTO job_positions ({', '.join(columns)}) VALUES ({', '.join(':'+c for c in columns)}) "
+                f"ON CONFLICT(job_id, position_key) DO UPDATE SET {assignments}",
+                values,
+            )
+        placeholders = ", ".join("?" for _ in active_keys)
+        conn.execute(
+            f"DELETE FROM job_positions WHERE job_id = ? AND position_key NOT IN ({placeholders})",
+            (job_id, *active_keys),
+        )
+        after = [dict(row) for row in conn.execute(
+            "SELECT * FROM job_positions WHERE job_id = ? ORDER BY ordinal, id", (job_id,)
+        ).fetchall()]
+        comparable = lambda rows: [
+            {key: value for key, value in row.items() if key not in {"id", "created_at", "updated_at"}}
+            for row in rows
+        ]
+        return comparable(before) != comparable(after)
+
+    def list_positions(self, job_id: int) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM job_positions WHERE job_id = ? ORDER BY ordinal, id", (job_id,)
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def save_match(self, job_id: int, match: MatchResult | dict[str, Any]) -> None:
         data = asdict(match) if isinstance(match, MatchResult) else dict(match)
@@ -568,7 +674,11 @@ class JobRepository:
         query = self._all_jobs_query("WHERE jobs.id = ?").rsplit("ORDER BY", 1)[0]
         with self.connect() as conn:
             row = conn.execute(query, (job_id,)).fetchone()
-        return dict(row) if row else {}
+        if not row:
+            return {}
+        detail = dict(row)
+        detail["positions"] = self.list_positions(job_id)
+        return detail
 
     def list_feishu_sync_candidates(self) -> list[dict[str, Any]]:
         """Return only jobs that belong in the user-facing Feishu workspace."""
@@ -838,7 +948,6 @@ class JobRepository:
                 f"INSERT INTO scan_runs ({', '.join(columns)}) VALUES ({', '.join(f':{c}' for c in columns)})",
                 values,
             )
-
     def mark_sync(self, job_id: int, status: str, record_id: str | None = None, error: str | None = None) -> None:
         with self.connect() as conn:
             conn.execute(
@@ -897,4 +1006,12 @@ class JobRepository:
         if isinstance(value, str):
             return value
         return ";".join(str(item) for item in value)
+
+
+def _position_key(position: Position, ordinal: int) -> str:
+    identity = "|".join(
+        part.strip().lower()
+        for part in (position.title, position.department or "", position.city or "")
+    )
+    return hashlib.sha256(identity.encode("utf-8")).hexdigest()[:20]
 

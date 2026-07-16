@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from jobpicky.models import Job
+from jobpicky.models import Job, Position
 from jobpicky.storage import JobRepository
 
 
@@ -38,6 +38,61 @@ def test_city_filter_keeps_jobs_whose_location_is_pending(tmp_path: Path):
     assert total == 1
     assert [row["company"] for row in rows] == ["待确认公司"]
     assert rows[0]["location_status"] == "pending"
+
+
+def test_repository_stores_multiple_structured_positions_under_one_announcement(tmp_path: Path):
+    repo = JobRepository(tmp_path / "jobs.sqlite")
+    repo.init_schema()
+    job = Job(
+        dedupe_key="announcement:1",
+        company="示例科技",
+        title="2027届校园招聘",
+        positions=[
+            Position(
+                title="嵌入式工程师",
+                city="深圳市",
+                degree="本科",
+                skills=["C++", "RTOS"],
+                requirements="熟悉实时操作系统",
+                confidence=0.94,
+                extraction_version="position-v1",
+            ),
+            Position(
+                title="芯片验证工程师",
+                city=None,
+                skills=["UVM", "SystemVerilog"],
+                confidence=0.91,
+                extraction_version="position-v1",
+            ),
+        ],
+    )
+
+    result = repo.upsert_job(job)
+    positions = repo.list_positions(result.job_id)
+
+    assert [position["title"] for position in positions] == ["嵌入式工程师", "芯片验证工程师"]
+    assert positions[0]["skills"] == "C++;RTOS"
+    assert positions[1]["location_status"] == "pending"
+    assert len({position["position_key"] for position in positions}) == 2
+    assert repo.get_job_detail(result.job_id)["positions"] == positions
+
+
+def test_empty_retry_does_not_delete_previously_extracted_positions(tmp_path: Path):
+    repo = JobRepository(tmp_path / "jobs.sqlite")
+    repo.init_schema()
+    first = repo.upsert_job(
+        Job(
+            dedupe_key="announcement:retry",
+            company="示例科技",
+            title="校园招聘",
+            parse_status="detail_ready",
+            positions=[Position(title="FPGA工程师")],
+        )
+    )
+
+    repo.upsert_job(Job(dedupe_key="announcement:retry", company="示例科技", title="校园招聘"))
+
+    assert [position["title"] for position in repo.list_positions(first.job_id)] == ["FPGA工程师"]
 
 
 def test_repository_saves_match_result(tmp_path: Path):
