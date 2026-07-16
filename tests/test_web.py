@@ -20,6 +20,8 @@ def test_web_preferences_never_return_app_secret_and_persist_user_inputs(tmp_pat
                 "graduate_years": ["2027届"],
                 "batches": ["秋招"],
                 "role_groups": ["硬件/嵌入式"],
+                "selected_company_groups": ["org.internet_major"],
+                "custom_companies": ["必看科技"],
             },
             "feishu": {
                 "base_url": "https://example.feishu.cn/base/bascnToken",
@@ -33,6 +35,8 @@ def test_web_preferences_never_return_app_secret_and_persist_user_inputs(tmp_pat
     assert "secret-value" not in response.text
     saved = client.get("/api/preferences").json()
     assert saved["user_profile"]["role_groups"] == ["hardware.embedded"]
+    assert saved["user_profile"]["selected_company_groups"] == ["org.internet_major"]
+    assert saved["user_profile"]["custom_companies"] == ["必看科技"]
     assert saved["feishu"]["configured"] is True
 
 
@@ -79,6 +83,12 @@ def test_web_ui_exposes_local_first_product_structure(tmp_path: Path):
     assert 'recommendationScope:"today"' in script
     assert 'params.set("scope","recommended")' not in script
     assert "选择使用方式" not in page
+    assert 'id="builder-province-select"' in page
+    assert 'id="builder-organization-groups"' in page
+    assert "地点待确认的岗位不会被城市条件排除" in page
+    assert "item.search_terms" in script
+    assert "selected_company_groups" in script
+    assert "matched_position_title" in script
 
 
 def test_web_ui_uses_one_reusable_radar_builder_and_no_social_recruitment(tmp_path: Path):

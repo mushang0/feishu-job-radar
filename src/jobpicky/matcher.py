@@ -77,6 +77,9 @@ class Matcher:
             role_label = self.role_labels.get(role_group, role_group)
             position_title = candidate["title"]
             suffix = f"（{position_title}）" if position_title else ""
+            role_trace = ["hard_filters:passed", "recall:role_taxonomy"]
+            if candidate["position"]:
+                role_trace.append("rank:best_position")
             return self._result(
                 True,
                 f"命中岗位方向：{role_label}{suffix}",
@@ -96,7 +99,7 @@ class Matcher:
                     "weak_keywords": weak_hits,
                     "source_excerpt": candidate["text"][:240],
                 },
-                decision_trace=["hard_filters:passed", "recall:role_taxonomy", "rank:best_position"],
+                decision_trace=role_trace,
             )
 
         custom_candidate, custom_hits = self._best_keyword_candidate(candidates, self.custom_keywords)

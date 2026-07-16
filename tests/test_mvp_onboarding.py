@@ -24,6 +24,8 @@ def _profile_payload():
             "role_groups": ["嵌入式", "FPGA"],
             "target_cities": ["上海"],
             "custom_keywords": ["AUTOSAR"],
+            "selected_company_groups": ["org.internet_major"],
+            "custom_companies": ["华为"],
             "graduate_years": [],
         }
     }
@@ -51,6 +53,8 @@ def test_onboarding_options_and_profile_save_do_not_require_feishu(tmp_path: Pat
     assert saved.status_code == 200
     assert saved.json()["onboarding_complete"] is True
     assert saved.json()["user_profile"]["custom_keywords"] == ["AUTOSAR"]
+    assert saved.json()["user_profile"]["selected_company_groups"] == ["org.internet_major"]
+    assert saved.json()["user_profile"]["custom_companies"] == ["华为"]
     assert saved.json()["feishu"]["configured"] is False
 
 
