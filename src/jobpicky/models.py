@@ -24,6 +24,7 @@ class Job:
     degree: str | None = None
     city: str | None = None
     location_text: str | None = None
+    location_status: str = "confirmed"
     collected_date: str | None = None
     deadline: str | None = None
     company_type: str | None = None
@@ -70,6 +71,7 @@ class Job:
             "degree": self.degree,
             "city": self.city,
             "location_text": self.location_text,
+            "location_status": self.location_status if self.city else "pending",
             "collected_date": self.collected_date,
             "deadline": self.deadline,
             "company_type": self.company_type,

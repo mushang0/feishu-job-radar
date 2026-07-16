@@ -41,8 +41,10 @@ def test_onboarding_options_and_profile_save_do_not_require_feishu(tmp_path: Pat
         for section in payload["role_sections"]
         for option in section["options"]
     }
-    assert {"嵌入式", "硬件", "FPGA", "电气/电力电子", "算法", "网络/安全"} <= values
+    assert {"hardware.embedded", "hardware.circuit", "hardware.fpga", "electrical.power", "ai.algorithm", "security.cyber"} <= values
     assert payload["cities"][0] == {"value": "", "label": "不限"}
+    assert any(section["value"] == "province:44" for section in payload["location_sections"])
+    assert any(option["value"] == "org.research_institute" for option in payload["organization_groups"])
 
     saved = client.put("/api/preferences", json=_profile_payload())
 

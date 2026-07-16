@@ -5,6 +5,7 @@ import re
 
 from .models import Job, MatchResult
 from .normalizer import normalize_company
+from .locations import match_target_location
 
 
 class Matcher:
@@ -13,6 +14,8 @@ class Matcher:
         self.profile = config.get("user_profile", {})
         self.taxonomy = config.get("system_taxonomy", {})
         self.company_aliases = self.taxonomy.get("company_aliases", {})
+        self.role_labels = self.taxonomy.get("role_labels", {})
+        self.organization_groups = self.taxonomy.get("organization_groups", {})
         self.role_groups = self._expand_role_groups()
         self.must_watch_companies = self._expand_must_watch_companies()
         self.custom_keywords = self._clean_terms(self.profile.get("custom_keywords", []))
@@ -21,7 +24,7 @@ class Matcher:
         text = self._job_text(job)
         negative_hits = self._negative_hits(text)
         role_negative_hits = self._negative_hits(self._job_role_text(job))
-        city_hit = self._match_one(job.city or "", self.profile.get("target_cities", []))
+        city_hit = match_target_location(job.city, self.profile.get("target_cities", []))
 
         if not self._batch_matches(job, text):
             return self._result(False, "批次不匹配", negative_hits=negative_hits, city_hit=city_hit)
@@ -42,11 +45,24 @@ class Matcher:
                 city_hit=city_hit,
             )
 
-        role_group, keyword_hits = self._role_group_hit(text)
-        if role_group:
+        organization_hit = self._organization_group_hit(job)
+        if organization_hit:
+            group_label, evidence = organization_hit
             return self._result(
                 True,
-                f"命中岗位方向：{role_group}",
+                f"命中关注单位：{group_label}",
+                score=95,
+                matched_company=evidence,
+                negative_hits=negative_hits,
+                city_hit=city_hit,
+            )
+
+        role_group, keyword_hits = self._role_group_hit(text)
+        if role_group:
+            role_label = self.role_labels.get(role_group, role_group)
+            return self._result(
+                True,
+                f"命中岗位方向：{role_label}",
                 score=90,
                 matched_keywords=keyword_hits,
                 negative_hits=negative_hits,
@@ -142,6 +158,22 @@ class Matcher:
         company = normalize_company(job.company_normalized or job.company, self.company_aliases)
         return self._match_one(company, self.must_watch_companies) or ""
 
+    def _organization_group_hit(self, job: Job) -> tuple[str, str] | None:
+        company = normalize_company(job.company_normalized or job.company, self.company_aliases)
+        company_type = job.company_type or ""
+        for group_id in self.profile.get("selected_company_groups", []):
+            group = self.organization_groups.get(str(group_id), {})
+            if not group:
+                continue
+            member_names = group.get("member_names", [])
+            member_hit = self._match_one(company, member_names)
+            type_hit = self._match_one(company_type, group.get("company_types", []))
+            pattern_hit = self._match_one(company, group.get("name_patterns", []))
+            evidence = member_hit or type_hit or pattern_hit
+            if evidence:
+                return str(group.get("label", group_id)), evidence
+        return None
+
     def _role_group_hit(self, text: str) -> tuple[str, list[str]]:
         for group, keywords in self.role_groups:
             hits = self._match_many(text, keywords)
@@ -171,7 +203,8 @@ class Matcher:
     def _expand_must_watch_companies(self) -> list[str]:
         company_groups = self.taxonomy.get("company_groups", {})
         expanded: list[str] = []
-        for value in self.profile.get("must_watch_companies", []):
+        values = list(self.profile.get("must_watch_companies", [])) + list(self.profile.get("custom_companies", []))
+        for value in values:
             name = str(value).strip()
             if not name:
                 continue
@@ -201,9 +234,12 @@ class Matcher:
 
     def _negative_hits(self, text: str) -> list[str]:
         groups = self.taxonomy.get("exclude_role_groups", {})
+        role_groups = self.taxonomy.get("role_groups", {})
+        aliases = self.taxonomy.get("role_input_aliases", {})
         hits: list[str] = []
         for group in self.profile.get("exclude_role_groups", []):
-            hits.extend(self._match_many(text, groups.get(group, [])))
+            canonical = aliases.get(str(group).lower(), group)
+            hits.extend(self._match_many(text, groups.get(group, []) or role_groups.get(canonical, [])))
         return list(dict.fromkeys(hits))
 
     @staticmethod

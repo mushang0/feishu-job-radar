@@ -184,7 +184,7 @@ system_taxonomy:
     exit_code = main(["--config", str(config_path), "--db", str(db_path), "rematch", "--date", "2026-07-03"])
 
     assert exit_code == 0
-    assert repo.list_recommended_jobs("2026-07-03")[0]["recommend_reason"] == "命中岗位方向：硬件/嵌入式"
+    assert repo.list_recommended_jobs("2026-07-03")[0]["recommend_reason"] == "命中岗位方向：嵌入式开发"
 def test_internal_enrich_official_urls_runs_on_recommended_jobs(tmp_path: Path, monkeypatch):
     db_path = tmp_path / "jobs.sqlite"
     config_path = tmp_path / "config.yaml"

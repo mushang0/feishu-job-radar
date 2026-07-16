@@ -1,0 +1,105 @@
+{
+  "version": 1,
+  "sections": [
+    {
+      "id": "software",
+      "label": "软件开发",
+      "directions": [
+        {"id": "software.backend", "label": "后端开发", "aliases": ["后端", "服务端"], "terms": ["后端开发", "服务端", "后端工程师", "服务端工程师", "微服务", "API", "数据库"], "weak_terms": ["Java", "Go", "Python", "C++"]},
+        {"id": "software.frontend", "label": "前端开发", "aliases": ["前端", "Web前端"], "terms": ["前端开发", "前端工程师", "JavaScript", "TypeScript", "React", "Vue"], "weak_terms": ["Web"]},
+        {"id": "software.client", "label": "客户端开发", "aliases": ["客户端", "移动端"], "terms": ["客户端开发", "移动端开发", "Android", "iOS", "Flutter", "鸿蒙", "桌面开发"], "weak_terms": []},
+        {"id": "software.test", "label": "测试开发", "aliases": ["软件测试", "测试验证"], "terms": ["测试开发", "自动化测试", "软件测试", "功能测试", "测试工程师"], "weak_terms": ["质量工程"]},
+        {"id": "software.game", "label": "游戏开发", "aliases": ["游戏客户端", "游戏服务端"], "terms": ["游戏开发", "游戏客户端", "游戏服务端", "Unity", "Unreal", "游戏引擎"], "weak_terms": []}
+      ]
+    },
+    {
+      "id": "ai_data",
+      "label": "AI 与数据",
+      "directions": [
+        {"id": "ai.algorithm", "label": "算法", "aliases": ["算法研发"], "terms": ["算法工程师", "推荐算法", "推荐系统", "召回算法", "搜索算法", "搜索引擎", "信息检索", "排序算法", "排序模型", "Learning to Rank", "优化算法", "算法研发工程师"], "weak_terms": ["算法"]},
+        {"id": "ai.machine_learning", "label": "机器学习/深度学习", "aliases": ["机器学习", "深度学习"], "terms": ["机器学习", "深度学习", "模型训练", "特征工程", "强化学习"], "weak_terms": []},
+        {"id": "ai.cv", "label": "计算机视觉", "aliases": ["CV", "视觉算法", "图像算法"], "terms": ["计算机视觉", "视觉算法", "图像算法", "目标检测", "图像识别", "OCR"], "weak_terms": ["CV"]},
+        {"id": "ai.nlp_llm", "label": "NLP/大模型", "aliases": ["自然语言处理", "大模型", "LLM", "AIGC"], "terms": ["自然语言处理", "NLP", "大模型", "LLM", "AIGC", "生成式AI", "多模态"], "weak_terms": []},
+        {"id": "ai.inference", "label": "推理部署", "aliases": ["模型部署", "端侧部署", "推理优化"], "terms": ["推理优化", "模型部署", "端侧部署", "模型压缩", "量化", "蒸馏", "TensorRT", "ONNX", "vLLM"], "weak_terms": ["推理"]},
+        {"id": "ai.robotics", "label": "具身智能/机器人", "aliases": ["机器人算法", "具身智能"], "terms": ["具身智能算法", "具身智能研发", "机器人工程师", "机器人算法", "机器人开发", "机械臂", "运动控制", "导航算法", "SLAM", "路径规划", "感知算法"], "weak_terms": ["强化学习", "多模态"]},
+        {"id": "data.analysis", "label": "数据分析/商业分析", "aliases": ["数据分析", "商业分析", "BI"], "terms": ["数据分析", "商业分析", "数据科学", "数据挖掘", "BI"], "weak_terms": ["SQL"]},
+        {"id": "data.engineering", "label": "数据开发/数仓", "aliases": ["大数据开发", "数仓", "数据工程"], "terms": ["数据开发", "大数据开发", "数据工程师", "数仓", "ETL", "数据治理"], "weak_terms": ["SQL"]}
+      ]
+    },
+    {
+      "id": "hardware",
+      "label": "芯片与硬件",
+      "directions": [
+        {"id": "hardware.embedded", "label": "嵌入式开发", "aliases": ["嵌入式", "单片机", "固件", "BSP"], "terms": ["嵌入式", "单片机", "MCU", "BSP", "固件", "驱动开发", "驱动工程师", "RTOS", "FreeRTOS", "Zephyr"], "weak_terms": ["C语言", "C++"]},
+        {"id": "hardware.circuit", "label": "硬件电路", "aliases": ["硬件", "电路设计", "PCB"], "terms": ["硬件工程师", "硬件开发", "原理图", "电路设计", "数字电路", "模拟电路", "PCB", "信号完整性", "电源设计"], "weak_terms": ["硬件"]},
+        {"id": "hardware.fpga", "label": "FPGA", "aliases": ["可编程逻辑"], "terms": ["FPGA", "Verilog", "VHDL", "RTL", "Vivado", "Quartus", "时序分析"], "weak_terms": []},
+        {"id": "chip.digital", "label": "数字 IC", "aliases": ["数字芯片", "数字前端"], "terms": ["数字IC", "数字芯片", "数字前端", "RTL设计", "逻辑综合"], "weak_terms": ["SoC", "ASIC"]},
+        {"id": "chip.analog", "label": "模拟 IC", "aliases": ["模拟芯片"], "terms": ["模拟IC", "模拟芯片", "模拟电路设计", "射频IC"], "weak_terms": []},
+        {"id": "chip.verification", "label": "芯片验证/DFT", "aliases": ["IC验证", "芯片验证"], "terms": ["芯片验证", "IC验证", "UVM", "SystemVerilog", "形式验证", "DFT"], "weak_terms": ["验证工程师"]},
+        {"id": "chip.backend", "label": "数字后端/版图", "aliases": ["物理设计", "版图设计"], "terms": ["数字后端", "物理设计", "版图设计", "布局布线", "STA", "签核"], "weak_terms": []},
+        {"id": "chip.eda", "label": "EDA", "aliases": ["电子设计自动化"], "terms": ["EDA", "电子设计自动化", "仿真工具开发"], "weak_terms": []},
+        {"id": "hardware.rf", "label": "射频/通信硬件", "aliases": ["射频", "天线"], "terms": ["射频工程师", "射频设计", "天线设计", "微波", "通信硬件"], "weak_terms": ["射频"]},
+        {"id": "chip.process", "label": "半导体工艺/封测", "aliases": ["芯片工艺", "封装测试"], "terms": ["半导体工艺", "芯片工艺", "晶圆", "制程整合", "封装", "封装测试", "良率"], "weak_terms": ["半导体"]}
+      ]
+    },
+    {
+      "id": "cloud_security",
+      "label": "云计算与安全",
+      "directions": [
+        {"id": "cloud.devops", "label": "云计算/DevOps", "aliases": ["云原生", "SRE", "运维开发"], "terms": ["云计算", "DevOps", "SRE", "Kubernetes", "Docker", "云原生", "CI/CD", "运维开发"], "weak_terms": []},
+        {"id": "security.network", "label": "网络工程", "aliases": ["网络", "通信网络"], "terms": ["网络工程师", "网络运维", "网络架构", "通信网络"], "weak_terms": ["网络"]},
+        {"id": "security.cyber", "label": "网络安全/信息安全", "aliases": ["网络安全", "信息安全"], "terms": ["网络安全", "信息安全", "安全工程师", "渗透测试", "攻防", "密码学", "安全运营"], "weak_terms": []},
+        {"id": "it.support", "label": "IT/系统支持", "aliases": ["IT支持", "系统管理员"], "terms": ["IT支持", "桌面运维", "系统管理员", "信息化运维"], "weak_terms": []}
+      ]
+    },
+    {
+      "id": "engineering",
+      "label": "工程与制造",
+      "directions": [
+        {"id": "electrical.power", "label": "电气/电力电子", "aliases": ["电气", "电力电子"], "terms": ["电气工程", "电力电子", "电机控制", "变频器", "高压", "低压", "配电"], "weak_terms": ["电气"]},
+        {"id": "automation.control", "label": "自动化/控制", "aliases": ["自动化", "控制工程", "PLC"], "terms": ["自动化工程师", "控制工程师", "PLC", "自动化控制", "控制算法"], "weak_terms": ["自动化"]},
+        {"id": "mechanical.design", "label": "机械/结构", "aliases": ["机械", "结构设计"], "terms": ["机械工程师", "机械设计", "结构工程师", "结构设计", "机械制造"], "weak_terms": ["机械", "结构"]},
+        {"id": "mechanical.cae", "label": "CAE/热流体", "aliases": ["CAE", "仿真", "热设计"], "terms": ["CAE", "有限元", "热设计", "热仿真", "流体力学", "CFD"], "weak_terms": ["仿真"]},
+        {"id": "manufacturing.process", "label": "工艺/制造", "aliases": ["制造", "工艺工程"], "terms": ["工艺工程师", "制造工程师", "生产工艺", "制程", "自动化产线", "精益生产"], "weak_terms": ["工艺", "制造"]},
+        {"id": "quality", "label": "质量/可靠性", "aliases": ["质量工程", "可靠性"], "terms": ["质量工程师", "质量管理", "可靠性工程师", "失效分析", "供应商质量"], "weak_terms": ["质量"]},
+        {"id": "materials", "label": "材料", "aliases": ["材料工程", "高分子"], "terms": ["材料工程师", "材料研发", "高分子材料", "金属材料", "电池材料"], "weak_terms": ["材料"]}
+      ]
+    },
+    {
+      "id": "product_design",
+      "label": "产品与设计",
+      "directions": [
+        {"id": "product.manager", "label": "产品经理", "aliases": ["产品", "产品策划"], "terms": ["产品经理", "产品策划", "产品助理"], "weak_terms": []},
+        {"id": "project.manager", "label": "项目管理", "aliases": ["项目经理", "PMO"], "terms": ["项目经理", "项目管理", "PMO", "项目工程师"], "weak_terms": []},
+        {"id": "design.uiux", "label": "UI/UX/交互设计", "aliases": ["UI设计", "UX", "交互设计"], "terms": ["UI设计师", "UX设计师", "交互设计师", "用户体验设计"], "weak_terms": ["UI", "UX"]},
+        {"id": "design.visual", "label": "视觉/品牌设计", "aliases": ["视觉设计", "平面设计"], "terms": ["视觉设计师", "平面设计师", "品牌设计师", "美术设计"], "weak_terms": ["视觉"]},
+        {"id": "design.industrial", "label": "工业设计", "aliases": ["产品设计"], "terms": ["工业设计师", "产品设计师", "ID设计"], "weak_terms": []}
+      ]
+    },
+    {
+      "id": "business",
+      "label": "市场与职能",
+      "directions": [
+        {"id": "operations", "label": "运营", "aliases": ["用户运营", "内容运营"], "terms": ["用户运营", "内容运营", "产品运营", "活动运营", "电商运营", "社区运营"], "weak_terms": ["运营"]},
+        {"id": "marketing", "label": "市场/品牌/公关", "aliases": ["市场", "品牌", "公关"], "terms": ["市场营销", "品牌营销", "品牌公关", "市场策划", "公关传播"], "weak_terms": ["市场", "品牌"]},
+        {"id": "sales", "label": "销售/商务", "aliases": ["销售", "商务", "BD"], "terms": ["销售工程师", "客户经理", "商务拓展", "Business Development", "渠道销售"], "weak_terms": ["销售", "商务", "BD"]},
+        {"id": "hr", "label": "人力资源", "aliases": ["HR", "招聘"], "terms": ["人力资源", "招聘专员", "HRBP", "组织发展", "薪酬绩效"], "weak_terms": ["HR"]},
+        {"id": "finance", "label": "财务/会计/审计", "aliases": ["财务", "会计", "审计"], "terms": ["财务专员", "会计", "审计", "税务", "资金管理"], "weak_terms": ["财务"]},
+        {"id": "legal", "label": "法务/合规/知识产权", "aliases": ["法务", "合规", "知识产权"], "terms": ["法务", "合规", "知识产权", "专利工程师"], "weak_terms": []},
+        {"id": "supply_chain", "label": "采购/供应链/物流", "aliases": ["供应链", "采购", "物流"], "terms": ["采购工程师", "供应链", "物流管理", "计划管理", "仓储管理"], "weak_terms": ["采购", "物流"]}
+      ]
+    },
+    {
+      "id": "science_health",
+      "label": "科研、医药与公共工程",
+      "directions": [
+        {"id": "research", "label": "科研/研究员", "aliases": ["研究员", "科研助理"], "terms": ["研究员", "科研助理", "博士后", "实验室工程师", "科研项目"], "weak_terms": ["研究"]},
+        {"id": "education", "label": "教育/教研", "aliases": ["教师", "教研", "培训"], "terms": ["教师", "教研员", "课程研发", "培训讲师"], "weak_terms": ["教研"]},
+        {"id": "medicine.rnd", "label": "医药/生物研发", "aliases": ["医药", "生物", "药物研发"], "terms": ["药物研发", "生物研发", "临床研究", "医学事务", "注册事务", "生物信息"], "weak_terms": ["医药", "生物", "临床"]},
+        {"id": "civil", "label": "土木/建筑/造价", "aliases": ["土木", "建筑", "造价"], "terms": ["土木工程师", "结构工程师", "建筑设计师", "工程造价", "施工管理"], "weak_terms": ["土木", "建筑"]},
+        {"id": "environment", "label": "环境/安全/地质", "aliases": ["环境工程", "安全工程", "地质"], "terms": ["环境工程师", "安全工程师", "地质工程师", "采矿工程师", "水处理"], "weak_terms": ["环境", "安全", "地质"]},
+        {"id": "food_agriculture", "label": "食品/农业", "aliases": ["食品", "农业"], "terms": ["食品研发", "食品科学", "农艺师", "农业技术"], "weak_terms": ["食品", "农业"]}
+      ]
+    }
+  ]
+}

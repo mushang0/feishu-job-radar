@@ -8,55 +8,14 @@ from typing import Any
 
 import yaml
 
+from .taxonomy import canonical_role_id, role_aliases, role_groups, role_labels, role_sections
+from .organizations import organization_aliases, organization_groups
+
 
 ONBOARDING_BATCH_OPTIONS = ("校招", "实习")
 LEGACY_DEFAULT_EXCLUDED_ROLES = ("销售", "市场", "运营", "HR", "财务")
 
-ONBOARDING_ROLE_SECTIONS: tuple[dict[str, Any], ...] = (
-    {
-        "label": "硬件与芯片",
-        "options": (
-            {"value": "嵌入式", "label": "嵌入式"},
-            {"value": "硬件", "label": "硬件"},
-            {"value": "FPGA", "label": "FPGA"},
-            {"value": "电气/电力电子", "label": "电气/电力电子"},
-            {"value": "半导体/芯片", "label": "芯片/半导体"},
-            {"value": "芯片验证/EDA", "label": "芯片验证/EDA"},
-            {"value": "测试/验证", "label": "测试/验证"},
-        ),
-    },
-    {
-        "label": "算法与数据",
-        "options": (
-            {"value": "算法", "label": "算法"},
-            {"value": "机器学习/深度学习", "label": "机器学习/深度学习"},
-            {"value": "AI/大模型/推理部署", "label": "AI/大模型"},
-            {"value": "数据/数据分析", "label": "数据/数据分析"},
-            {"value": "具身智能/机器人", "label": "机器人/具身智能"},
-        ),
-    },
-    {
-        "label": "软件与平台",
-        "options": (
-            {"value": "后端开发", "label": "后端开发"},
-            {"value": "前端开发", "label": "前端开发"},
-            {"value": "客户端", "label": "客户端"},
-            {"value": "云计算/DevOps", "label": "云计算/DevOps"},
-            {"value": "网络/安全", "label": "网络/安全"},
-        ),
-    },
-    {
-        "label": "工程与职能",
-        "options": (
-            {"value": "机械", "label": "机械/结构"},
-            {"value": "材料", "label": "材料"},
-            {"value": "工艺/制造", "label": "工艺/制造"},
-            {"value": "产品", "label": "产品"},
-            {"value": "设计", "label": "设计"},
-            {"value": "医药", "label": "医药/生物"},
-        ),
-    },
-)
+ONBOARDING_ROLE_SECTIONS: tuple[dict[str, Any], ...] = role_sections()
 
 
 DEFAULT_CONFIG: dict[str, Any] = {
@@ -73,11 +32,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "user_profile": {
         "graduate_years": [],
         "batches": list(ONBOARDING_BATCH_OPTIONS),
-        "role_groups": ["硬件/嵌入式", "半导体/芯片"],
+        "role_groups": ["hardware.embedded", "chip.digital"],
         "target_industries": [],
         "target_cities": [],
         "custom_keywords": [],
         "must_watch_companies": [],
+        "selected_company_groups": [],
+        "custom_companies": [],
         "exclude_role_groups": [],
         "recall_mode": "balanced",
         "daily_push_limit": 20,
@@ -204,6 +165,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
 }
 
+# The bundled taxonomy is the single source of truth. Legacy values remain in
+# saved profiles and are canonicalized by ``load_config``.
+DEFAULT_CONFIG["system_taxonomy"]["role_groups"] = role_groups()
+DEFAULT_CONFIG["system_taxonomy"]["role_input_aliases"].update(role_aliases())
+DEFAULT_CONFIG["system_taxonomy"]["role_labels"] = role_labels()
+DEFAULT_CONFIG["system_taxonomy"]["company_aliases"].update(organization_aliases())
+DEFAULT_CONFIG["system_taxonomy"]["organization_groups"] = organization_groups()
+
 
 def load_config(path: str | Path = "config.yaml") -> dict[str, Any]:
     config = deepcopy(DEFAULT_CONFIG)
@@ -211,6 +180,16 @@ def load_config(path: str | Path = "config.yaml") -> dict[str, Any]:
     if config_path.exists():
         user_config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
         _deep_merge(config, user_config)
+    configured_groups = config.setdefault("system_taxonomy", {}).setdefault("role_groups", {})
+    for legacy_group, terms in list(configured_groups.items()):
+        canonical_group = canonical_role_id(legacy_group)
+        if canonical_group != legacy_group:
+            configured_groups[canonical_group] = list(
+                dict.fromkeys([*terms, *configured_groups.get(canonical_group, [])])
+            )
+    profile = config.setdefault("user_profile", {})
+    for key in ("role_groups", "exclude_role_groups"):
+        profile[key] = list(dict.fromkeys(canonical_role_id(value) for value in profile.get(key, []) if str(value).strip()))
     return config
 
 
@@ -274,6 +253,8 @@ def _config_for_storage(config: dict[str, Any]) -> dict[str, Any]:
         "target_cities",
         "custom_keywords",
         "must_watch_companies",
+        "selected_company_groups",
+        "custom_companies",
         "exclude_role_groups",
         "recall_mode",
         "daily_push_limit",

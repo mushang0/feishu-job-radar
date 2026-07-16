@@ -87,7 +87,10 @@ def test_built_seed_matches_source_and_initializes_new_runtime_database(tmp_path
     assert build_seed(SOURCE, generated) == 802
     generated_columns, generated_rows = _jobs_snapshot(generated, columns)
     old_columns, old_rows = _jobs_snapshot(SEED, columns)
-    assert set(generated_columns) == set(old_columns) == set(columns)
+    # Runtime schema migrations may add nullable operational columns that are
+    # intentionally absent from the immutable canonical seed snapshot.
+    assert set(old_columns) == set(columns)
+    assert set(generated_columns) == set(columns) | {"location_status"}
     assert generated_rows == old_rows
     monkeypatch.setattr("jobpicky.seed.find_seed_database", lambda: generated)
     assert restore_seed_database(runtime) is True

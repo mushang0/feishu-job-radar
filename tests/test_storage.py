@@ -27,6 +27,19 @@ def test_repository_upserts_new_job_and_does_not_duplicate(tmp_path: Path):
     assert repo.count_jobs() == 1
 
 
+def test_city_filter_keeps_jobs_whose_location_is_pending(tmp_path: Path):
+    repo = JobRepository(tmp_path / "jobs.sqlite")
+    repo.init_schema()
+    repo.upsert_job(Job(dedupe_key="pending:1", company="待确认公司", title="嵌入式工程师", city=None))
+    repo.upsert_job(Job(dedupe_key="known:1", company="上海公司", title="嵌入式工程师", city="上海市"))
+
+    rows, total = repo.search_jobs(city="深圳市")
+
+    assert total == 1
+    assert [row["company"] for row in rows] == ["待确认公司"]
+    assert rows[0]["location_status"] == "pending"
+
+
 def test_repository_saves_match_result(tmp_path: Path):
     repo = JobRepository(tmp_path / "jobs.sqlite")
     repo.init_schema()

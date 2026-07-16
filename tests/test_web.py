@@ -32,7 +32,7 @@ def test_web_preferences_never_return_app_secret_and_persist_user_inputs(tmp_pat
     assert response.status_code == 200
     assert "secret-value" not in response.text
     saved = client.get("/api/preferences").json()
-    assert saved["user_profile"]["role_groups"] == ["硬件/嵌入式"]
+    assert saved["user_profile"]["role_groups"] == ["hardware.embedded"]
     assert saved["feishu"]["configured"] is True
 
 

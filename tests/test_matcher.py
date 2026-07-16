@@ -78,6 +78,62 @@ def test_company_group_expands_to_bundled_known_companies():
     assert result.matched_company_rule == "字节跳动"
 
 
+def test_research_institute_is_not_recalled_when_group_is_not_selected():
+    config = deepcopy(DEFAULT_CONFIG)
+    config["user_profile"].update(
+        batches=["校招"], role_groups=["hardware.embedded"], selected_company_groups=[]
+    )
+
+    result = Matcher(config).match(
+        Job(company="华福证券研究所", title="2027届宏观研究员", batch="校招")
+    )
+
+    assert result.should_push is False
+
+
+def test_selected_research_group_recalls_institute_with_explicit_reason():
+    config = deepcopy(DEFAULT_CONFIG)
+    config["user_profile"].update(
+        batches=["校招"], role_groups=["hardware.embedded"], selected_company_groups=["org.research_institute"]
+    )
+
+    result = Matcher(config).match(
+        Job(company="某某研究所", title="2027届综合岗位", batch="校招")
+    )
+
+    assert result.should_push is True
+    assert result.recommend_reason == "命中关注单位：研究院/研究所"
+    assert result.matched_company_rule == "研究所"
+
+
+def test_missing_location_is_not_rejected_by_any_selected_city():
+    config = deepcopy(DEFAULT_CONFIG)
+    config["user_profile"].update(
+        batches=["校招"], role_groups=["hardware.embedded"], target_cities=["city:4403"]
+    )
+
+    result = Matcher(config).match(
+        Job(company="示例科技", title="嵌入式工程师", batch="校招", city=None)
+    )
+
+    assert result.should_push is True
+    assert result.match_reason.startswith("命中岗位方向")
+
+
+def test_province_selection_matches_a_city_inside_that_province():
+    config = deepcopy(DEFAULT_CONFIG)
+    config["user_profile"].update(
+        batches=["校招"], role_groups=["hardware.embedded"], target_cities=["province:44"]
+    )
+
+    result = Matcher(config).match(
+        Job(company="示例科技", title="嵌入式工程师", batch="校招", city="深圳市")
+    )
+
+    assert result.should_push is True
+    assert result.matched_city_rule == "广东省"
+
+
 def test_must_watch_company_cannot_bypass_an_explicit_excluded_role():
     matcher = Matcher(_config())
     job = Job(
@@ -144,7 +200,7 @@ def test_city_only_does_not_push():
     result = matcher.match(job)
 
     assert result.should_push is False
-    assert result.matched_city_rule == "深圳"
+    assert result.matched_city_rule == "深圳市"
 
 
 def test_industry_only_does_not_push():

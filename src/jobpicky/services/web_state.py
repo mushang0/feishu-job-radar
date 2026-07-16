@@ -15,7 +15,8 @@ from ..config import (
     validate_config,
 )
 from ..onboarding import parse_base_url
-from ..normalizer import KNOWN_CITY_NAMES
+from ..locations import location_options
+from ..organizations import organization_options
 from ..paths import AppPaths
 from ..core import DatabaseBootstrapService, JobQueryService
 
@@ -30,7 +31,15 @@ class WebStateService:
         if set(profile.get("exclude_role_groups", [])) == set(LEGACY_DEFAULT_EXCLUDED_ROLES):
             profile["exclude_role_groups"] = []
         if not self.paths.config.is_file():
-            for key in ("batches", "role_groups", "target_cities", "custom_keywords", "exclude_role_groups"):
+            for key in (
+                "batches",
+                "role_groups",
+                "target_cities",
+                "custom_keywords",
+                "selected_company_groups",
+                "custom_companies",
+                "exclude_role_groups",
+            ):
                 profile[key] = []
         feishu = config.get("feishu", {})
         configuration_errors = validate_config(
@@ -53,9 +62,10 @@ class WebStateService:
         return {
             "batches": [{"value": value, "label": value} for value in ONBOARDING_BATCH_OPTIONS],
             "role_sections": deepcopy(list(ONBOARDING_ROLE_SECTIONS)),
-            "cities": [{"value": "", "label": "不限"}]
-            + [{"value": city, "label": city} for city in KNOWN_CITY_NAMES],
+            "cities": [{"value": "", "label": "不限"}],
+            "location_sections": location_options(),
             "exclude_role_sections": deepcopy(list(ONBOARDING_ROLE_SECTIONS)),
+            "organization_groups": organization_options(),
         }
 
     def save_preferences(self, payload: dict[str, Any]) -> list[str]:
@@ -69,6 +79,8 @@ class WebStateService:
             "target_cities",
             "custom_keywords",
             "must_watch_companies",
+            "selected_company_groups",
+            "custom_companies",
         ):
             if key in incoming_profile:
                 profile[key] = _list_values(incoming_profile[key])

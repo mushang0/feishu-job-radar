@@ -29,7 +29,7 @@ _SCHEMA_COLUMNS: dict[str, dict[str, str]] = {
         "source": "TEXT", "source_job_id": "TEXT", "source_url": "TEXT", "detail_url": "TEXT",
         "dedupe_key": "TEXT", "company": "TEXT", "raw_company": "TEXT", "company_normalized": "TEXT",
         "title": "TEXT", "raw_title": "TEXT", "clean_title": "TEXT", "summary": "TEXT", "batch": "TEXT",
-        "target_graduate_year": "TEXT", "degree": "TEXT", "city": "TEXT", "location_text": "TEXT",
+        "target_graduate_year": "TEXT", "degree": "TEXT", "city": "TEXT", "location_text": "TEXT", "location_status": "TEXT",
         "collected_date": "DATE", "deadline": "DATE", "company_type": "TEXT", "industry": "TEXT",
         "tags": "TEXT", "job_tags": "TEXT", "special_marks": "TEXT", "raw_tags": "TEXT", "raw_text": "TEXT",
         "role_text": "TEXT", "announcement_text": "TEXT", "role_signals": "TEXT", "field_evidence": "TEXT",
@@ -108,6 +108,7 @@ class JobRepository:
                     degree TEXT,
                     city TEXT,
                     location_text TEXT,
+                    location_status TEXT,
                     collected_date DATE,
                     deadline DATE,
                     company_type TEXT,
@@ -343,7 +344,7 @@ class JobRepository:
                 # previously parsed detail record.
                 protected = {
                     "company", "company_normalized", "title", "raw_title", "clean_title", "summary",
-                    "batch", "target_graduate_year", "degree", "city", "location_text", "deadline",
+                    "batch", "target_graduate_year", "degree", "city", "location_text", "location_status", "deadline",
                     "job_tags", "raw_text", "role_text", "announcement_text", "role_signals",
                     "field_evidence", "extraction_version", "apply_url", "parse_status", "parse_note",
                     "content_hash",
@@ -369,7 +370,7 @@ class JobRepository:
             if before:
                 visible_fields = (
                     "company", "title", "clean_title", "summary", "batch", "target_graduate_year",
-                    "degree", "city", "deadline", "apply_url", "official_url", "raw_text",
+                    "degree", "city", "location_status", "deadline", "apply_url", "official_url", "raw_text",
                     "role_text", "announcement_text", "role_signals", "field_evidence",
                     "extraction_version", "parse_status", "content_hash",
                 )
@@ -509,7 +510,10 @@ class JobRepository:
             term = f"%{query.lower()}%"
             params.extend((term, term))
         if city:
-            conditions.append("(';' || REPLACE(COALESCE(jobs.city, ''), '；', ';') || ';') LIKE ?")
+            conditions.append(
+                "((';' || REPLACE(COALESCE(jobs.city, ''), '；', ';') || ';') LIKE ? "
+                "OR COALESCE(jobs.location_status, 'pending') = 'pending')"
+            )
             params.append(f"%;{city};%")
         if batch:
             conditions.append("jobs.batch = ?")
@@ -710,6 +714,7 @@ class JobRepository:
                 jobs.degree,
                 jobs.city,
                 jobs.location_text,
+                jobs.location_status,
                 jobs.collected_date,
                 jobs.deadline,
                 jobs.industry,

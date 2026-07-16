@@ -4,7 +4,9 @@ import re
 from datetime import datetime
 from urllib.parse import urlsplit, urlunsplit
 
-KNOWN_CITY_NAMES = [
+from .locations import canonical_location_name, known_location_names
+
+_LEGACY_CITY_NAMES = [
     "北京",
     "上海",
     "天津",
@@ -51,6 +53,9 @@ KNOWN_CITY_NAMES = [
     "三亚",
     "安庆",
 ]
+
+# Backwards-compatible export for callers that still need a flat list.
+KNOWN_CITY_NAMES = known_location_names()
 
 
 def normalize_date(value: str | None) -> str | None:
@@ -134,10 +139,11 @@ def infer_city(text: str) -> str | None:
         return None
     hits: list[tuple[int, str]] = []
     for name in KNOWN_CITY_NAMES:
-        for variant in (f"{name}市", name):
+        short_name = re.sub(r"(?:特别行政区|自治区|自治州|地区|盟|省|市)$", "", name)
+        for variant in (name, short_name):
             index = text.find(variant)
             if index >= 0:
-                city = f"{name}市" if not name.endswith(("市", "区")) else name
+                city = canonical_location_name(name) or name
                 hits.append((index, city))
                 break
     cities: list[str] = []

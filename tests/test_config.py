@@ -24,7 +24,7 @@ feishu:
 
     assert config["crawler"]["max_pages_daily"] == 3
     assert config["crawler"]["source"] == "wondercv"
-    assert config["user_profile"]["role_groups"] == ["硬件/嵌入式"]
+    assert config["user_profile"]["role_groups"] == ["hardware.embedded"]
     assert config["user_profile"]["daily_push_limit"] == 20
     assert "matching" not in config
     assert "keywords" not in config
