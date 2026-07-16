@@ -63,6 +63,7 @@ def test_web_lists_local_jobs_and_health(tmp_path: Path):
 def test_web_ui_exposes_local_first_product_structure(tmp_path: Path):
     client = TestClient(create_app(AppPaths(tmp_path / "profile")))
     page = client.get("/").text
+    script = client.get("/static/js/app.js").text
 
     assert "岗位雷达" in page
     assert "全部岗位" in page
@@ -73,6 +74,10 @@ def test_web_ui_exposes_local_first_product_structure(tmp_path: Path):
     assert 'id="home-radar-host"' in page
     assert "创建岗位雷达并开始扫描" in page
     assert 'aria-live="polite"' in page
+    assert 'data-recommendation-scope="today"' in page
+    assert "今日推荐" in page
+    assert 'recommendationScope:"today"' in script
+    assert 'params.set("scope","recommended")' not in script
     assert "选择使用方式" not in page
 
 
@@ -162,12 +167,17 @@ def test_recommended_jobs_support_scopes_filters_pagination_and_detail(tmp_path:
         dedupe_key="web:recommended-2", company="示例研究院", title="深度学习研究员",
         city="上海", batch="提前批", role_signals=["深度学习"],
         deadline=(now + timedelta(days=20)).date().isoformat(),
-        collected_date=now.date().isoformat(),
+        collected_date=(now - timedelta(days=1)).date().isoformat(),
+    ))
+    old = repo.upsert_job(Job(
+        dedupe_key="web:recommended-old", company="示例旧公司", title="旧岗位",
+        collected_date=(now - timedelta(days=2)).date().isoformat(),
     ))
     repo.save_match(first.job_id, {"matched_keywords": ["算法"], "needs_verify": True})
     repo.append_recommendations(now.date().isoformat(), [
         {"job_id": first.job_id, "recommend_reason": "命中算法方向"},
         {"job_id": second.job_id, "recommend_reason": "命中深度学习方向"},
+        {"job_id": old.job_id, "recommend_reason": "历史推荐"},
     ])
     repo.record_scan_run({
         "run_type": "daily", "task_id": "scan-1",
@@ -179,12 +189,12 @@ def test_recommended_jobs_support_scopes_filters_pagination_and_detail(tmp_path:
     client = TestClient(create_app(paths))
 
     result = client.get(
-        "/api/jobs?scope=new&direction=算法&city=北京&deadline_status=expiring&page=1&page_size=1"
+        "/api/jobs?scope=today&direction=算法&city=北京&deadline_status=expiring&page=1&page_size=1"
     ).json()
     assert result["total"] == 1
     assert result["pages"] == 1
     assert result["items"][0]["title"] == "算法工程师"
-    assert result["summary"]["new_recommended"] == 2
+    assert result["summary"]["today_recommended"] == 2
     assert result["summary"]["expiring"] == 1
     assert "民营企业" in result["facets"]["company_types"]
 
@@ -194,6 +204,41 @@ def test_recommended_jobs_support_scopes_filters_pagination_and_detail(tmp_path:
     assert detail["detail_url"] == "https://example.com/jobs/1"
     assert detail["apply_url"] is None
     assert client.get("/api/jobs/999999").status_code == 404
+
+
+def test_preferences_returns_rematch_changes(tmp_path: Path, monkeypatch):
+    from jobpicky.services.local import LocalRematchResult
+
+    paths = AppPaths(tmp_path / "profile")
+    repo = JobRepository(paths.database)
+    repo.init_schema()
+    repo.upsert_job(Job(dedupe_key="web:rematch", company="示例公司", title="FPGA 工程师"))
+    monkeypatch.setattr(
+        "jobpicky.services.local.rematch_local",
+        lambda *_args, **_kwargs: (
+            repo,
+            LocalRematchResult(
+                items_seen=1,
+                new_items=0,
+                updated_items=1,
+                relevant_items=1,
+                recommended_items=4,
+                matched_items=1,
+                added_recommended_items=2,
+                removed_recommended_items=1,
+            ),
+        ),
+    )
+    client = TestClient(create_app(paths))
+
+    result = client.put(
+        "/api/preferences",
+        json={"user_profile": {"batches": ["秋招"], "role_groups": ["硬件/嵌入式"]}},
+    ).json()
+
+    assert result["rematch"]["added_recommended_items"] == 2
+    assert result["rematch"]["removed_recommended_items"] == 1
+    assert result["rematch"]["recommended_items"] == 4
 
 
 def test_web_setup_preview_describes_three_step_workspace_flow(tmp_path: Path):

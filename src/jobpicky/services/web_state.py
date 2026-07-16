@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -117,7 +118,8 @@ class WebStateService:
              company_type: str = "", sort: str = "deadline", recommended: bool = False) -> dict[str, Any]:
         if not self.paths.database.is_file():
             return {"items": [], "page": 1, "page_size": page_size, "total": 0, "pages": 0,
-                    "summary": {"all": 0, "recommended": 0, "new_recommended": 0, "expiring": 0},
+                    "summary": {"all": 0, "recommended": 0, "today_recommended": 0,
+                                "new_recommended": 0, "expiring": 0},
                     "facets": {"cities": [], "batches": [], "company_types": [], "directions": []}}
         # Reads must never bootstrap/restore the packaged seed database.
         from ..storage import JobRepository
@@ -125,9 +127,9 @@ class WebStateService:
         queries = JobQueryService(repo)
         page = max(1, page)
         page_size = max(1, min(page_size, 200))
-        recommended = recommended or scope in {"recommended", "new", "expiring"}
-        latest_success = repo.latest_scan_run(successful_only=True)
-        new_since = str(latest_success.get("started_at") or "") if scope == "new" else ""
+        recommended = recommended or scope in {"recommended", "today", "new", "expiring"}
+        today_since = (date.today() - timedelta(days=1)).isoformat()
+        new_since = today_since if scope in {"today", "new"} else ""
         if scope == "expiring":
             deadline_status = "expiring"
         items, total = repo.search_jobs(
@@ -141,9 +143,9 @@ class WebStateService:
             apply_url = str(item.get("apply_url") or "").strip()
             if not _valid_apply_url(apply_url):
                 item["apply_url"] = None
-        _, new_recommended_total = repo.search_jobs(
-            recommended=True, new_since=str(latest_success.get("started_at") or ""), limit=1,
-        ) if latest_success else ([], 0)
+        _, today_recommended_total = repo.search_jobs(
+            recommended=True, new_since=today_since, limit=1,
+        )
         facets = repo.job_facets()
         facets["directions"] = _list_values(load_config(self.paths.config).get("user_profile", {}).get("role_groups", []))
         return {
@@ -154,7 +156,8 @@ class WebStateService:
             "page": page,
             "page_size": page_size,
             "summary": {"all": stats["jobs"], "recommended": stats["recommendations"],
-                        "new_recommended": new_recommended_total,
+                        "today_recommended": today_recommended_total,
+                        "new_recommended": today_recommended_total,
                         "expiring": repo.count_expiring_jobs(recommended=True)},
             "facets": facets,
         }

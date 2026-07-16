@@ -261,10 +261,14 @@ def create_app(paths: AppPaths | None = None) -> FastAPI:
         if errors:
             raise HTTPException(status_code=422, detail=errors)
         from ..core import inspect_local_database
+        rematch = None
         if inspect_local_database(paths.database).valid:
             from ..services.local import rematch_local
-            rematch_local(paths.database, load_config(paths.config))
-        return state.preferences()
+            _, rematch = rematch_local(paths.database, load_config(paths.config))
+        response = state.preferences()
+        if rematch:
+            response["rematch"] = asdict(rematch)
+        return response
 
     @app.post("/api/local/start", status_code=202)
     def start_local() -> dict[str, str]:

@@ -32,7 +32,10 @@ def test_rematch_replaces_recommendations_for_target_date(tmp_path: Path):
         },
     }
 
-    rematch_local(repo.db_path, config, recommendation_date="2026-07-04")
+    _repo, summary = rematch_local(repo.db_path, config, recommendation_date="2026-07-04")
 
     rows = repo.list_recommended_jobs("2026-07-04")
     assert [row["job_id"] for row in rows] == [current.job_id]
+    assert summary.added_recommended_items == 1
+    assert summary.removed_recommended_items == 1
+    assert summary.recommended_items == 1

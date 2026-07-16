@@ -54,6 +54,8 @@ class LocalRematchResult:
     relevant_items: int
     recommended_items: int
     matched_items: int
+    added_recommended_items: int
+    removed_recommended_items: int
 
 
 class LocalApplicationService:
@@ -103,10 +105,16 @@ class LocalApplicationService:
 def rematch_local(database_path: str | Path, config: dict, recommendation_date: str | None = None):
     repository = DatabaseBootstrapService(database_path).initialize()
     items_seen = len(repository.list_stored_jobs())
+    recommendations_before = {
+        int(row["job_id"]) for row in repository.list_recommended_jobs()
+    }
     matching = MatchingService(repository, config).rematch_all()
     recommended = RecommendationService(repository).rebuild_all(
         matching.matches, recommendation_date
     )
+    recommendations_after = {
+        int(row["job_id"]) for row in repository.list_recommended_jobs()
+    }
     return repository, LocalRematchResult(
         items_seen=items_seen,
         new_items=0,
@@ -114,4 +122,6 @@ def rematch_local(database_path: str | Path, config: dict, recommendation_date: 
         relevant_items=matching.relevant_items,
         recommended_items=recommended,
         matched_items=matching.matched_items,
+        added_recommended_items=len(recommendations_after - recommendations_before),
+        removed_recommended_items=len(recommendations_before - recommendations_after),
     )
