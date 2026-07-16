@@ -84,6 +84,64 @@ def test_parse_wondercv_detail_extracts_dji_role_keywords():
     assert detail.apply_url == "/jobs/dji/apply"
     assert {"图像算法", "嵌入式", "GNSS", "测试开发"}.issubset(set(detail.keywords))
     assert "简历模板" not in detail.summary
+    assert [position.title for position in detail.positions] == [
+        "图像算法工程师",
+        "嵌入式工程师",
+        "GNSS定位算法工程师",
+        "测试开发工程师",
+    ]
+    assert [position.city for position in detail.positions[:3]] == ["深圳市", "上海市", "北京市"]
+
+
+def test_parse_wondercv_detail_extracts_position_fields_without_mixing_roles():
+    html = """
+    <main>
+      <h2>招聘岗位</h2>
+      <h3>1. 嵌入式工程师（深圳）</h3>
+      <p>岗位职责：负责 BSP 与驱动开发。</p>
+      <p>任职要求：本科及以上；专业要求：电子信息、自动化；熟悉 RTOS。</p>
+      <p>招聘人数：12人</p>
+      <h3>2. 芯片验证工程师</h3>
+      <p>岗位职责：搭建 UVM 验证环境。</p>
+      <p>任职要求：硕士；熟悉 SystemVerilog。</p>
+      <h2>招聘流程</h2>
+      <p>统一笔试与面试。</p>
+    </main>
+    """
+
+    detail = parse_wondercv_detail(html)
+
+    assert len(detail.positions) == 2
+    embedded, verification = detail.positions
+    assert embedded.title == "嵌入式工程师"
+    assert embedded.direction_id == "hardware.embedded"
+    assert embedded.city == "深圳市"
+    assert embedded.degree == "本科及以上"
+    assert embedded.majors == ["电子信息", "自动化"]
+    assert embedded.headcount == 12
+    assert "BSP" in (embedded.responsibilities or "")
+    assert "RTOS" in embedded.skills
+    assert verification.title == "芯片验证工程师"
+    assert verification.direction_id == "chip.verification"
+    assert verification.city is None
+    assert verification.location_status == "pending"
+    assert {"UVM", "SystemVerilog"} <= set(verification.skills)
+    assert "UVM" not in embedded.source_text
+    assert "UVM" in (verification.source_text or "")
+
+
+def test_direction_only_announcement_does_not_invent_position_records():
+    html = """
+    <main>
+      <h2>招聘方向</h2>
+      <p>技术类、产品类、运营类岗位将在官网陆续发布。</p>
+      <h2>招聘流程</h2>
+    </main>
+    """
+
+    detail = parse_wondercv_detail(html)
+
+    assert detail.positions == []
 
 
 def test_parse_wondercv_detail_falls_back_to_recruiting_direction_keywords():
@@ -244,3 +302,5 @@ def test_detail_enrichment_overrides_card_fields_and_keeps_role_evidence():
     assert "嵌入式" in enriched.role_signals
     assert enriched.role_text and "BSP" in enriched.role_text
     assert '"city"' in (enriched.field_evidence or "")
+    assert [position.title for position in enriched.positions] == ["嵌入式工程师"]
+    assert enriched.positions[0].city == "上海市"

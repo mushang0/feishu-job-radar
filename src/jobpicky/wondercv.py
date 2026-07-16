@@ -13,13 +13,14 @@ from urllib.parse import urljoin
 
 import requests
 
-from .models import Job
+from .models import Job, Position
 from .normalizer import build_dedupe_key, infer_batch, infer_city, infer_graduate_year, normalize_company, normalize_date
 from .error_safety import safe_exception_detail
+from .taxonomy import infer_role_direction, role_signal_terms
 
 
 WONDERCV_URL = "https://www.wondercv.com/xiaozhao/"
-EXTRACTION_VERSION = "detail-structure-v1"
+EXTRACTION_VERSION = "detail-structure-v2"
 
 
 def _print_progress(message: str) -> None:
@@ -57,6 +58,7 @@ class DetailParseResult:
     announcement_text: str = ""
     role_signals: list[str] | None = None
     field_evidence: dict[str, dict[str, object]] | None = None
+    positions: list[Position] | None = None
 
 
 def parse_wondercv_list(html: str, page_url: str, aliases: dict[str, list[str]] | None = None) -> list[Job]:
@@ -153,6 +155,7 @@ def parse_wondercv_detail(html: str) -> DetailParseResult:
         graduate_year=graduate_year,
         role_text=role_text,
     )
+    positions = _extract_detail_positions(html_without_noise, role_text)
     return DetailParseResult(
         raw_text=text,
         apply_url=apply_url,
@@ -167,6 +170,7 @@ def parse_wondercv_detail(html: str) -> DetailParseResult:
         announcement_text=text,
         role_signals=keywords,
         field_evidence=evidence,
+        positions=positions,
     )
 
 
@@ -311,6 +315,7 @@ def merge_detail_into_job(job: Job, detail: DetailParseResult) -> Job:
     job.role_signals = detail.role_signals or []
     job.field_evidence = json.dumps(detail.field_evidence or {}, ensure_ascii=False, sort_keys=True)
     job.extraction_version = EXTRACTION_VERSION
+    job.positions = detail.positions or []
     job.job_tags = _non_detail_tags(job.job_tags)
     if detail.summary:
         job.summary = detail.summary
@@ -386,6 +391,12 @@ DETAIL_KEYWORDS = [
     "研发",
 ]
 
+POSITION_TITLE_PATTERN = re.compile(
+    r"^(?:[-•·]\s*|\d{1,3}[.、)）]\s*)?"
+    r"(?P<title>[^：:；;]{2,45}(?:工程师|研究员|研究助理|助理|经理|专员|顾问|设计师|架构师|开发|测试|算法|管培生|实习生))"
+    r"\s*(?:[（(](?P<location>[^）)]{2,20})[）)])?\s*[：:]?\s*(?P<tail>.*)$"
+)
+
 
 def _extract_detail_signal_text(text: str) -> str:
     snippets: list[str] = []
@@ -436,10 +447,124 @@ def _focus_detail_body(text: str) -> str:
 
 def _extract_detail_keywords(text: str) -> list[str]:
     hits: list[str] = []
-    for keyword in DETAIL_KEYWORDS:
+    for keyword in dict.fromkeys([*DETAIL_KEYWORDS, *role_signal_terms()]):
         if _detail_keyword_in_text(text, keyword):
             hits.append(keyword)
     return hits
+
+
+def _extract_detail_positions(html: str, role_text: str) -> list[Position]:
+    blocks = _role_section_blocks(_extract_block_texts(html))
+    if not blocks and role_text:
+        blocks = [role_text]
+    positions: list[Position] = []
+    current: Position | None = None
+    for block in blocks:
+        match = POSITION_TITLE_PATTERN.match(block)
+        if match:
+            title = _clean(match.group("title"))
+            tail = _clean(match.group("tail"))
+            location_hint = _clean(match.group("location") or "")
+            city = infer_city(location_hint or block)
+            current = Position(
+                title=title,
+                direction_id=infer_role_direction(f"{title} {tail}"),
+                employment_type=_extract_employment_type(block),
+                city=city,
+                location_status="confirmed" if city else "pending",
+                degree=_extract_degree(block),
+                majors=_extract_majors(block),
+                responsibilities=tail or None,
+                skills=_extract_detail_keywords(block),
+                headcount=_extract_headcount(block),
+                source_text=block,
+                field_evidence={"title": {"source": "detail_role_block", "evidence": block[:240]}},
+                confidence=0.92 if match.group("location") or tail else 0.82,
+                extraction_version="position-v1",
+                ordinal=len(positions),
+            )
+            positions.append(current)
+            continue
+        if current is None:
+            continue
+        current.source_text = _clean(f"{current.source_text} {block}")
+        current.skills = _merge_unique(current.skills, _extract_detail_keywords(block))
+        current.degree = current.degree or _extract_degree(block)
+        current.majors = _merge_unique(current.majors, _extract_majors(block))
+        current.headcount = current.headcount or _extract_headcount(block)
+        if not current.city:
+            current.city = infer_city(block)
+            current.location_status = "confirmed" if current.city else "pending"
+        if re.match(r"^(?:岗位职责|工作职责|职位职责|职责)[：:]?", block):
+            current.responsibilities = _clean(re.sub(r"^(?:岗位职责|工作职责|职位职责|职责)[：:]?", "", block))
+        elif re.match(r"^(?:岗位要求|任职要求|职位要求|任职资格|要求)[：:]?", block):
+            current.requirements = _clean(re.sub(r"^(?:岗位要求|任职要求|职位要求|任职资格|要求)[：:]?", "", block))
+        elif current.requirements:
+            current.requirements = _clean(f"{current.requirements} {block}")
+    for position in positions:
+        for field_name in ("city", "degree", "majors", "responsibilities", "requirements", "skills", "headcount"):
+            value = getattr(position, field_name)
+            if value not in (None, "", []):
+                position.field_evidence[field_name] = {
+                    "source": "detail_role_block",
+                    "evidence": (position.source_text or "")[:240],
+                }
+    return positions
+
+
+def _extract_block_texts(html: str) -> list[str]:
+    blocks: list[str] = []
+    pattern = r"<(?:h[1-6]|p|li|dt|dd|td|th)\b[^>]*>([\s\S]*?)</(?:h[1-6]|p|li|dt|dd|td|th)>"
+    for match in re.finditer(pattern, html, re.I):
+        text = _strip_tags(match.group(1))
+        if text and text not in blocks:
+            blocks.append(text)
+    if blocks:
+        return blocks
+    line_html = re.sub(r"<(?:br|/p|/li|/div|/section|/h[1-6])\b[^>]*>", "\n", html, flags=re.I)
+    return [_clean(_strip_tags(line)) for line in line_html.splitlines() if _clean(_strip_tags(line))]
+
+
+def _role_section_blocks(blocks: list[str]) -> list[str]:
+    selected: list[str] = []
+    active = False
+    for block in blocks:
+        if active and any(marker in block for marker in DETAIL_SECTION_END_MARKERS):
+            break
+        if any(marker in block for marker in DETAIL_SIGNAL_MARKERS):
+            active = True
+            remainder = block
+            for marker in DETAIL_SIGNAL_MARKERS:
+                remainder = remainder.replace(marker, " ")
+            remainder = _clean(remainder)
+            if remainder:
+                selected.append(remainder)
+            continue
+        if active:
+            selected.append(block)
+    return selected
+
+
+def _extract_employment_type(text: str) -> str | None:
+    if "实习" in text:
+        return "实习"
+    if any(term in text for term in ("校招", "应届", "校园招聘")):
+        return "校招"
+    if any(term in text for term in ("社招", "社会招聘")):
+        return "社招"
+    return None
+
+
+def _extract_majors(text: str) -> list[str]:
+    match = re.search(r"(?:专业要求|专业)[：:]?\s*([^。；;]{2,100})", text or "")
+    if not match:
+        return []
+    return [part.strip() for part in re.split(r"[、,/，及或]+", match.group(1)) if part.strip()]
+
+
+def _extract_headcount(text: str) -> int | None:
+    match = re.search(r"(?:招聘|招募|人数)[^0-9]{0,6}(\d{1,4})\s*人", text or "")
+    return int(match.group(1)) if match else None
 
 
 def _field_evidence(

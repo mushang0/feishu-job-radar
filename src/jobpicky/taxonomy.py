@@ -86,3 +86,32 @@ def role_aliases() -> dict[str, str]:
 def canonical_role_id(value: str) -> str:
     text = str(value or "").strip()
     return role_aliases().get(text.lower(), text)
+
+
+def infer_role_direction(text: str) -> str | None:
+    haystack = str(text or "").lower()
+    if not haystack:
+        return None
+    best: tuple[int, int, str] | None = None
+    for section in job_taxonomy()["sections"]:
+        for direction in section["directions"]:
+            strong_terms = [*direction.get("aliases", []), *direction.get("terms", [])]
+            hits = [term for term in strong_terms if term and term.lower() in haystack]
+            if not hits:
+                continue
+            score = (len(hits), max(len(term) for term in hits), direction["id"])
+            if best is None or score[:2] > best[:2]:
+                best = score
+    return best[2] if best else None
+
+
+@lru_cache(maxsize=1)
+def role_signal_terms() -> tuple[str, ...]:
+    terms = {
+        term
+        for section in job_taxonomy()["sections"]
+        for direction in section["directions"]
+        for term in direction.get("terms", [])
+        if term
+    }
+    return tuple(sorted(terms, key=lambda term: (-len(term), term.lower())))
