@@ -23,18 +23,23 @@ DEFAULT_OUTPUT = ROOT / "src" / "jobpicky" / "resources" / "jobs_seed.sqlite"
 
 def build_seed(source: Path, output: Path) -> int:
     document = json.loads(source.read_text(encoding="utf-8"))
-    if document.get("format_version") != 1 or document.get("table") != "jobs":
+    if document.get("format_version") == 1 and document.get("table") == "jobs":
+        tables = {"jobs": {"columns": document.get("columns"), "rows": document.get("jobs")}}
+    elif document.get("format_version") == 2 and isinstance(document.get("tables"), dict):
+        tables = document["tables"]
+    else:
         raise ValueError("unsupported seed source format")
-    columns = document.get("columns")
-    jobs = document.get("jobs")
-    if not isinstance(columns, list) or not columns or not isinstance(jobs, list):
-        raise ValueError("seed source must contain columns and jobs lists")
-    if len(columns) != len(set(columns)):
-        raise ValueError("seed source contains duplicate columns")
-    expected_keys = set(columns)
-    for index, job in enumerate(jobs):
-        if not isinstance(job, dict) or set(job) != expected_keys:
-            raise ValueError(f"job at index {index} does not match declared columns")
+    for table, snapshot in tables.items():
+        columns = snapshot.get("columns") if isinstance(snapshot, dict) else None
+        rows = snapshot.get("rows") if isinstance(snapshot, dict) else None
+        if not isinstance(columns, list) or not columns or not isinstance(rows, list):
+            raise ValueError(f"seed table {table} must contain columns and rows lists")
+        if len(columns) != len(set(columns)):
+            raise ValueError(f"seed table {table} contains duplicate columns")
+        expected_keys = set(columns)
+        for index, row in enumerate(rows):
+            if not isinstance(row, dict) or set(row) != expected_keys:
+                raise ValueError(f"{table} row at index {index} does not match declared columns")
 
     output.parent.mkdir(parents=True, exist_ok=True)
     handle, temporary_name = tempfile.mkstemp(
@@ -46,22 +51,30 @@ def build_seed(source: Path, output: Path) -> int:
     try:
         repository = JobRepository(temporary)
         repository.init_schema()
-        placeholders = ", ".join("?" for _ in columns)
-        quoted_columns = ", ".join(f'"{column}"' for column in columns)
         with repository.connect() as connection:
-            connection.executemany(
-                f"INSERT INTO jobs ({quoted_columns}) VALUES ({placeholders})",
-                ([job[column] for column in columns] for job in jobs),
-            )
+            for table in ("jobs", "job_positions"):
+                if table not in tables:
+                    continue
+                columns = tables[table]["columns"]
+                rows = tables[table]["rows"]
+                placeholders = ", ".join("?" for _ in columns)
+                quoted_columns = ", ".join(f'"{column}"' for column in columns)
+                connection.executemany(
+                    f"INSERT INTO {table} ({quoted_columns}) VALUES ({placeholders})",
+                    ([row[column] for column in columns] for row in rows),
+                )
         with repository.connect() as connection:
             integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
             count = connection.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
-        if integrity != "ok" or count != len(jobs):
+            positions = connection.execute("SELECT COUNT(*) FROM job_positions").fetchone()[0]
+        expected_jobs = len(tables["jobs"]["rows"])
+        expected_positions = len(tables.get("job_positions", {}).get("rows", []))
+        if integrity != "ok" or count != expected_jobs or positions != expected_positions:
             raise sqlite3.DatabaseError("generated seed failed validation")
         os.replace(temporary, output)
     finally:
         temporary.unlink(missing_ok=True)
-    return len(jobs)
+    return expected_jobs
 
 
 def main() -> int:

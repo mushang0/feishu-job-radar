@@ -86,7 +86,9 @@ def parse_wondercv_list(html: str, page_url: str, aliases: dict[str, list[str]] 
         title = parsed["clean_title"]
         company = card.company or parsed["company"] or _infer_company(title)
         city = card.city or infer_city(raw_title)
-        date_text = card.date
+        # WonderCV currently uses ``card-date`` but the visible card text is a
+        # stable fallback when the site's presentation class changes again.
+        date_text = card.date or raw_title
         tags = card.tags or parsed["raw_tags"]
         company_normalized = normalize_company(company, aliases)
         collected_date = normalize_date(date_text)
@@ -391,11 +393,21 @@ DETAIL_KEYWORDS = [
     "研发",
 ]
 
-POSITION_TITLE_PATTERN = re.compile(
-    r"^(?:[-•·]\s*|\d{1,3}[.、)）]\s*)?"
-    r"(?P<title>[^：:；;]{2,45}(?:工程师|研究员|研究助理|助理|经理|专员|顾问|设计师|架构师|开发|测试|算法|管培生|实习生))"
-    r"\s*(?:[（(](?P<location>[^）)]{2,20})[）)])?\s*[：:]?\s*(?P<tail>.*)$"
+POSITION_TITLE_TERMS = (
+    "工程师", "研究员", "研究助理", "科研人员", "助理", "经理", "专员", "顾问", "设计师", "架构师",
+    "管培生", "培训生", "实习生", "实习岗", "教师", "辅导员", "代表", "HRBP",
 )
+POSITION_ENGLISH_TERMS = re.compile(
+    r"\b(?:engineer|researcher|intern|manager|developer|designer|consultant|specialist|sales|hrbp)\b",
+    re.I,
+)
+POSITION_REJECT_PREFIXES = (
+    "负责", "参与", "协助", "完成", "支持", "开展", "承担", "进行", "编写", "制定", "跟进",
+    "配合", "根据", "提供", "协同", "推动", "维护", "实现", "具备", "熟悉", "掌握", "要求",
+    "独立完成", "主导", "搭建", "收集", "深入了解", "定期", "候选人",
+)
+POSITION_LIST_LABELS = ("类", "岗位", "方向", "地点", "城市", "类别")
+POSITION_SUMMARY_TERMS = ("运营", "财务", "审计", "采购", "销售", "教练", "编辑", "律师")
 
 
 def _extract_detail_signal_text(text: str) -> str:
@@ -457,33 +469,41 @@ def _extract_detail_positions(html: str, role_text: str) -> list[Position]:
     blocks = _role_section_blocks(_extract_block_texts(html))
     if not blocks and role_text:
         blocks = [role_text]
+    elif role_text:
+        blocks = [*_related_position_title_blocks(role_text), *blocks]
     positions: list[Position] = []
+    positions_by_title: dict[str, Position] = {}
     current: Position | None = None
     for block in blocks:
-        match = POSITION_TITLE_PATTERN.match(block)
-        if match:
-            title = _clean(match.group("title"))
-            tail = _clean(match.group("tail"))
-            location_hint = _clean(match.group("location") or "")
-            city = infer_city(location_hint or block)
-            current = Position(
-                title=title,
-                direction_id=infer_role_direction(f"{title} {tail}"),
-                employment_type=_extract_employment_type(block),
-                city=city,
-                location_status="confirmed" if city else "pending",
-                degree=_extract_degree(block),
-                majors=_extract_majors(block),
-                responsibilities=tail or None,
-                skills=_extract_detail_keywords(block),
-                headcount=_extract_headcount(block),
-                source_text=block,
-                field_evidence={"title": {"source": "detail_role_block", "evidence": block[:240]}},
-                confidence=0.92 if match.group("location") or tail else 0.82,
-                extraction_version="position-v1",
-                ordinal=len(positions),
-            )
-            positions.append(current)
+        candidates = _position_candidates(block)
+        if candidates:
+            for title, tail, location_hint in candidates:
+                city = infer_city(location_hint or block)
+                candidate = Position(
+                    title=title,
+                    direction_id=infer_role_direction(f"{title} {tail}"),
+                    employment_type=_extract_employment_type(block),
+                    city=city,
+                    location_status="confirmed" if city else "pending",
+                    degree=_extract_degree(block),
+                    majors=_extract_majors(block),
+                    responsibilities=tail or None,
+                    skills=_extract_detail_keywords(block),
+                    headcount=_extract_headcount(block),
+                    source_text=block,
+                    field_evidence={"title": {"source": "detail_role_block", "evidence": block[:240]}},
+                    confidence=0.94 if tail else 0.88,
+                    extraction_version="position-v1",
+                    ordinal=len(positions),
+                )
+                key = _normalized_position_title(title)
+                current = positions_by_title.get(key)
+                if current is None:
+                    current = candidate
+                    positions_by_title[key] = current
+                    positions.append(current)
+                else:
+                    _merge_position(current, candidate)
             continue
         if current is None:
             continue
@@ -501,7 +521,8 @@ def _extract_detail_positions(html: str, role_text: str) -> list[Position]:
             current.requirements = _clean(re.sub(r"^(?:岗位要求|任职要求|职位要求|任职资格|要求)[：:]?", "", block))
         elif current.requirements:
             current.requirements = _clean(f"{current.requirements} {block}")
-    for position in positions:
+    for ordinal, position in enumerate(positions):
+        position.ordinal = ordinal
         for field_name in ("city", "degree", "majors", "responsibilities", "requirements", "skills", "headcount"):
             value = getattr(position, field_name)
             if value not in (None, "", []):
@@ -510,6 +531,129 @@ def _extract_detail_positions(html: str, role_text: str) -> list[Position]:
                     "evidence": (position.source_text or "")[:240],
                 }
     return positions
+
+
+def _position_candidates(block: str) -> list[tuple[str, str, str]]:
+    text = _clean(re.sub(r"^(?:[-•·🎯📍]\s*|\d{1,3}[.、)）]\s*)", "", block))
+    if not text:
+        return []
+    colon = re.match(r"^(?P<label>[^：:]{1,40})\s*[：:]\s*(?P<body>.+)$", text)
+    if colon:
+        label = _clean(colon.group("label"))
+        body = _clean(colon.group("body"))
+        title = _clean_position_title(label)
+        if title:
+            return [(title, body, label)]
+        if label.endswith(("地点", "城市")):
+            return []
+        if infer_city(label) or label.endswith(POSITION_LIST_LABELS):
+            return _position_list_candidates(body, location_hint=label if infer_city(label) else "", allow_plain=True)
+        return []
+
+    sentence = re.match(r"^(?P<title>[^，。]{2,32})，(?P<tail>(?:负责|参与|承担|涵盖|工作地点).+)$", text)
+    if sentence:
+        title = _clean_position_title(sentence.group("title"), allow_plain=True)
+        if title and (_has_position_signal(title) or title.endswith(POSITION_SUMMARY_TERMS)):
+            return [(title, _clean(sentence.group("tail")), title)]
+    parts = re.split(r"[、；;]", text)
+    if len(parts) > 1:
+        candidates = _position_list_candidates(text)
+        if len(candidates) > 1:
+            return candidates
+    title = _clean_position_title(text)
+    return [(title, "", text)] if title else []
+
+
+def _related_position_title_blocks(role_text: str) -> list[str]:
+    terms = "|".join(re.escape(term) for term in sorted(POSITION_TITLE_TERMS, key=len, reverse=True))
+    titles: list[str] = []
+    for marker in ("关联岗位", "招聘岗位"):
+        match = re.search(rf"{marker}\s+(?P<title>.{{0,40}}?(?:{terms}))(?=\s)", role_text)
+        if match:
+            title = _clean_position_title(match.group("title"))
+            if title and title not in titles:
+                titles.append(title)
+    for match in re.finditer(r"(?:本次)?招聘岗位为\s*([^。，]{2,60})", role_text):
+        for value in re.split(r"[、和]", match.group(1)):
+            title = _clean_position_title(value, allow_plain=True)
+            if title and len(title) <= 20 and title not in titles:
+                titles.append(title)
+    return titles
+
+
+def _position_list_candidates(
+    text: str, *, location_hint: str = "", allow_plain: bool = False
+) -> list[tuple[str, str, str]]:
+    candidates: list[tuple[str, str, str]] = []
+    parts = re.split(r"[、；;]", text)
+    if allow_plain and not any(_clean_position_title(part) for part in parts):
+        return []
+    for part in parts:
+        title = _clean_position_title(part, allow_plain=allow_plain)
+        if title:
+            candidates.append((title, "", location_hint))
+    return candidates
+
+
+def _clean_position_title(value: str, *, allow_plain: bool = False) -> str:
+    title = _clean(value).strip("-—–·• ")
+    if not title or title.startswith(POSITION_REJECT_PREFIXES):
+        return ""
+    if re.match(r"^[（(]?[一二三四五六七八九十0-9]+[）).、]", title):
+        return ""
+    for inner in reversed(re.findall(r"[（(]([^）)]{2,40})[）)]", title)):
+        if POSITION_ENGLISH_TERMS.search(title) and _has_position_signal(inner):
+            title = _clean(inner)
+            break
+    trailing = re.search(r"\s*[-—–]\s*([^—–-]{2,12})$", title)
+    if trailing and infer_city(trailing.group(1)):
+        title = _clean(title[: trailing.start()])
+    location = re.search(r"[（(]([^）)]{2,20})[）)]$", title)
+    if location and (infer_city(location.group(1)) or "岗位详情" in location.group(1)):
+        title = _clean(title[: location.start()])
+    if not title or len(title) > 36 or title.startswith(POSITION_REJECT_PREFIXES):
+        return ""
+    if any(mark in title for mark in "，。；;：:！？→"):
+        return ""
+    if title in {"岗位", "职位", "招聘岗位", "关联岗位", "岗位信息", "专业要求", "技能要求"}:
+        return ""
+    if not allow_plain and not _has_position_signal(title):
+        return ""
+    if allow_plain and len(title) > 24:
+        return ""
+    return title
+
+
+def _has_position_signal(title: str) -> bool:
+    base = re.sub(r"[（(][^）)]{1,40}[）)]\s*$", "", title).strip()
+    if base in {"开发", "测试", "算法", "助理", "经理", "专员", "顾问", "教师", "代表"}:
+        return False
+    return base.endswith(POSITION_TITLE_TERMS) or bool(POSITION_ENGLISH_TERMS.search(base))
+
+
+def _normalized_position_title(title: str) -> str:
+    return re.sub(r"[\s·•]+", "", title).casefold()
+
+
+def _merge_position(target: Position, incoming: Position) -> None:
+    target.city = _merge_delimited(target.city, incoming.city)
+    target.location_status = "confirmed" if target.city else "pending"
+    target.degree = target.degree or incoming.degree
+    target.majors = _merge_unique(target.majors, incoming.majors)
+    target.skills = _merge_unique(target.skills, incoming.skills)
+    target.headcount = target.headcount or incoming.headcount
+    target.responsibilities = target.responsibilities or incoming.responsibilities
+    target.requirements = target.requirements or incoming.requirements
+    if incoming.source_text and incoming.source_text not in (target.source_text or ""):
+        target.source_text = _clean(f"{target.source_text} {incoming.source_text}")
+
+
+def _merge_delimited(left: str | None, right: str | None) -> str | None:
+    values: list[str] = []
+    for item in [*(left or "").split(";"), *(right or "").split(";")]:
+        if item and item not in values:
+            values.append(item)
+    return ";".join(values) or None
 
 
 def _extract_block_texts(html: str) -> list[str]:
@@ -529,14 +673,17 @@ def _role_section_blocks(blocks: list[str]) -> list[str]:
     selected: list[str] = []
     active = False
     for block in blocks:
-        if active and any(marker in block for marker in DETAIL_SECTION_END_MARKERS):
+        heading = _clean(re.sub(r"^[^\w\u4e00-\u9fff]+", "", block))
+        if active and any(heading == marker or heading.startswith(f"{marker}：") for marker in DETAIL_SECTION_END_MARKERS):
             break
-        if any(marker in block for marker in DETAIL_SIGNAL_MARKERS):
+        wrapper = heading == "招聘公告与岗位信息"
+        marker = next(
+            (item for item in DETAIL_SIGNAL_MARKERS if heading == item or heading.startswith(f"{item}：")),
+            None,
+        )
+        if wrapper or marker:
             active = True
-            remainder = block
-            for marker in DETAIL_SIGNAL_MARKERS:
-                remainder = remainder.replace(marker, " ")
-            remainder = _clean(remainder)
+            remainder = "" if wrapper else _clean(heading[len(marker or "") :].lstrip("：: "))
             if remainder:
                 selected.append(remainder)
             continue
@@ -791,7 +938,7 @@ class _CardParser(HTMLParser):
                 self.current_field = "city"
                 if attr.get("data-city"):
                     self.current.city = attr["data-city"]
-            elif classes & {"date", "time", "collect-date", "created-at"}:
+            elif classes & {"date", "time", "card-date", "collect-date", "created-at"}:
                 self.current_field = "date"
             elif classes & {"tag", "label", "badge"}:
                 self.current_field = "tag"

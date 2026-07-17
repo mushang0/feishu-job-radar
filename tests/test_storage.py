@@ -41,6 +41,18 @@ def test_city_filter_keeps_jobs_whose_location_is_pending(tmp_path: Path):
     assert rows[0]["location_status"] == "pending"
 
 
+def test_repository_does_not_replace_known_collected_date_with_null(tmp_path: Path):
+    repo = JobRepository(tmp_path / "jobs.sqlite")
+    repo.init_schema()
+    repo.upsert_job(Job(dedupe_key="date:1", company="示例公司", title="校招", collected_date="2026-07-13"))
+
+    repo.upsert_job(Job(dedupe_key="date:1", company="示例公司", title="校招", collected_date=None))
+
+    with repo.connect() as connection:
+        row = connection.execute("SELECT collected_date FROM jobs WHERE dedupe_key = 'date:1'").fetchone()
+    assert row["collected_date"] == "2026-07-13"
+
+
 def test_repository_stores_multiple_structured_positions_under_one_announcement(tmp_path: Path):
     repo = JobRepository(tmp_path / "jobs.sqlite")
     repo.init_schema()

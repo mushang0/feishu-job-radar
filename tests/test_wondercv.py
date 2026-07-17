@@ -29,6 +29,21 @@ def test_parse_wondercv_list_extracts_public_cards():
     assert jobs[0].dedupe_key == "WonderCV:id:abc123"
 
 
+def test_parse_wondercv_list_reads_current_card_date_and_text_fallback():
+    html = """
+    <a href="/xiaozhao/current-date-1">
+      <span class="card-date">收录 2026.07.15</span><div class="company">甲公司</div>
+    </a>
+    <a href="/xiaozhao/current-date-2">
+      <span class="site-renamed-date">收录 2026.07.14</span><div class="company">乙公司</div>
+    </a>
+    """
+
+    jobs = parse_wondercv_list(html, "https://www.wondercv.com/xiaozhao/", {})
+
+    assert [job.collected_date for job in jobs] == ["2026-07-15", "2026-07-14"]
+
+
 def test_parse_wondercv_list_stops_on_login_or_captcha_page():
     html = "<html><body>请登录后继续访问 验证码</body></html>"
 
@@ -142,6 +157,103 @@ def test_direction_only_announcement_does_not_invent_position_records():
     detail = parse_wondercv_detail(html)
 
     assert detail.positions == []
+
+
+def test_realistic_summary_and_table_positions_are_deduplicated_without_duty_sentences():
+    html = """
+    <main>
+      <h2>招聘公告与岗位信息</h2>
+      <p>算法工程师：负责工业控制算法研发与优化，工作地点深圳、上海。</p>
+      <p>软件工程师：负责嵌入式系统开发与调试，工作地点深圳、苏州。</p>
+      <p>硬件工程师：参与工业控制器硬件设计与测试。</p>
+      <p>结构工程师：负责产品结构设计。</p>
+      <p>岗位</p><p>专业要求</p><p>技能要求</p>
+      <p>算法工程师</p><p>计算机、自动化、数学</p><p>C/C++/Python</p>
+      <p>软件工程师</p><p>计算机、软件工程</p><p>C语言、RTOS</p>
+      <p>硬件工程师</p><p>电子、电气、自动化</p><p>PCB布局</p>
+      <p>结构工程师</p><p>机械、材料</p><p>SolidWorks</p>
+      <p>负责工业控制算法研发与优化</p>
+      <p>参与工业控制器硬件设计与测试</p>
+      <h2>招聘流程</h2>
+    </main>
+    """
+
+    detail = parse_wondercv_detail(html)
+
+    assert [position.title for position in detail.positions] == [
+        "算法工程师", "软件工程师", "硬件工程师", "结构工程师",
+    ]
+    assert all(not position.title.startswith(("负责", "参与")) for position in detail.positions)
+
+
+def test_realistic_category_and_bilingual_lists_split_into_positions():
+    html = """
+    <main>
+      <h2>招聘公告与岗位信息</h2>
+      <p>技术研发类：AI大模型工程师、产品研发工程师、海外财务</p>
+      <p>北京：Wireless Researcher（无线通信研究员）、Edge-Cloud AI Intern（边缘-云人工智能实习生）</p>
+      <h2>招聘流程</h2>
+    </main>
+    """
+
+    detail = parse_wondercv_detail(html)
+
+    assert [position.title for position in detail.positions] == [
+        "AI大模型工程师", "产品研发工程师", "海外财务", "无线通信研究员", "边缘-云人工智能实习生",
+    ]
+    assert [position.city for position in detail.positions[-2:]] == ["北京市", "北京市"]
+
+
+def test_generated_position_summaries_keep_title_and_reject_duty_as_title():
+    html = """
+    <main>
+      <h2>招聘公告与岗位信息</h2>
+      <p>教师培训生，涵盖高中班级教师和少儿素养教师，工作地点大连。</p>
+      <p>新媒体实习生，负责社群私域、直播与短视频运营，工作地点合肥。</p>
+      <p>高中化学教师，负责授课、教研和学情反馈，工作地点合肥。</p>
+      <p>新媒体运营，负责平台投放和数据复盘，工作地点合肥。</p>
+      <p>考研学习顾问，负责学业规划咨询和学员服务，工作地点武汉。</p>
+      <p>负责平台投放和数据复盘</p>
+      <h2>招聘流程</h2>
+    </main>
+    """
+
+    detail = parse_wondercv_detail(html)
+
+    assert [position.title for position in detail.positions] == [
+        "教师培训生", "新媒体实习生", "高中化学教师", "新媒体运营", "考研学习顾问",
+    ]
+
+
+def test_related_position_title_survives_when_site_wraps_it_in_unparsed_divs():
+    html = """
+    <main>
+      <h2>招聘公告与岗位信息</h2>
+      <div>关联岗位 <span>投资银行部暑期实习生</span> 有机会了解投行项目运作全流程。</div>
+      <p>项目简介</p>
+      <p>项目面向2027届毕业生。</p>
+      <h2>招聘流程</h2>
+    </main>
+    """
+
+    detail = parse_wondercv_detail(html)
+
+    assert [position.title for position in detail.positions] == ["投资银行部暑期实习生"]
+
+
+def test_explicit_flat_position_list_is_recovered_from_detail_text():
+    html = """
+    <main>
+      <h2>招聘公告与岗位信息</h2>
+      <div>本次招聘岗位为教学科研人员和辅导员。具体要求请查阅岗位表。</div>
+      <p>岗位要求需查看附件。</p>
+      <h2>招聘流程</h2>
+    </main>
+    """
+
+    detail = parse_wondercv_detail(html)
+
+    assert [position.title for position in detail.positions] == ["教学科研人员", "辅导员"]
 
 
 def test_parse_wondercv_detail_falls_back_to_recruiting_direction_keywords():

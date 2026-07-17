@@ -50,13 +50,13 @@ def test_restore_seed_keeps_existing_runtime_database_unless_overwrite_requested
     assert _marker(target) == "seed"
 
 
-def _jobs_snapshot(path: Path, columns: list[str] | None = None) -> tuple[list[str], list[tuple]]:
+def _table_snapshot(path: Path, table: str, columns: list[str] | None = None) -> tuple[list[str], list[tuple]]:
     connection = sqlite3.connect(path)
     try:
-        actual_columns = [row[1] for row in connection.execute("PRAGMA table_info(jobs)")]
+        actual_columns = [row[1] for row in connection.execute(f"PRAGMA table_info({table})")]
         selected_columns = columns or actual_columns
         projection = ", ".join(f'"{column}"' for column in selected_columns)
-        rows = connection.execute(f"SELECT {projection} FROM jobs ORDER BY id").fetchall()
+        rows = connection.execute(f"SELECT {projection} FROM {table} ORDER BY id").fetchall()
         return actual_columns, rows
     finally:
         connection.close()
@@ -65,36 +65,45 @@ def _jobs_snapshot(path: Path, columns: list[str] | None = None) -> tuple[list[s
 def test_canonical_source_preserves_every_seed_job_value_and_null(tmp_path: Path):
     exported = tmp_path / "jobs.json"
 
-    assert export_seed_source(SEED, exported) == 802
+    assert export_seed_source(SEED, exported) == 764
     assert json.loads(exported.read_text(encoding="utf-8")) == json.loads(
         SOURCE.read_text(encoding="utf-8")
     )
 
     document = json.loads(SOURCE.read_text(encoding="utf-8"))
-    columns, rows = _jobs_snapshot(SEED)
-    assert document["columns"] == columns
-    assert [[job[column] for column in columns] for job in document["jobs"]] == [list(row) for row in rows]
-    assert sum(job["deadline"] is None for job in document["jobs"]) == 172
-    assert sum(job["last_checked"] is None for job in document["jobs"]) == 802
-    assert all(job["collected_date"] and job["first_seen"] and job["last_seen"] for job in document["jobs"])
+    assert document["format_version"] == 2
+    assert set(document["tables"]) == {"jobs", "job_positions"}
+    for table, snapshot in document["tables"].items():
+        columns, rows = _table_snapshot(SEED, table)
+        assert snapshot["columns"] == columns
+        assert [[row[column] for column in columns] for row in snapshot["rows"]] == [list(row) for row in rows]
+    jobs = document["tables"]["jobs"]["rows"]
+    assert len(document["tables"]["job_positions"]["rows"]) == 1419
+    assert all(job["collected_date"] < "2026-07-14" for job in jobs)
+    assert all(job["last_checked"] is None for job in jobs)
+    assert all(job["extraction_version"] == "detail-structure-v2" for job in jobs)
 
 
 def test_built_seed_matches_source_and_initializes_new_runtime_database(tmp_path: Path, monkeypatch):
     generated = tmp_path / "generated.sqlite"
     runtime = tmp_path / "fresh" / "jobs.sqlite"
-    columns = json.loads(SOURCE.read_text(encoding="utf-8"))["columns"]
+    document = json.loads(SOURCE.read_text(encoding="utf-8"))
+    columns = document["tables"]["jobs"]["columns"]
+    position_columns = document["tables"]["job_positions"]["columns"]
 
-    assert build_seed(SOURCE, generated) == 802
-    generated_columns, generated_rows = _jobs_snapshot(generated, columns)
-    old_columns, old_rows = _jobs_snapshot(SEED, columns)
-    # Runtime schema migrations may add nullable operational columns that are
-    # intentionally absent from the immutable canonical seed snapshot.
+    assert build_seed(SOURCE, generated) == 764
+    generated_columns, generated_rows = _table_snapshot(generated, "jobs", columns)
+    old_columns, old_rows = _table_snapshot(SEED, "jobs", columns)
     assert set(old_columns) == set(columns)
-    assert set(generated_columns) == set(columns) | {"location_status"}
+    assert set(generated_columns) == set(columns)
     assert generated_rows == old_rows
+    assert _table_snapshot(generated, "job_positions", position_columns) == _table_snapshot(
+        SEED, "job_positions", position_columns
+    )
     monkeypatch.setattr("jobpicky.seed.find_seed_database", lambda: generated)
     assert restore_seed_database(runtime) is True
-    assert _jobs_snapshot(runtime) == _jobs_snapshot(generated)
+    assert _table_snapshot(runtime, "jobs") == _table_snapshot(generated, "jobs")
+    assert _table_snapshot(runtime, "job_positions") == _table_snapshot(generated, "job_positions")
 
     connection = sqlite3.connect(runtime)
     try:

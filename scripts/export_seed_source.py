@@ -11,6 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATABASE = ROOT / "src" / "jobpicky" / "resources" / "jobs_seed.sqlite"
 DEFAULT_OUTPUT = ROOT / "src" / "jobpicky" / "resources" / "jobs_seed_source.json"
+PUBLIC_TABLES = ("jobs", "job_positions")
 
 
 def export_seed_source(database: Path, output: Path) -> int:
@@ -20,18 +21,21 @@ def export_seed_source(database: Path, output: Path) -> int:
         integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
         if integrity != "ok":
             raise sqlite3.DatabaseError(f"seed integrity check failed: {integrity}")
-        columns = [row["name"] for row in connection.execute("PRAGMA table_info(jobs)")]
-        if not columns:
-            raise sqlite3.DatabaseError("seed does not contain a jobs table")
-        jobs = [dict(row) for row in connection.execute("SELECT * FROM jobs ORDER BY id")]
+        tables = {}
+        for table in PUBLIC_TABLES:
+            columns = [row["name"] for row in connection.execute(f"PRAGMA table_info({table})")]
+            if not columns:
+                raise sqlite3.DatabaseError(f"seed does not contain a {table} table")
+            tables[table] = {
+                "columns": columns,
+                "rows": [dict(row) for row in connection.execute(f"SELECT * FROM {table} ORDER BY id")],
+            }
     finally:
         connection.close()
 
     document = {
-        "format_version": 1,
-        "table": "jobs",
-        "columns": columns,
-        "jobs": jobs,
+        "format_version": 2,
+        "tables": tables,
     }
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(
@@ -39,7 +43,7 @@ def export_seed_source(database: Path, output: Path) -> int:
         encoding="utf-8",
         newline="\n",
     )
-    return len(jobs)
+    return len(tables["jobs"]["rows"])
 
 
 def main() -> int:

@@ -391,6 +391,8 @@ class JobRepository:
         update_clause = ", ".join(update_assignments)
         with self.connect() as conn:
             before = conn.execute("SELECT * FROM jobs WHERE dedupe_key = ?", (values["dedupe_key"],)).fetchone()
+            if before and not values.get("collected_date") and before["collected_date"]:
+                values["collected_date"] = before["collected_date"]
             if before and before["parse_status"] == "detail_ready" and values.get("parse_status") != "detail_ready":
                 # A failed retry only carries list-page data.  Never let it erase a
                 # previously parsed detail record.
