@@ -174,6 +174,7 @@ def test_web_ui_uses_one_reusable_radar_builder_and_no_social_recruitment(tmp_pa
     client = TestClient(create_app(AppPaths(tmp_path / "profile")))
     page = client.get("/").text
     script = client.get("/static/js/app.js").text
+    style = client.get("/static/css/app.css").text
 
     assert page.count('id="radar-builder-template"') == 1
     assert "job.first_seen||job.collected_date" not in script
@@ -190,6 +191,11 @@ def test_web_ui_uses_one_reusable_radar_builder_and_no_social_recruitment(tmp_pa
     assert "orbit-radar" in script
     assert "focusScore" in script
     assert "偏好聚焦度" in script
+    assert 'card.matches(":hover,:focus-visible")' in script
+    assert 'card.closest(".home-radar-slot")' in script
+    assert 'observe(root.closest(".home-radar-slot"))' in script
+    assert "rowCount()<=4" in script
+    assert ".radar-tags .more[hidden]{display:none}" in style
     assert "调整中" in script
     assert "监控中心" not in script
     assert "监控范围" not in script
