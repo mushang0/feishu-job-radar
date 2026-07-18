@@ -137,6 +137,13 @@ def test_web_ui_exposes_local_first_product_structure(tmp_path: Path):
     assert "item.search_terms" in script
     assert "selected_company_groups" in script
     assert "matched_position_title" in script
+    assert 'id="home-notification"' in page
+    assert 'data-route="radar"' not in page
+    assert "toggleList(state.draft.batches,value)" in script
+    assert 'api("/api/preferences/rematch"' in script
+    assert "ensureTaskPanel" in script
+    assert "data-page-jump" in script
+    assert "招聘批次" in script
 
 
 def test_web_ui_uses_one_reusable_radar_builder_and_no_social_recruitment(tmp_path: Path):
@@ -264,7 +271,7 @@ def test_recommended_jobs_support_scopes_filters_pagination_and_detail(tmp_path:
     assert client.get("/api/jobs/999999").status_code == 404
 
 
-def test_preferences_returns_rematch_changes(tmp_path: Path, monkeypatch):
+def test_preferences_save_and_rematch_are_separate_operations(tmp_path: Path, monkeypatch):
     from jobpicky.services.local import LocalRematchResult
 
     paths = AppPaths(tmp_path / "profile")
@@ -289,14 +296,16 @@ def test_preferences_returns_rematch_changes(tmp_path: Path, monkeypatch):
     )
     client = TestClient(create_app(paths))
 
-    result = client.put(
+    saved = client.put(
         "/api/preferences",
         json={"user_profile": {"batches": ["秋招"], "role_groups": ["硬件/嵌入式"]}},
     ).json()
+    result = client.post("/api/preferences/rematch").json()
 
-    assert result["rematch"]["added_recommended_items"] == 2
-    assert result["rematch"]["removed_recommended_items"] == 1
-    assert result["rematch"]["recommended_items"] == 4
+    assert "rematch" not in saved
+    assert result["added_recommended_items"] == 2
+    assert result["removed_recommended_items"] == 1
+    assert result["recommended_items"] == 4
 
 
 def test_web_setup_preview_describes_three_step_workspace_flow(tmp_path: Path):

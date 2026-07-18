@@ -271,15 +271,16 @@ def create_app(paths: AppPaths | None = None) -> FastAPI:
         errors = state.save_preferences(payload.model_dump())
         if errors:
             raise HTTPException(status_code=422, detail=errors)
+        return state.preferences()
+
+    @app.post("/api/preferences/rematch")
+    def rematch_preferences() -> dict[str, Any]:
         from ..core import inspect_local_database
-        rematch = None
-        if inspect_local_database(paths.database).valid:
-            from ..services.local import rematch_local
-            _, rematch = rematch_local(paths.database, load_config(paths.config))
-        response = state.preferences()
-        if rematch:
-            response["rematch"] = asdict(rematch)
-        return response
+        if not inspect_local_database(paths.database).valid:
+            raise HTTPException(status_code=409, detail="本地岗位库尚未建立")
+        from ..services.local import rematch_local
+        _, result = rematch_local(paths.database, load_config(paths.config))
+        return asdict(result)
 
     @app.post("/api/local/start", status_code=202)
     def start_local() -> dict[str, str]:

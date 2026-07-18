@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f4f3f0">
   <meta name="description" content="JobPicky 求职岗位工作台">
   <title>JobPicky · 岗位雷达</title>
-  <link rel="stylesheet" href="/static/css/app.css?v=20260718-1">
+  <link rel="stylesheet" href="/static/css/app.css?v=20260718-2">
 </head>
 <body>
   <svg class="svg-defs" aria-hidden="true"><symbol id="i-radar" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 4v5m0 6v5M4 12h5m6 0h5"/></symbol><symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></symbol><symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h10m4 0h2M4 17h2m4 0h10M14 4v6M6 14v6"/></symbol><symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1"/></symbol><symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></symbol><symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol><symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol><symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-5-5 5 5-5 5"/></symbol></svg>
@@ -25,11 +25,12 @@
       <a class="brand" href="#radar" aria-label="JobPicky 岗位雷达"><span class="brand-mark">J</span><span>JobPicky</span></a>
       <button id="menu-button" class="icon-button menu-button" type="button" aria-label="打开导航" aria-expanded="false"><span></span><span></span><span></span></button>
       <nav id="main-nav" aria-label="主导航">
-        <a href="#radar" data-route="radar"><svg><use href="#i-radar"/></svg>岗位雷达</a>
         <a href="#integrations" data-route="integrations"><svg><use href="#i-link"/></svg>集成</a>
       </nav>
       <div class="topbar-actions"><span id="top-last-scan" class="last-scan"></span><button class="button primary scan-button" type="button">扫描新岗位</button></div>
     </header>
+
+    <div id="home-notification" class="home-notification" role="status" aria-live="polite" aria-atomic="true"></div>
 
     <main class="content-shell">
       <section id="view-radar" class="view" data-view="radar">
@@ -94,7 +95,7 @@
   <template id="radar-builder-template">
     <div id="radar-builder" class="radar-builder">
       <form id="builder-form" class="builder-steps" novalidate>
-        <section class="builder-step" data-builder-step="stage"><header><span class="step-index">1</span><div><h2>求职阶段</h2><p class="step-summary"></p></div><button class="step-edit hidden" type="button">修改</button></header><div class="step-body"><p class="step-question">你正在关注哪类招聘？</p><div id="builder-batches" class="stage-grid"></div></div></section>
+        <section class="builder-step" data-builder-step="stage"><header><span class="step-index">1</span><div><h2>求职阶段</h2><p class="step-summary"></p></div><button class="step-edit hidden" type="button">修改</button></header><div class="step-body"><p class="step-question">你正在关注哪类招聘？ <small>可多选</small></p><div id="builder-batches" class="stage-grid"></div><button class="button secondary step-continue" type="button">继续选择方向</button></div></section>
         <section class="builder-step" data-builder-step="roles"><header><span class="step-index">2</span><div><h2>关注方向</h2><p class="step-summary"></p></div><button class="step-edit hidden" type="button">修改</button></header><div class="step-body"><p class="step-question">你希望重点关注哪些岗位方向？</p><label class="search-field"><svg><use href="#i-search"/></svg><span class="sr-only">搜索岗位方向</span><input id="builder-role-search" type="search" placeholder="搜索岗位方向，例如 FPGA、嵌入式、算法"></label><div id="role-tabs" class="role-tabs" role="tablist"></div><div id="builder-roles" class="role-options"></div><div class="selection-summary"><span id="role-selection-count"></span><div id="selected-roles" class="selected-list"></div><p id="role-guidance" class="field-hint"></p></div><button class="button secondary step-continue" type="button">继续选择城市</button></div></section>
         <section class="builder-step" data-builder-step="cities"><header><span class="step-index">3</span><div><h2>期望城市</h2><p class="step-summary"></p></div><button class="step-edit hidden" type="button">修改</button></header><div class="step-body"><p class="step-question">你希望重点关注哪些地区？</p><label class="search-field"><svg><use href="#i-search"/></svg><span class="sr-only">搜索省份或城市</span><input id="builder-city-search" type="search" placeholder="搜索省份或城市，例如广东、深圳"></label><div id="selected-cities" class="selected-list"></div><label class="select-field">按省份查找<select id="builder-province-select"><option value="">选择省份</option></select></label><div id="builder-cities" class="city-options"></div><p class="field-hint">可以只选省份，也可以继续选择具体城市。地点待确认的岗位不会被城市条件排除。</p><button class="button secondary step-continue" type="button">继续添加信号</button></div></section>
         <section class="builder-step" data-builder-step="keywords"><header><span class="step-index">4</span><div><h2>补充信号 <small>可选</small></h2><p class="step-summary"></p></div><button class="step-edit hidden" type="button">修改</button></header><div class="step-body"><p class="step-question">还有哪些单位或关键词值得重点关注？</p><div class="signal-section"><h3>单位类型</h3><p class="field-hint">只有主动勾选的类型才会参与匹配，不会默认推荐研究院、银行或国企。</p><div id="builder-organization-groups" class="role-options"></div></div><div class="signal-section"><h3>指定公司或单位</h3><div class="inline-field"><input id="builder-company" type="text" placeholder="例如：华为、国家电网、某某研究所"><button id="add-builder-company" class="button secondary" type="button">添加</button></div><div id="builder-companies" class="selected-list signal-list"></div></div><div class="signal-section"><h3>自定义岗位关键词</h3><div class="inline-field"><input id="builder-keyword" type="text" placeholder="例如：Verilog、驱动开发、数字电源"><button id="add-builder-keyword" class="button secondary" type="button">添加</button></div><div id="builder-keywords" class="selected-list signal-list"></div><p id="keyword-guidance" class="field-hint">支持回车、中文或英文逗号分隔。</p></div><button class="button secondary step-continue" type="button">完成配置</button></div></section>
@@ -115,6 +116,6 @@
 
   <aside id="job-drawer" class="job-modal hidden" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="drawer-title"><div class="job-modal-backdrop" data-action="close-drawer"></div><section class="job-modal-card"><header><div><span class="detail-label">岗位详情</span><h2 id="drawer-title"></h2></div><button class="icon-button" data-action="close-drawer" type="button" aria-label="关闭详情"><svg><use href="#i-close"/></svg></button></header><div id="drawer-content" class="drawer-content"></div><footer id="drawer-actions"></footer></section></aside>
   <div id="toast-region" class="toast-region" aria-live="polite"></div>
-  <script type="module" src="/static/js/app.js?v=20260718-1"></script>
+  <script type="module" src="/static/js/app.js?v=20260718-2"></script>
 </body>
 </html>
