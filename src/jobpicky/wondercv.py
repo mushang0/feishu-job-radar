@@ -279,7 +279,7 @@ class WonderCVCrawler:
                 for index, job in enumerate(page_jobs, start=1):
                     self._ensure_not_cancelled()
                     company = _clean(job.company or job.title or "新公司")[:28]
-                    self.progress(f"发现新公司「{company}」，正在获取招聘广告（{index}/{len(page_jobs)}）")
+                    self.progress(f"发现新公司「{company}」，正在获取招聘公告（{index}/{len(page_jobs)}）")
                     enriched = self.enrich_detail(job)
                     self._ensure_not_cancelled()
                     if enriched.parse_status == "detail_ready":

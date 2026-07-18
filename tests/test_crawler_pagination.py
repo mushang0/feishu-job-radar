@@ -128,7 +128,7 @@ def test_wondercv_crawler_reports_detail_progress_for_each_job():
     result = crawler.crawl(should_stop=lambda _: False)
 
     assert len(result.jobs) == 1
-    assert any("发现新公司「Acme」，正在获取招聘广告（1/1）" in message for message in messages)
+    assert any("发现新公司「Acme」，正在获取招聘公告（1/1）" in message for message in messages)
     assert messages[-1] == "已读取「Acme」招聘详情，公告未明确列出岗位名称"
 
 

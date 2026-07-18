@@ -413,7 +413,18 @@ def test_campus_and_internship_preferences_filter_announcements_and_positions():
     ])
 
     assert campus.match(internship).should_push is False
-    assert campus.match(Job(title="校园招聘算法实习生", batch="校招")).should_push is False
+    assert campus.match(Job(title="校园招聘算法实习生", batch="校招")).match_reason != "批次不匹配"
+    assert campus.match(Job(company="上海秋晟资产管理有限公司", title="日常实习招聘", clean_title="投资研究岗", batch="校招")).should_push is False
+    assert campus.match(Job(title="暑期实习项目", clean_title="算法工程师", batch="校招")).should_push is False
+    assert campus.match(Job(company="上海秋晟资产管理有限公司", title="投资研究岗", batch="校招", summary="暑期实习、日常实习岗位招聘")).should_push is False
+    leaked = Job(company="上海秋晟资产管理有限公司", title="中科国晟2027届暑期实习计划启动", batch="校招", summary="面向海内外2027届硕士及以上应届生，实习周期4-5周，优秀者可直通校招录用。", positions=[
+        Position(title="燃气轮机算法研发课题", skills=["算法"]),
+    ])
+    assert campus.match(leaked).match_reason == "批次不匹配"
+
+    ambiguous = Job(title="2027届校园招聘及暑期实习计划", batch="校招", summary="同时开放正式校招岗位和实习岗位。")
+    assert campus._batch_matches(ambiguous) is True
+    assert campus._batch_matches(Job(title="校园招聘算法实习生", batch="校招")) is True
 
     mixed = Job(title="2027届校园招聘", batch="秋招", positions=[
         Position(title="算法实习生", employment_type="实习", skills=["算法"]),
@@ -427,6 +438,7 @@ def test_campus_and_internship_preferences_filter_announcements_and_positions():
     both_result = Matcher(config).match(internship)
     assert both_result.should_push is True
     assert both_result.matched_position_title == "算法工程师实习生"
+    assert Matcher(config)._batch_matches(leaked) is True
 
 
 def test_negative_only_does_not_push():

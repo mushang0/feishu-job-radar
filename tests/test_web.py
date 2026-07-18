@@ -90,24 +90,24 @@ def test_web_jobs_use_concise_discovery_summary_without_exposing_raw_title(tmp_p
     assert "raw_title" not in detail
 
 
-def test_task_progress_keeps_a_short_unique_activity_stream(tmp_path: Path):
+def test_task_progress_keeps_a_bounded_unique_activity_stream(tmp_path: Path):
     manager = TaskManager(AppPaths(tmp_path / "profile"))
     manager._tasks["scan-1"] = {"task_id": "scan-1", "status": "running"}
     try:
-        for index in range(8):
+        for index in range(20):
             manager.progress("scan-1", RunEvent(
                 "daily", 2, 6, "扫描岗位", detail=f"正在读取公司 {index}",
             ))
         manager.progress("scan-1", RunEvent(
-            "daily", 2, 6, "扫描岗位", detail="正在读取公司 7",
+            "daily", 2, 6, "扫描岗位", detail="正在读取公司 19",
         ))
 
         task = manager.get("scan-1")
 
         assert [item["text"] for item in task["activities"]] == [
-            f"正在读取公司 {index}" for index in range(2, 8)
+            f"正在读取公司 {index}" for index in range(4, 20)
         ]
-        assert task["message"] == "正在读取公司 7"
+        assert task["message"] == "正在读取公司 19"
     finally:
         manager._executor.shutdown(wait=False, cancel_futures=True)
 

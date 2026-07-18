@@ -196,3 +196,28 @@ body.drawer-open{overflow:hidden}
 .detail-facts{grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;overflow:visible;border:0;background:transparent}.detail-facts.facts-5>div:last-child{grid-column:auto}.detail-facts>div{gap:4px;padding:13px 14px;border:1px solid #e2e6eb;border-radius:10px;background:#f7f8fa;text-align:left}.detail-facts dt{color:#657080;font-size:12px;font-weight:550}.detail-facts dd{font-size:14px;font-weight:650;text-align:left}
 @media(max-width:760px){.home-notification{top:68px}.dashboard-workspace.is-scanning .dashboard-main,.dashboard-workspace.is-scanning .dashboard-primary,.dashboard-workspace.is-scanning .task-panel,.dashboard-workspace.is-scanning .home-radar-card{height:auto}.task-body{grid-template-columns:1fr;gap:22px;min-height:0}.task-progress ol{grid-template-columns:1fr 1fr}.task-progress li:not(:last-child):after{display:none}.task-activity{padding:20px 0 0;border-top:1px solid #e5e8ed;border-left:0}.task-activity-stream{min-height:110px}.detail-facts{grid-template-columns:1fr 1fr}}
 @media(max-width:480px){.home-notification{align-items:flex-start;top:66px}.home-notification .button{padding-inline:10px}.task-progress ol,.detail-facts{grid-template-columns:1fr}.pagination{gap:8px}.pagination .button{padding-inline:10px}}
+
+/* Preference wave and denser scan workspace */
+.focus-label{transition:left 1.15s cubic-bezier(.37,0,.2,1)}
+.focus-ticks i{transition-duration:.78s,.58s;transition-delay:var(--tick-delay)}
+.task-panel.task-workspace{display:flex;min-height:clamp(540px,calc(100dvh - 180px),690px);padding:34px 36px 38px;flex-direction:column;justify-content:center}
+.task-heading{margin-bottom:42px}.task-heading h1{font-size:31px;line-height:1.2}.task-heading p{margin-top:7px;font-size:14px}
+.task-body{grid-template-columns:minmax(230px,.72fr) minmax(0,1.28fr);gap:44px;min-height:350px}.task-activity-stream{min-height:300px}.task-activity-stream p{font-size:15px;line-height:1.65}
+@media(prefers-reduced-motion:reduce){.focus-label,.focus-ticks i{transition:none}}
+@media(max-width:760px){.task-panel.task-workspace{min-height:0;padding:24px 20px 28px}.task-heading h1{font-size:25px}.task-body{grid-template-columns:1fr;gap:22px;min-height:0}.task-activity-stream{min-height:110px}.task-activity-stream p{font-size:14px}}
+
+/* Stable scan geometry and lyric-style activity flow */
+.task-live{flex:1}.task-live>div{min-width:0}.task-heading h1,.task-heading p{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.task-body{grid-template-columns:280px minmax(0,1fr)}
+.task-progress li strong{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.task-activity-stream{position:relative;justify-content:flex-start}.task-activity-stream p{flex:none;width:100%;height:25px;overflow:hidden;color:#9aa1ab;line-height:25px;opacity:.42;text-overflow:ellipsis;white-space:nowrap;will-change:transform,opacity}.task-activity-stream p:nth-last-child(3){opacity:.56}.task-activity-stream p:nth-last-child(2){opacity:.72}.task-activity-stream p.latest{color:#303844;opacity:1}.task-activity-stream .task-activity-exiting{position:absolute;left:0;margin:0;pointer-events:none}
+@media(prefers-reduced-motion:reduce){.task-activity-stream p{will-change:auto}}
+@media(max-width:760px){.task-body{grid-template-columns:1fr}.task-heading p{max-width:calc(100vw - 125px)}}
+
+/* Keep the combined recruitment stage inside the radar center */
+.orbit-radar.has-multiple-stages .radar-center strong{font-size:15px;white-space:nowrap}
+@media(max-width:760px){.orbit-radar.has-multiple-stages .radar-center{padding-inline:8px}.orbit-radar.has-multiple-stages .radar-center strong{font-size:12px}}
+
+/* Lock scan header and progress columns against content-driven resizing */
+.dashboard-workspace.is-scanning,.dashboard-workspace.is-scanning .dashboard-main,.dashboard-workspace.is-scanning .dashboard-primary,.task-panel.task-workspace,.task-heading,.task-body{width:100%;min-width:0}
+.task-heading{display:grid;grid-template-columns:minmax(0,1fr) auto}.task-live{display:grid;grid-template-columns:50px minmax(0,1fr);width:100%;min-width:0}.task-live-ring{grid-column:1}.task-live>div{grid-column:2}.task-heading>.button{justify-self:end}
+.task-body{grid-template-columns:280px minmax(0,1fr)}.task-progress{width:280px;min-width:280px}.task-activity{min-width:0}
+@media(max-width:760px){.task-heading{grid-template-columns:minmax(0,1fr) auto}.task-live{grid-template-columns:50px minmax(0,1fr)}.task-body{grid-template-columns:1fr}.task-progress{width:100%;min-width:0}}

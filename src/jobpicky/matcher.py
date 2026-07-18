@@ -191,13 +191,23 @@ class Matcher:
         expected = self.profile.get("batches", [])
         if not expected:
             return True
-        title = job.clean_title or job.title
-        if self._match_many(f"{job.batch or ''} {title}", ["社招", "社会招聘", "experienced hire"]):
+        content_text = " ".join(filter(None, (
+            job.title, job.clean_title, job.raw_title, job.summary,
+            job.announcement_text, *job.tags, *job.job_tags, *job.raw_tags,
+        )))
+        batch_text = f"{job.batch or ''} {content_text}"
+        if self._match_many(batch_text, ["社招", "社会招聘", "experienced hire"]):
             return False
-        kinds = self._batch_kinds(title) or self._batch_kinds(job.batch or "")
-        if kinds == {"campus", "internship"} and not job.positions:
-            kinds = {"internship"}
-        return not kinds or bool(kinds & self._selected_batch_kinds(expected))
+        selected_kinds = self._selected_batch_kinds(expected)
+        strong_internship = self._match_many(content_text, [
+            "日常实习", "暑期实习", "寒假实习", "实习计划", "实习招聘", "实习生",
+        ])
+        campus_offer_text = re.sub(r"(?:直通|转入|进入|可转)校招(?:录用)?", "", content_text)
+        has_campus_offer = "campus" in self._batch_kinds(campus_offer_text)
+        if strong_internship and not has_campus_offer and "internship" not in selected_kinds:
+            return False
+        kinds = self._batch_kinds(batch_text)
+        return not kinds or bool(kinds & selected_kinds)
 
     @staticmethod
     def _batch_kinds(text: str) -> set[str]:

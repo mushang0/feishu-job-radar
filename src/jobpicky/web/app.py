@@ -197,7 +197,7 @@ class TaskManager:
                         "status": event.status,
                         "at": datetime.now().isoformat(timespec="seconds"),
                     })
-                    del activities[:-6]
+                    del activities[:-16]
                 task.update({"stage": event.command, "stage_label": event.name,
                              "stage_current": event.step, "stage_total": event.total_steps,
                              "message": event.detail or event.name})
