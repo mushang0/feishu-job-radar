@@ -60,9 +60,16 @@ def test_web_lists_local_jobs_and_health(tmp_path: Path):
     assert "建立你的岗位雷达" in page
     assert "四步" not in page  # Product copy stays user-facing, not implementation-facing.
     assert 'href="/static/css/app.css?v=' in page
+    assert 'href="/static/css/liquid-glass.css?v=' in page
     assert 'src="/static/js/app.js?v=' in page
     assert client.get("/static/css/app.css").status_code == 200
+    glass_css = client.get("/static/css/liquid-glass.css")
+    assert glass_css.status_code == 200
+    assert "prefers-reduced-transparency" in glass_css.text
     assert client.get("/static/js/app.js").status_code == 200
+    glass_script = client.get("/static/js/liquid-glass.js")
+    assert glass_script.status_code == 200
+    assert 'document.addEventListener("pointermove"' in glass_script.text
 
 
 def test_web_jobs_use_concise_discovery_summary_without_exposing_raw_title(tmp_path: Path):
