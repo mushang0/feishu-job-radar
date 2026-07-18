@@ -1,0 +1,430 @@
+/*
+ * JobPicky glass material layer.
+ * Refraction and chromatic-edge approach adapted from liquid-glass-react (MIT).
+ */
+:root {
+  --bg: #e9edf3;
+  --surface: rgba(249, 251, 254, .72);
+  --panel: rgba(255, 255, 255, .76);
+  --text: #101722;
+  --muted: #5d6878;
+  --subtle: #7d8796;
+  --line: rgba(127, 145, 169, .2);
+  --line-strong: rgba(111, 132, 160, .3);
+  --blue: #315fd6;
+  --blue-soft: rgba(225, 234, 255, .72);
+  --radius: 22px;
+  --radius-sm: 14px;
+  --glass-fill: rgba(246, 249, 253, .58);
+  --glass-fill-strong: rgba(255, 255, 255, .78);
+  --glass-line: rgba(255, 255, 255, .76);
+  --glass-shadow: 0 26px 72px rgba(59, 75, 99, .13), inset 0 1px 0 rgba(255, 255, 255, .86);
+  --glass-shadow-soft: 0 15px 42px rgba(63, 79, 103, .09), inset 0 1px 0 rgba(255, 255, 255, .78);
+}
+
+html { background: #e9edf3; }
+body {
+  min-height: 100dvh;
+  background:
+    radial-gradient(ellipse 55% 42% at 7% 1%, rgba(197, 220, 247, .62), transparent 72%),
+    radial-gradient(ellipse 48% 42% at 96% 13%, rgba(224, 215, 239, .44), transparent 74%),
+    radial-gradient(ellipse 52% 44% at 12% 96%, rgba(238, 217, 203, .48), transparent 73%),
+    radial-gradient(ellipse 48% 36% at 91% 96%, rgba(205, 219, 244, .5), transparent 72%),
+    linear-gradient(135deg, #edf1f6 0%, #e7ebf1 52%, #edf0f4 100%);
+  background-attachment: fixed;
+}
+body::before {
+  position: fixed;
+  z-index: -1;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.18'/%3E%3C/svg%3E");
+  content: "";
+  opacity: .035;
+  pointer-events: none;
+}
+
+.topbar,
+.home-radar-card,
+.job-modal-card {
+  --glass-x: 0;
+  --glass-y: 0;
+  isolation: isolate;
+  overflow: hidden;
+}
+.topbar::before,
+.home-radar-card::before,
+.job-modal-card::before {
+  position: absolute;
+  z-index: -2;
+  inset: -8px;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at calc(50% + var(--glass-x) * 36%) calc(8% + var(--glass-y) * 14%), rgba(255, 255, 255, .86), transparent 34%),
+    linear-gradient(135deg, rgba(255, 255, 255, .52), rgba(236, 243, 252, .18) 48%, rgba(255, 255, 255, .34));
+  backdrop-filter: blur(25px) saturate(150%);
+  -webkit-backdrop-filter: blur(25px) saturate(150%);
+  content: "";
+  filter: url("#liquid-glass-refraction");
+  opacity: .8;
+  transform: translate(calc(var(--glass-x) * 2px), calc(var(--glass-y) * 2px)) scale(1.02);
+  transition: opacity .28s ease, transform .34s cubic-bezier(.22, 1, .36, 1);
+  pointer-events: none;
+}
+.topbar::after,
+.home-radar-card::after,
+.job-modal-card::after {
+  position: absolute;
+  z-index: -1;
+  inset: 1px;
+  border: 1px solid rgba(255, 255, 255, .42);
+  border-radius: inherit;
+  box-shadow: inset 0 -1px 0 rgba(112, 133, 162, .08);
+  content: "";
+  pointer-events: none;
+}
+.glass-pointer-active::before { opacity: 1; }
+
+.topbar {
+  top: 14px;
+  width: min(1320px, calc(100% - 40px));
+  height: 68px;
+  margin: 0 auto;
+  padding: 0 22px;
+  border: 1px solid var(--glass-line);
+  border-radius: 22px;
+  background: rgba(244, 248, 253, .54);
+  box-shadow: var(--glass-shadow-soft);
+  backdrop-filter: blur(28px) saturate(145%);
+  -webkit-backdrop-filter: blur(28px) saturate(145%);
+}
+.topbar nav a {
+  height: 42px;
+  border-radius: 13px;
+  transition: color .2s ease, background .2s ease, box-shadow .2s ease, transform .2s ease;
+}
+.topbar nav a:hover { background: rgba(255, 255, 255, .46); }
+.topbar nav a:active { transform: scale(.98); }
+.topbar nav a.active {
+  background: rgba(255, 255, 255, .78);
+  box-shadow: 0 8px 22px rgba(73, 90, 116, .1), inset 0 1px 0 #fff;
+}
+.topbar nav a.active::after { display: none; }
+.brand-mark {
+  border: 1px solid rgba(255, 255, 255, .52);
+  background: rgba(17, 25, 39, .92);
+  box-shadow: 0 8px 18px rgba(19, 29, 44, .18), inset 0 1px 0 rgba(255, 255, 255, .18);
+}
+.content-shell { padding-top: 58px; }
+
+.button {
+  border-radius: 13px;
+  transition: color .2s ease, border-color .2s ease, background .2s ease, box-shadow .24s ease, transform .2s ease;
+}
+.button.primary {
+  border: 1px solid rgba(93, 127, 219, .54);
+  background: linear-gradient(180deg, rgba(67, 105, 220, .96), rgba(42, 84, 202, .96));
+  box-shadow: 0 12px 24px rgba(49, 95, 214, .22), inset 0 1px 0 rgba(255, 255, 255, .34);
+}
+.button.primary:hover { box-shadow: 0 15px 30px rgba(49, 95, 214, .3), inset 0 1px 0 rgba(255, 255, 255, .4); transform: translateY(-1px); }
+.button.secondary,
+.button.ghost {
+  border-color: rgba(255, 255, 255, .8);
+  background: rgba(255, 255, 255, .58);
+  box-shadow: 0 8px 20px rgba(62, 78, 101, .07), inset 0 1px 0 rgba(255, 255, 255, .86);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.button.secondary:hover,
+.button.ghost:hover { border-color: rgba(255, 255, 255, .96); background: rgba(255, 255, 255, .82); }
+.button:active { transform: translateY(1px) scale(.99); }
+
+.stats,
+.toolbar,
+.integration-intro,
+.credential-form,
+.setup-guide,
+.scan-summary,
+.scan-empty,
+.task-panel,
+.empty-state {
+  border: 1px solid var(--glass-line);
+  background: var(--glass-fill);
+  box-shadow: var(--glass-shadow-soft);
+  backdrop-filter: blur(22px) saturate(135%);
+  -webkit-backdrop-filter: blur(22px) saturate(135%);
+}
+.stats { overflow: hidden; border-radius: 22px; }
+.stat { padding: 24px 26px; border-color: rgba(122, 143, 171, .16); }
+.stat strong { font-variant-numeric: tabular-nums; letter-spacing: -.035em; }
+
+.recommendation-heading { align-items: center; margin-bottom: 16px; }
+.recommendation-tabs {
+  width: fit-content;
+  max-width: 100%;
+  gap: 4px;
+  margin: 0 0 16px;
+  padding: 5px;
+  overflow-x: auto;
+  border: 1px solid rgba(255, 255, 255, .68);
+  border-radius: 17px;
+  background: rgba(225, 231, 240, .48);
+  box-shadow: inset 0 1px 1px rgba(119, 136, 158, .08), 0 8px 24px rgba(70, 85, 107, .06);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+.recommendation-tabs button {
+  min-height: 39px;
+  padding: 0 17px;
+  border: 0;
+  border-radius: 12px;
+  color: #566274;
+}
+.recommendation-tabs button::after { display: none; }
+.recommendation-tabs button:hover { color: var(--text); }
+.recommendation-tabs button.active,
+.recommendation-tabs button[aria-selected="true"] {
+  background: rgba(255, 255, 255, .88);
+  box-shadow: 0 8px 18px rgba(62, 77, 99, .1), inset 0 1px 0 #fff;
+  color: #172033;
+}
+
+.toolbar { padding: 12px; border-radius: 20px; }
+.toolbar select,
+.toolbar input,
+.credential-form input,
+.builder-step input,
+.builder-step select,
+.pagination input {
+  border-color: rgba(117, 138, 166, .25);
+  border-radius: 13px;
+  background-color: rgba(255, 255, 255, .62);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .92);
+  color: var(--text);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+.toolbar select:hover,
+.toolbar input:hover,
+.credential-form input:hover,
+.builder-step input:hover,
+.builder-step select:hover { border-color: rgba(80, 111, 160, .38); background-color: rgba(255, 255, 255, .76); }
+.toolbar select:focus,
+.toolbar input:focus,
+.credential-form input:focus,
+.builder-step input:focus,
+.builder-step select:focus { border-color: rgba(49, 95, 214, .7); outline: 3px solid rgba(49, 95, 214, .12); }
+
+.job-grid { gap: 18px; }
+.job-card {
+  border-color: rgba(255, 255, 255, .72);
+  border-radius: 22px;
+  background: rgba(250, 252, 255, .6);
+  box-shadow: 0 14px 38px rgba(58, 73, 96, .08), inset 0 1px 0 rgba(255, 255, 255, .88);
+  backdrop-filter: blur(20px) saturate(125%);
+  -webkit-backdrop-filter: blur(20px) saturate(125%);
+}
+.job-card:hover {
+  border-color: rgba(255, 255, 255, .96);
+  background: rgba(255, 255, 255, .79);
+  box-shadow: 0 22px 52px rgba(55, 70, 94, .13), inset 0 1px 0 #fff;
+  transform: translateY(-3px);
+}
+.job-meta span,
+.radar-tags span,
+.status-badge {
+  border-color: rgba(255, 255, 255, .74);
+  background: rgba(245, 249, 255, .62);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .9);
+}
+
+.home-radar-card {
+  padding: 27px 28px 25px;
+  border-color: var(--glass-line);
+  border-radius: 30px;
+  background: rgba(244, 249, 255, .5);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: blur(28px) saturate(145%);
+  -webkit-backdrop-filter: blur(28px) saturate(145%);
+}
+.home-radar-card:hover {
+  border-color: rgba(255, 255, 255, .94);
+  background: rgba(250, 252, 255, .62);
+  box-shadow: 0 34px 82px rgba(57, 73, 98, .17), inset 0 1px 0 #fff;
+}
+.orbit-radar .coverage-field { fill: rgba(203, 220, 245, .28); stroke: rgba(82, 126, 190, .22); }
+.orbit-track { stroke: rgba(82, 126, 190, .35); }
+.radar-center {
+  border-color: rgba(112, 151, 208, .56);
+  background: rgba(235, 244, 255, .74);
+  box-shadow: 0 18px 38px rgba(63, 99, 151, .15), inset 0 1px 0 rgba(255, 255, 255, .96);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.orbit-node-text {
+  border-color: rgba(255, 255, 255, .82);
+  background: rgba(255, 255, 255, .72);
+  box-shadow: 0 9px 22px rgba(57, 82, 116, .12), inset 0 1px 0 #fff;
+  backdrop-filter: blur(13px);
+  -webkit-backdrop-filter: blur(13px);
+}
+.focus-scale { border-color: rgba(255, 255, 255, .75); background: rgba(255, 255, 255, .48); box-shadow: inset 0 1px 2px rgba(73, 94, 122, .07); }
+
+.builder-page { width: min(1320px, 100%); }
+.radar-builder { gap: 36px; }
+.builder-steps { border-top-color: rgba(121, 140, 164, .18); }
+.builder-step { border-bottom-color: rgba(121, 140, 164, .2); }
+.builder-step.active {
+  margin: 12px 0;
+  padding: 24px 24px 28px;
+  border: 1px solid rgba(255, 255, 255, .78);
+  border-radius: 26px;
+  background: rgba(255, 255, 255, .65);
+  box-shadow: 0 22px 56px rgba(58, 73, 96, .1), inset 0 1px 0 #fff;
+  backdrop-filter: blur(24px) saturate(130%);
+  -webkit-backdrop-filter: blur(24px) saturate(130%);
+}
+.builder-step.complete:not(.active) { opacity: .72; }
+.step-index {
+  border-color: rgba(88, 122, 185, .46);
+  background: rgba(245, 249, 255, .66);
+  box-shadow: inset 0 1px 0 #fff;
+}
+.builder-step.active .step-index,
+.builder-step.complete .step-index { background: rgba(255, 255, 255, .86); }
+.choice-button,
+.role-tabs button,
+.stage-card,
+.selected-item {
+  border-color: rgba(255, 255, 255, .72);
+  border-radius: 13px;
+  background: rgba(238, 243, 249, .56);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .78);
+}
+.choice-button:hover,
+.role-tabs button:hover,
+.stage-card:hover { border-color: rgba(255, 255, 255, .96); background: rgba(255, 255, 255, .72); }
+.choice-button[aria-pressed="true"],
+.stage-card[aria-pressed="true"],
+.role-tabs button[aria-selected="true"] {
+  border-color: rgba(255, 255, 255, .98);
+  background: rgba(255, 255, 255, .9);
+  box-shadow: 0 10px 24px rgba(56, 74, 103, .12), inset 0 1px 0 #fff;
+  color: var(--blue);
+}
+.radar-preview {
+  border-color: var(--glass-line);
+  border-radius: 30px;
+  background: rgba(245, 249, 255, .54);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: blur(28px) saturate(140%);
+  -webkit-backdrop-filter: blur(28px) saturate(140%);
+}
+.builder-actions {
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, .7);
+  border-radius: 18px;
+  background: rgba(236, 241, 248, .66);
+  box-shadow: 0 14px 34px rgba(57, 73, 96, .08), inset 0 1px 0 rgba(255, 255, 255, .86);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+}
+
+.page-header { border-bottom-color: rgba(120, 140, 165, .18); }
+.integration-intro,
+.setup-guide,
+.credential-form {
+  max-width: 760px;
+  padding: 22px;
+  border: 1px solid rgba(255, 255, 255, .74);
+  border-radius: 22px;
+}
+.setup-guide { margin-top: 14px; }
+.credential-form { margin-top: 16px; }
+.job-modal-backdrop { background: rgba(34, 44, 60, .28); backdrop-filter: blur(18px) saturate(.9); -webkit-backdrop-filter: blur(18px) saturate(.9); }
+.job-modal-card {
+  border-color: rgba(255, 255, 255, .82);
+  border-radius: 28px;
+  background: rgba(244, 248, 253, .72);
+  box-shadow: 0 42px 120px rgba(29, 40, 57, .34), inset 0 1px 0 #fff;
+  backdrop-filter: blur(32px) saturate(135%);
+  -webkit-backdrop-filter: blur(32px) saturate(135%);
+}
+.detail-facts > div,
+.position-card,
+.drawer-recommendation {
+  border-color: rgba(255, 255, 255, .74);
+  background: rgba(255, 255, 255, .52);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .9);
+}
+.job-modal-card > footer { border-top-color: rgba(119, 139, 165, .18); background: rgba(238, 244, 251, .66); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
+.home-notification,
+.toast {
+  border-color: rgba(255, 255, 255, .82);
+  background: rgba(248, 251, 255, .78);
+  box-shadow: 0 22px 58px rgba(42, 56, 77, .17), inset 0 1px 0 #fff;
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+}
+.task-panel.task-workspace { border-radius: 28px; }
+
+@media (max-width: 760px) {
+  body { background-attachment: scroll; }
+  .topbar {
+    top: 8px;
+    width: calc(100% - 16px);
+    height: 58px;
+    padding: 0 14px;
+    border-radius: 18px;
+  }
+  .topbar nav { top: 62px; border-color: rgba(255, 255, 255, .78); border-radius: 16px; background: rgba(245, 249, 254, .88); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); }
+  .content-shell { padding-top: 40px; }
+  .stats { border-radius: 19px; }
+  .stat { padding: 18px 16px; }
+  .toolbar { border-radius: 18px; }
+  .job-card { border-radius: 19px; }
+  .home-radar-card,
+  .radar-preview { border-radius: 24px; }
+  .builder-step.active { margin-inline: -4px; padding: 20px 16px 24px; border-radius: 22px; }
+  .builder-actions { border-radius: 16px; }
+  .job-modal-card { border-radius: 22px; }
+}
+
+@media (max-width: 480px) {
+  .recommendation-tabs { width: 100%; }
+  .recommendation-tabs button { flex: 1 0 auto; padding-inline: 14px; }
+  .home-radar-card { padding: 20px 17px; }
+  .toolbar { padding: 10px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .topbar::before,
+  .home-radar-card::before,
+  .job-modal-card::before { transform: none; transition: none; }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  body { background: #edf0f4; }
+  .topbar,
+  .home-radar-card,
+  .job-modal-card,
+  .stats,
+  .toolbar,
+  .job-card,
+  .radar-preview,
+  .builder-step.active,
+  .builder-actions,
+  .credential-form,
+  .integration-intro,
+  .setup-guide,
+  .task-panel { background: #f8fafc; backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .topbar::before,
+  .home-radar-card::before,
+  .job-modal-card::before { display: none; }
+}
+
+html[data-glass="fallback"] .topbar,
+html[data-glass="fallback"] .home-radar-card,
+html[data-glass="fallback"] .job-modal-card { background: rgba(248, 250, 253, .96); }
+html[data-glass="fallback"] .topbar::before,
+html[data-glass="fallback"] .home-radar-card::before,
+html[data-glass="fallback"] .job-modal-card::before { display: none; }

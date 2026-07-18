@@ -7,9 +7,11 @@
   <meta name="description" content="JobPicky 求职岗位工作台">
   <title>JobPicky · 岗位雷达</title>
   <link rel="stylesheet" href="/static/css/app.css?v=20260718-2">
+  <link rel="stylesheet" href="/static/css/liquid-glass.css?v=20260718-1">
 </head>
 <body>
   <svg class="svg-defs" aria-hidden="true"><symbol id="i-radar" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 4v5m0 6v5M4 12h5m6 0h5"/></symbol><symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></symbol><symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h10m4 0h2M4 17h2m4 0h10M14 4v6M6 14v6"/></symbol><symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1"/></symbol><symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></symbol><symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol><symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol><symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-5-5 5 5-5 5"/></symbol></svg>
+  <svg class="svg-defs" aria-hidden="true"><defs><filter id="liquid-glass-refraction" x="-18%" y="-22%" width="136%" height="144%" color-interpolation-filters="sRGB"><feTurbulence type="fractalNoise" baseFrequency="0.008 0.014" numOctaves="2" seed="7" result="noise"/><feGaussianBlur in="noise" stdDeviation="1.2" result="soft-noise"/><feDisplacementMap in="SourceGraphic" in2="soft-noise" scale="7" xChannelSelector="R" yChannelSelector="B" result="refracted"/><feColorMatrix in="refracted" type="matrix" values="1 0 0 0 .008 0 1 0 0 0 0 0 1 0 -.008 0 0 0 1 0"/></filter></defs></svg>
   <div id="loading-screen" class="loading-screen" aria-live="polite"><span class="spinner"></span><span>正在准备岗位雷达</span></div>
 
   <main id="onboarding" class="onboarding hidden">
