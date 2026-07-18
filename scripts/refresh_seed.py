@@ -23,6 +23,8 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from jobpicky.config import DEFAULT_CONFIG  # noqa: E402
 from jobpicky.core.ingestion import JobIngestionService  # noqa: E402
+from jobpicky.official_search import OfficialUrlFinder  # noqa: E402
+from jobpicky.pipeline import enrich_official_urls  # noqa: E402
 from jobpicky.storage import JobRepository  # noqa: E402
 from jobpicky.wondercv import EXTRACTION_VERSION, WonderCVCrawler  # noqa: E402
 from scripts.build_seed import build_seed  # noqa: E402
@@ -167,6 +169,7 @@ def refresh_seed(
     overlap_days: int = 7,
     max_new_items: int = 200,
     crawler_factory=WonderCVCrawler,
+    official_finder_factory=OfficialUrlFinder,
 ) -> dict:
     source_database = source_database.resolve()
     target_json = target_json.resolve()
@@ -230,6 +233,11 @@ def refresh_seed(
             raise RuntimeError(
                 f"refusing unusually large seed growth: {ingestion.new_items} new jobs exceeds {max_new_items}"
             )
+        official_links = enrich_official_urls(
+            repository,
+            official_finder_factory(),
+            only_recommended=False,
+        )
         with repository.connect() as connection:
             connection.execute("DELETE FROM job_positions WHERE job_id IN (SELECT id FROM jobs WHERE date(collected_date) > date(?))", (through_date.isoformat(),))
             connection.execute("DELETE FROM jobs WHERE date(collected_date) > date(?)", (through_date.isoformat(),))
@@ -255,6 +263,8 @@ def refresh_seed(
             "items_seen": ingestion.items_seen,
             "new_items": ingestion.new_items,
             "updated_items": ingestion.updated_items,
+            "official_links_checked": official_links.items_seen,
+            "official_links_updated": official_links.updated_items,
             "validation": rebuilt_validation,
             "run_directory": str(run_dir),
             "published": False,

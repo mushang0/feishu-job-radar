@@ -44,6 +44,11 @@ class FakeCrawler:
         return CrawlResult(jobs=list(self.jobs), pages_scanned=2)
 
 
+class FakeOfficialFinder:
+    def find_best(self, job: Job) -> str:
+        return f"https://careers.example.com/{job.company.split()[0]}"
+
+
 def test_refresh_builds_isolated_seed_through_inclusive_date(tmp_path: Path):
     source = tmp_path / "source.sqlite"
     target_json = tmp_path / "official.json"
@@ -59,16 +64,22 @@ def test_refresh_builds_isolated_seed_through_inclusive_date(tmp_path: Path):
         tmp_path / "runs",
         through_date=date(2026, 7, 17),
         crawler_factory=FakeCrawler,
+        official_finder_factory=FakeOfficialFinder,
     )
 
     assert result["new_items"] == 1
+    assert result["official_links_checked"] == 2
+    assert result["official_links_updated"] == 2
     assert result["published"] is False
     assert target_json.read_text(encoding="utf-8") == "old json"
     assert target_database.read_bytes() == b"old database"
     staged = Path(result["run_directory"]) / "staging" / "jobs_seed.sqlite"
     connection = sqlite3.connect(staged)
     try:
-        assert connection.execute("SELECT dedupe_key FROM jobs ORDER BY dedupe_key").fetchall() == [("existing",), ("new",)]
+        assert connection.execute("SELECT dedupe_key, official_url FROM jobs ORDER BY dedupe_key").fetchall() == [
+            ("existing", "https://careers.example.com/existing"),
+            ("new", "https://careers.example.com/new"),
+        ]
     finally:
         connection.close()
 
@@ -89,6 +100,7 @@ def test_refresh_publishes_both_artifacts_after_validation(tmp_path: Path):
         through_date=date(2026, 7, 17),
         publish=True,
         crawler_factory=FakeCrawler,
+        official_finder_factory=FakeOfficialFinder,
     )
 
     assert json.loads(target_json.read_text(encoding="utf-8"))["format_version"] == 2
@@ -119,6 +131,7 @@ def test_refresh_rejects_invalid_dates_without_publishing(tmp_path: Path):
             through_date=date(2026, 7, 17),
             publish=True,
             crawler_factory=InvalidDateCrawler,
+            official_finder_factory=FakeOfficialFinder,
         )
 
     assert target_json.read_text(encoding="utf-8") == "old json"
