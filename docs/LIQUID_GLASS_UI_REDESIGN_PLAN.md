@@ -459,6 +459,7 @@ python scripts/release_check.py
 - 上游实现调研：完成；
 - 技术路线：默认采用原生栈移植关键算法；
 - 代码实现：首轮全面换肤已完成；
+- 第二轮精修：已制定 [`SCAN_UI_POLISH_IMPLEMENTATION_PLAN.md`](./SCAN_UI_POLISH_IMPLEMENTATION_PLAN.md)，尚未开始代码实现；
 - Git 分支：`codex/ui-liquid-glass-redesign`；
 - 自动测试：相关测试 13 项通过，全量测试 312 项通过，发布检查 9/9 通过；
 - 视觉验收：代码级与响应式规则检查完成，仍需用户提供新界面截图完成最终视觉确认。
