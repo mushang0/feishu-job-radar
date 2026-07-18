@@ -70,7 +70,7 @@ def test_web_lists_local_jobs_and_health(tmp_path: Path):
     glass_css = client.get("/static/css/liquid-glass.css")
     assert glass_css.status_code == 200
     assert "prefers-reduced-transparency" in glass_css.text
-    assert ".builder-actions.onboarding-ready" in glass_css.text
+    assert ".builder-actions.action-ready" in glass_css.text
     assert ".focus-ticks { border-color:" in glass_css.text
     app_script = client.get("/static/js/app.js")
     assert app_script.status_code == 200
@@ -162,6 +162,12 @@ def test_web_ui_exposes_local_first_product_structure(tmp_path: Path):
     assert "ensureTaskPanel" in script
     assert "data-page-jump" in script
     assert "招聘批次" in script
+    assert page.count('class="button secondary scan-button"') == 2
+    assert 'class="button secondary" href="${escapeHtml(apply)}"' in script
+    assert 'actions.classList.toggle("action-ready",ready)' in script
+    assert 'fields=[["城市",location],["招聘批次"' in script
+    assert '["企业性质",job.company_type]' not in script
+    assert '<dt class="sr-only">${field}</dt>' in script
 
 
 def test_web_ui_uses_one_reusable_radar_builder_and_no_social_recruitment(tmp_path: Path):
