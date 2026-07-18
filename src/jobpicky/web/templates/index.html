@@ -6,8 +6,8 @@
   <meta name="theme-color" content="#f4f3f0">
   <meta name="description" content="JobPicky 求职岗位工作台">
   <title>JobPicky · 岗位雷达</title>
-  <link rel="stylesheet" href="/static/css/app.css?v=20260718-5">
-  <link rel="stylesheet" href="/static/css/liquid-glass.css?v=20260718-4">
+  <link rel="stylesheet" href="/static/css/app.css?v=20260719-1">
+  <link rel="stylesheet" href="/static/css/liquid-glass.css?v=20260719-1">
 </head>
 <body>
   <svg class="svg-defs" aria-hidden="true"><symbol id="i-radar" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 4v5m0 6v5M4 12h5m6 0h5"/></symbol><symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></symbol><symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h10m4 0h2M4 17h2m4 0h10M14 4v6M6 14v6"/></symbol><symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1"/></symbol><symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></symbol><symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol><symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol><symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-5-5 5 5-5 5"/></symbol></svg>
@@ -42,16 +42,11 @@
               <div class="mobile-radar-actions"><span>岗位更新</span><button class="button secondary scan-button" type="button">扫描新岗位</button></div>
               <section id="scan-summary" class="scan-summary hidden" aria-live="polite"></section>
               <section id="scan-empty" class="scan-empty hidden"><div><strong>岗位雷达已就绪</strong><span>开始扫描后，这里会显示与你偏好匹配的岗位。</span></div><button class="button primary" data-action="scan" type="button">开始扫描</button></section>
-              <section id="stats" class="stats hidden" aria-label="岗位摘要"></section>
               <section id="task-panel" class="task-panel hidden" aria-live="polite"></section>
             </div>
             <div id="radar-results">
-              <div class="recommendation-heading"><h2>推荐岗位</h2><a href="#jobs" class="library-link">浏览全部岗位库 <svg><use href="#i-arrow"/></svg></a></div>
-              <div id="recommendation-tabs" class="recommendation-tabs" role="tablist">
-                <button type="button" data-recommendation-scope="today" role="tab">今日推荐</button>
-                <button type="button" data-recommendation-scope="recommended" role="tab">全部推荐</button>
-                <button type="button" data-recommendation-scope="expiring" role="tab">即将截止</button>
-              </div>
+              <div class="recommendation-heading"><a href="#jobs" class="library-link">浏览全部岗位库 <svg><use href="#i-arrow"/></svg></a></div>
+              <div id="recommendation-tabs"><section id="stats" class="stats recommendation-tabs hidden" role="tablist" aria-label="推荐岗位视图"><span class="recommendation-indicator" aria-hidden="true"></span><button class="stat" type="button" data-recommendation-scope="today" role="tab" aria-selected="true"><span>今日推荐</span><strong>0</strong></button><button class="stat" type="button" data-recommendation-scope="recommended" role="tab" aria-selected="false"><span>全部推荐</span><strong>0</strong></button><button class="stat" type="button" data-recommendation-scope="expiring" role="tab" aria-selected="false"><span>即将截止</span><strong>0</strong></button></section></div>
               <div class="toolbar recommendation-toolbar">
                 <select id="radar-filter-city" aria-label="推荐岗位城市筛选"><option value="">全部城市</option></select>
                 <select id="radar-filter-batch" aria-label="推荐岗位招聘类型筛选"><option value="">全部类型</option></select>
@@ -118,6 +113,6 @@
 
   <aside id="job-drawer" class="job-modal hidden" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="drawer-title"><div class="job-modal-backdrop" data-action="close-drawer"></div><section class="job-modal-card"><header><div><span class="detail-label">岗位详情</span><h2 id="drawer-title"></h2></div><button class="icon-button" data-action="close-drawer" type="button" aria-label="关闭详情"><svg><use href="#i-close"/></svg></button></header><div id="drawer-content" class="drawer-content"></div><footer id="drawer-actions"></footer></section></aside>
   <div id="toast-region" class="toast-region" aria-live="polite"></div>
-  <script type="module" src="/static/js/app.js?v=20260718-5"></script>
+  <script type="module" src="/static/js/app.js?v=20260719-1"></script>
 </body>
 </html>
