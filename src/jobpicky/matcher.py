@@ -24,7 +24,7 @@ class Matcher:
     def match(self, job: Job) -> MatchResult:
         text = self._job_text(job)
         context_negative_hits = self._negative_hits(text)
-        if not self._batch_matches(job, text):
+        if not self._batch_matches(job):
             return self._result(False, "批次不匹配", decision_trace=["hard_filter:batch_mismatch"])
 
         candidates, rejected_negative, rejected_city = self._eligible_candidates(job)
@@ -187,27 +187,34 @@ class Matcher:
             decision_trace=decision_trace or [],
         )
 
-    def _batch_matches(self, job: Job, text: str) -> bool:
+    def _batch_matches(self, job: Job) -> bool:
         expected = self.profile.get("batches", [])
         if not expected:
             return True
-        batch_text = " ".join(part for part in [job.batch or "", text] if part)
-        if not batch_text.strip():
-            return True
-        # JobPicky recommends campus recruitment (including spring recruitment)
-        # and internships. Experienced-hire records remain queryable only.
-        if self._match_many(batch_text, ["社招", "社会招聘", "experienced hire"]):
+        title = job.clean_title or job.title
+        if self._match_many(f"{job.batch or ''} {title}", ["社招", "社会招聘", "experienced hire"]):
             return False
-        expanded: list[str] = []
-        for value in expected:
-            if value == "校招":
-                expanded.extend(["校招", "校园招聘", "秋招", "春招", "提前批", "补录"])
-            elif value in {"秋招", "提前批", "fall"}:
-                # Read legacy profiles as the campus-recruitment umbrella.
-                expanded.extend(["校招", "校园招聘", "秋招", "提前批", "fall"])
-            elif value == "实习":
-                expanded.extend(["实习", "intern"])
-        return bool(self._match_many(batch_text, expanded))
+        kinds = self._batch_kinds(title) or self._batch_kinds(job.batch or "")
+        if kinds == {"campus", "internship"} and not job.positions:
+            kinds = {"internship"}
+        return not kinds or bool(kinds & self._selected_batch_kinds(expected))
+
+    @staticmethod
+    def _batch_kinds(text: str) -> set[str]:
+        lowered = (text or "").casefold()
+        kinds: set[str] = set()
+        if any(word in lowered for word in ("实习", "intern")):
+            kinds.add("internship")
+        if any(word in lowered for word in ("校招", "校园招聘", "秋招", "春招", "提前批", "补录", "fall")):
+            kinds.add("campus")
+        return kinds
+
+    @staticmethod
+    def _selected_batch_kinds(values: list[str]) -> set[str]:
+        selected: set[str] = set()
+        for value in values:
+            selected.update(Matcher._batch_kinds(str(value)))
+        return selected
 
     def _eligible_candidates(self, job: Job) -> tuple[list[dict], list[str], bool]:
         target_cities = self.profile.get("target_cities", [])
@@ -216,6 +223,10 @@ class Matcher:
         rejected_negative: list[str] = []
         rejected_city = False
         for position in source_positions:
+            if position:
+                position_kinds = self._batch_kinds(position.employment_type or "") or self._batch_kinds(position.title)
+                if position_kinds and not position_kinds & self._selected_batch_kinds(self.profile.get("batches", [])):
+                    continue
             text = self._position_text(position) if position else self._job_text(job)
             negative_text = text if position else self._job_role_text(job)
             title = position.title if position else ""

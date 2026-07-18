@@ -366,7 +366,8 @@ def merge_detail_into_job(job: Job, detail: DetailParseResult) -> Job:
         job.degree = detail.degree
     if detail.deadline:
         job.deadline = detail.deadline
-    if detail.batch:
+    title_batch = infer_batch(job.title)
+    if detail.batch and (not job.batch or title_batch != job.batch):
         job.batch = detail.batch
     job.parse_status = "detail_ready"
     return job

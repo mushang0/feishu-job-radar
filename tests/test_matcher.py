@@ -400,6 +400,35 @@ def test_batch_mismatch_does_not_push():
     assert result.match_reason == "批次不匹配"
 
 
+def test_campus_and_internship_preferences_filter_announcements_and_positions():
+    config = deepcopy(DEFAULT_CONFIG)
+    config["user_profile"].update(
+        batches=["校招"], role_groups=["算法"], target_cities=[],
+        custom_keywords=[], must_watch_companies=[], selected_company_groups=[],
+        exclude_role_groups=[],
+    )
+    campus = Matcher(config)
+    internship = Job(title="算法工程师实习生招聘", batch="秋招", role_text="校园招聘项目", positions=[
+        Position(title="算法工程师实习生", employment_type="实习", skills=["算法"]),
+    ])
+
+    assert campus.match(internship).should_push is False
+    assert campus.match(Job(title="校园招聘算法实习生", batch="校招")).should_push is False
+
+    mixed = Job(title="2027届校园招聘", batch="秋招", positions=[
+        Position(title="算法实习生", employment_type="实习", skills=["算法"]),
+        Position(title="算法工程师", employment_type="校园招聘", skills=["算法"]),
+    ])
+    campus_result = campus.match(mixed)
+    assert campus_result.should_push is True
+    assert campus_result.matched_position_title == "算法工程师"
+
+    config["user_profile"]["batches"] = ["校招", "实习"]
+    both_result = Matcher(config).match(internship)
+    assert both_result.should_push is True
+    assert both_result.matched_position_title == "算法工程师实习生"
+
+
 def test_negative_only_does_not_push():
     matcher = Matcher(_config())
     job = Job(company="普通公司", title="2027届销售管培生", batch="秋招", target_graduate_year="2027届")

@@ -426,6 +426,15 @@ def test_detail_merge_keeps_wondercv_list_card_summary():
     assert job.summary == "面向2027届毕业生，开放12个研发岗位。"
 
 
+def test_detail_merge_keeps_an_explicit_batch_from_the_list_title():
+    job = Job(title="示例公司暑期实习生招聘", batch="实习")
+    detail = DetailParseResult(raw_text="同时介绍秋招项目", batch="秋招")
+
+    merge_detail_into_job(job, detail)
+
+    assert job.batch == "实习"
+
+
 def test_card_summary_can_be_recovered_from_stored_discovery_text():
     raw_title = "上市公司 医疗 收录 2026.06.09 迈瑞医疗 迈瑞医疗2027届暑期实习生招聘，面向全球2027届毕业生，提供12个岗位。 深圳市 本科"
 
