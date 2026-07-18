@@ -338,20 +338,22 @@ body::before {
   animation: onboarding-action-in .32s cubic-bezier(.22, 1, .36, 1);
 }
 .builder-actions.onboarding-ready #save-builder {
-  width: 100%;
-  min-height: 70px;
+  width: auto;
+  max-width: 100%;
+  min-height: 48px;
+  padding-inline: 22px;
   border: 1px solid rgba(255, 255, 255, .88);
-  border-radius: 18px;
-  background: rgba(224, 236, 253, .72);
-  box-shadow: 0 16px 38px rgba(61, 91, 137, .13), inset 0 1px 0 #fff;
+  border-radius: 14px;
+  background: rgba(232, 240, 252, .78);
+  box-shadow: 0 12px 28px rgba(61, 91, 137, .1), inset 0 1px 0 #fff;
   color: #294e80;
-  backdrop-filter: blur(24px) saturate(138%);
-  -webkit-backdrop-filter: blur(24px) saturate(138%);
+  backdrop-filter: blur(18px) saturate(128%);
+  -webkit-backdrop-filter: blur(18px) saturate(128%);
 }
 .builder-actions.onboarding-ready #save-builder:hover {
   border-color: #fff;
-  background: rgba(239, 246, 255, .86);
-  box-shadow: 0 20px 44px rgba(61, 91, 137, .17), inset 0 1px 0 #fff;
+  background: rgba(245, 249, 255, .9);
+  box-shadow: 0 15px 32px rgba(61, 91, 137, .13), inset 0 1px 0 #fff;
 }
 .builder-actions.onboarding-ready #save-builder:focus-visible { outline: 3px solid rgba(67, 112, 181, .26); outline-offset: 3px; }
 @keyframes onboarding-action-in { from { opacity: 0; transform: translateY(8px); } }
