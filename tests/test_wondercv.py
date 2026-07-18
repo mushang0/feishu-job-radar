@@ -1,7 +1,14 @@
 import pytest
 
 from jobpicky.models import Job
-from jobpicky.wondercv import WonderCVCrawler, parse_wondercv_detail, parse_wondercv_list
+from jobpicky.wondercv import (
+    DetailParseResult,
+    WonderCVCrawler,
+    extract_wondercv_card_summary,
+    merge_detail_into_job,
+    parse_wondercv_detail,
+    parse_wondercv_list,
+)
 
 
 def test_parse_wondercv_list_extracts_public_cards():
@@ -254,6 +261,191 @@ def test_explicit_flat_position_list_is_recovered_from_detail_text():
     detail = parse_wondercv_detail(html)
 
     assert [position.title for position in detail.positions] == ["教学科研人员", "辅导员"]
+
+
+def test_authoritative_role_cards_recover_titles_outside_the_suffix_whitelist():
+    html = """
+    <main>
+      <h2>关联岗位</h2>
+      <section id="jobs">
+        <div class="role-item"><strong>会计岗</strong><p>要求本科及以上，负责财务核算。</p></div>
+        <div class="role-item"><strong>AI算法工程师-大模型</strong><p>要求硕士及以上，负责模型研发。</p></div>
+        <div class="role-item"><strong>预培生</strong><p>参与研发设计核心工作。</p></div>
+      </section>
+      <h2>招聘流程</h2>
+    </main>
+    """
+
+    detail = parse_wondercv_detail(html)
+
+    assert [position.title for position in detail.positions] == ["会计岗", "AI算法工程师-大模型", "预培生"]
+    assert detail.degree == "本科及以上"
+    assert all(position.confidence == 0.99 for position in detail.positions)
+
+
+def test_role_cards_and_position_table_merge_codes_without_duplicates():
+    html = """
+    <main>
+      <h2>招聘公告与岗位信息</h2>
+      <table>
+        <tr><th>岗位编号</th><th>岗位名称</th><th>工作地点</th></tr>
+        <tr><td>Int03</td><td>医学信号处理算法研究工程师</td><td>深圳、武汉</td></tr>
+        <tr><td>Int04</td><td>医学图像处理研究工程师</td><td>深圳</td></tr>
+      </table>
+      <section id="jobs">
+        <h2>关联岗位</h2>
+        <div class="role-item"><strong>Int03 医学信号处理算法研究工程师</strong><p>负责医疗设备核心信号处理算法。</p></div>
+      </section>
+      <h2>招聘流程</h2>
+    </main>
+    """
+
+    detail = parse_wondercv_detail(html)
+
+    assert [position.title for position in detail.positions] == [
+        "医学信号处理算法研究工程师", "医学图像处理研究工程师",
+    ]
+
+
+def test_position_table_uses_the_job_column_not_requirements_or_majors():
+    html = """
+    <main>
+      <table>
+        <tr><th>招聘类别</th><th>招聘人数</th><th>招聘对象</th></tr>
+        <tr><td>总部管培生</td><td>4人</td><td>全日制硕士及以上学历的2026届毕业生</td></tr>
+        <tr><td>所属企业校招岗位</td><td>62人</td><td>全日制大专及以上学历的2026届毕业生</td></tr>
+      </table>
+      <table>
+        <tr><th>招聘部门</th><th>人数</th><th>专业要求</th></tr>
+        <tr><td>规划分院</td><td>5人</td><td>城乡规划 / 建筑学 / 风景园林</td></tr>
+      </table>
+      <table>
+        <tr><th>岗位方向</th><th>专业要求</th></tr>
+        <tr><td>燃气运营类</td><td>燃气工程、自动化</td></tr>
+      </table>
+    </main>
+    """
+
+    detail = parse_wondercv_detail(html)
+
+    assert [position.title for position in detail.positions] == ["总部管培生", "燃气运营类"]
+
+
+def test_role_cards_reject_a_cross_company_announcement_mix():
+    html = """
+    <main>
+      <h1>海天味业27届实习</h1>
+      <section id="jobs">
+        <div class="role-item"><strong>警务辅助人员</strong><p>武汉市公安局黄陂区分局公开招聘警务辅助人员。</p></div>
+        <div class="role-item"><strong>博士后</strong><p>山东第一医科大学面向海内外公开招聘博士后研究人员。</p></div>
+        <div class="role-item"><strong>某学院招聘公告</strong><p>某学院招聘公告。</p></div>
+      </section>
+    </main>
+    """
+
+    detail = parse_wondercv_detail(html)
+
+    assert detail.positions == []
+
+
+def test_campaign_role_cards_require_evidence_in_the_announcement():
+    html = """
+    <main>
+      <h1>中国核电27届秋招</h1>
+      <p>中国核电2026校园招聘项目，具体岗位未在公告中列出。</p>
+      <section id="jobs">
+        <div class="role-item"><strong>中国核电2026校园招聘</strong><p>中国核电2026校园招聘项目。</p></div>
+        <div class="role-item"><strong>编导助理</strong><p>工作地点杭州。</p></div>
+        <div class="role-item"><strong>保险康养顾问</strong><p>工作地点绥化。</p></div>
+      </section>
+    </main>
+    """
+
+    detail = parse_wondercv_detail(html)
+
+    assert detail.positions == []
+
+
+def test_position_titles_remove_batch_codes_salary_and_location():
+    html = """
+    <main>
+      <h2>岗位包括数字设计工程师、AI Agent工程师、理科老师、软件开发类、IC封装工程师、JAVA开发工程师、算法研发岗、启明星实习生、车辆调度研发工程师和考研学习顾问</h2>
+      <section id="jobs">
+        <div class="role-item"><strong>【校招】数字设计工程师(007998)</strong><p>工作地点深圳。</p></div>
+        <div class="role-item"><strong>AI Agent工程师-北京</strong><p>负责智能体研发。</p></div>
+        <div class="role-item"><strong>年薪15-25万理科老师</strong><p>负责课程教学。</p></div>
+        <div class="role-item"><strong>软件开发类-27届提前批</strong><p>负责软件开发。</p></div>
+        <div class="role-item"><strong>（26届）JW26001-IC封装工程师（热设计/3DIC/封装SI/系统级晶圆/光电合封/封装设计/封装工艺/封装应力）</strong><p>负责封装研发。</p></div>
+        <div class="role-item"><strong>应届本科毕业生</strong><p>专业包括电气、自动化和计算机。</p></div>
+        <div class="role-item"><strong>具有工作经验的专业人才</strong><p>需持有注册工程师证书。</p></div>
+        <div class="role-item"><strong>JAVA开发工程师（2027届校园招聘）</strong><p>负责服务端研发。</p></div>
+        <div class="role-item"><strong>精英计划-算法研发岗</strong><p>负责算法研发。</p></div>
+        <div class="role-item"><strong>🔹 启明星实习生</strong><p>参与教学支持。</p></div>
+        <div class="role-item"><strong>阿里星顶尖人才计划</strong><p>面向顶尖青年人才。</p></div>
+        <div class="role-item"><strong>某公司2027届暑期实习招聘</strong><p>具体岗位待公布。</p></div>
+        <div class="role-item"><strong>2026年第一次公开招聘入口</strong><p>点击入口查看岗位。</p></div>
+        <div class="role-item"><strong>【2026届春招】车辆调度研发工程师</strong><p>负责调度研发。</p></div>
+        <div class="role-item"><strong>武汉-考研学习顾问-26校招</strong><p>负责学习规划。</p></div>
+        <div class="role-item"><strong>精英计划补招岗（仅限26届）</strong><p>具体岗位待确认。</p></div>
+        <div class="role-item"><strong>硕士推免生预选拔</strong><p>面向优秀本科毕业生。</p></div>
+      </section>
+    </main>
+    """
+
+    detail = parse_wondercv_detail(html)
+
+    assert [position.title for position in detail.positions] == [
+        "数字设计工程师", "AI Agent工程师", "理科老师", "软件开发类", "IC封装工程师",
+        "JAVA开发工程师", "算法研发岗", "启明星实习生", "车辆调度研发工程师", "考研学习顾问",
+    ]
+
+
+def test_department_role_cards_expand_explicit_intern_directions():
+    html = """
+    <main>
+      <section id="jobs">
+        <div class="role-item">
+          <strong>技术创新中心（2026年实习）(J10933)</strong>
+          <p>招聘研究助理、产品经理助理、数据分析等方向实习生，要求本科及以上。</p>
+        </div>
+      </section>
+    </main>
+    """
+
+    detail = parse_wondercv_detail(html)
+
+    assert [position.title for position in detail.positions] == ["研究助理", "产品经理助理", "数据分析"]
+
+
+def test_detail_merge_keeps_wondercv_list_card_summary():
+    job = Job(summary="面向2027届毕业生，开放12个研发岗位。")
+    detail = DetailParseResult(raw_text="详情正文", summary="详情正文很长，不能覆盖列表卡片摘要。")
+
+    merge_detail_into_job(job, detail)
+
+    assert job.summary == "面向2027届毕业生，开放12个研发岗位。"
+
+
+def test_card_summary_can_be_recovered_from_stored_discovery_text():
+    raw_title = "上市公司 医疗 收录 2026.06.09 迈瑞医疗 迈瑞医疗2027届暑期实习生招聘，面向全球2027届毕业生，提供12个岗位。 深圳市 本科"
+
+    summary = extract_wondercv_card_summary(raw_title)
+
+    assert summary.startswith("迈瑞医疗2027届暑期实习生招聘")
+    assert "提供12个岗位" in summary
+
+
+def test_card_summary_stops_at_a_complete_sentence_instead_of_cropping_detail_text():
+    raw_title = (
+        "央企 科技 收录 2026.07.10 示例集团 "
+        "示例集团2027届校园招聘全面启动。面向2027届毕业生开放技术研发与经营管理岗位。"
+        "公司历史、福利制度、招聘流程、全国业务布局、培养体系、薪酬结构、办公环境和企业文化等大段详情不应继续塞进列表卡片。 北京市 本科"
+    )
+
+    summary = extract_wondercv_card_summary(raw_title)
+
+    assert summary == "示例集团2027届校园招聘全面启动。面向2027届毕业生开放技术研发与经营管理岗位。"
+    assert len(summary) <= 120
 
 
 def test_parse_wondercv_detail_falls_back_to_recruiting_direction_keywords():

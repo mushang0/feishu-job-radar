@@ -19,6 +19,7 @@ from ..locations import location_options
 from ..organizations import organization_options
 from ..paths import AppPaths
 from ..core import DatabaseBootstrapService, JobQueryService
+from ..wondercv import extract_wondercv_card_summary
 
 
 class WebStateService:
@@ -152,6 +153,7 @@ class WebStateService:
         )
         stats = queries.stats()
         for item in items:
+            item["card_summary"] = extract_wondercv_card_summary(item.pop("raw_title", "")) or item.get("summary")
             item["detail_url"] = item.pop("original_url", None)
             apply_url = str(item.get("apply_url") or "").strip()
             if not _valid_apply_url(apply_url):
@@ -181,6 +183,7 @@ class WebStateService:
         from ..storage import JobRepository
         item = JobRepository(self.paths.database).get_job_detail(job_id)
         if item:
+            item["card_summary"] = extract_wondercv_card_summary(item.pop("raw_title", "")) or item.get("summary")
             item["detail_url"] = item.pop("original_url", None)
             if not _valid_apply_url(str(item.get("apply_url") or "")):
                 item["apply_url"] = None

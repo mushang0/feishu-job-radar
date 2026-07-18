@@ -187,6 +187,17 @@ class TaskManager:
         with self._lock:
             task = self._tasks.get(task_id)
             if task:
+                activity = event.detail or event.name
+                activities = task.setdefault("activities", [])
+                if activity and (not activities or activities[-1].get("text") != activity):
+                    activities.append({
+                        "text": activity,
+                        "stage": event.command,
+                        "step": event.step,
+                        "status": event.status,
+                        "at": datetime.now().isoformat(timespec="seconds"),
+                    })
+                    del activities[:-6]
                 task.update({"stage": event.command, "stage_label": event.name,
                              "stage_current": event.step, "stage_total": event.total_steps,
                              "message": event.detail or event.name})

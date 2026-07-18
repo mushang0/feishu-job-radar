@@ -186,7 +186,14 @@ def run_daily_workflow(
             def is_cancelled() -> bool:
                 return cancel_check() or guard.cancelled.is_set()
 
-            crawler = WonderCVCrawler(config, cancel_check=is_cancelled)
+            crawler = WonderCVCrawler(
+                config,
+                cancel_check=is_cancelled,
+            )
+            if hasattr(crawler, "progress"):
+                crawler.progress = lambda detail: reporter.stage(
+                    "daily", 2, 6, "扫描 WonderCV 新岗位", detail=detail,
+                )
             last_run_date = repo.get_last_successful_run_date("daily")
 
             def should_stop(page_jobs) -> bool:
@@ -226,7 +233,7 @@ def run_daily_workflow(
                 )
                 errors.append(_stage_error("fetch", code, message))
             elif source_attempted and not source_succeeded:
-                errors.append(_stage_error("fetch", "fetch_failed", "宀椾綅鎶撳彇澶辫触"))
+                errors.append(_stage_error("fetch", "fetch_failed", "岗位抓取失败"))
             if getattr(crawl, "interrupted", False) or is_cancelled():
                 errors.append(_stage_error("fetch", "fetch_failed", "岗位抓取已中断"))
                 return _finish(
@@ -253,7 +260,14 @@ def run_daily_workflow(
             # of whether Feishu is configured.
             reporter.stage("daily", 4, 6, "补全官方投递链接")
             try:
-                enrich_summary = enrich_official_urls(repo, OfficialUrlFinder(), only_recommended=True)
+                enrich_summary = enrich_official_urls(
+                    repo,
+                    OfficialUrlFinder(),
+                    only_recommended=True,
+                    progress=lambda detail: reporter.stage(
+                        "daily", 4, 6, "补全官方投递链接", detail=detail,
+                    ),
+                )
                 reporter.stage("daily", 4, 6, "补全官方投递链接", "done", f"更新 {enrich_summary.updated_items} 条")
             except Exception as exc:
                 logging.warning("Official URL enrichment failed: %s", safe_exception_detail(exc, config))

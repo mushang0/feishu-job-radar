@@ -96,7 +96,7 @@ def test_wondercv_crawler_stops_before_detail_backfill_for_known_page():
     assert result.jobs == []
     assert result.pages_scanned == 0
     assert calls == ["https://www.wondercv.com/xiaozhao/"]
-    assert messages[-1] == "第 1 页均为已处理岗位，日常扫描完成。"
+    assert messages[-1] == "第 1 页岗位均已整理，已获取到最新位置"
 
 
 def test_wondercv_crawler_reports_detail_progress_for_each_job():
@@ -128,8 +128,8 @@ def test_wondercv_crawler_reports_detail_progress_for_each_job():
     result = crawler.crawl(should_stop=lambda _: False)
 
     assert len(result.jobs) == 1
-    assert any("详情回填：第 1 页 1/1 - Acme" in message for message in messages)
-    assert messages[-1] == "详情回填：第 1 页 1/1 - 完成"
+    assert any("发现新公司「Acme」，正在获取招聘广告（1/1）" in message for message in messages)
+    assert messages[-1] == "已读取「Acme」招聘详情，公告未明确列出岗位名称"
 
 
 def test_progress_output_is_flushed(monkeypatch):

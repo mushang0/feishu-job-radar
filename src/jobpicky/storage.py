@@ -858,6 +858,7 @@ class JobRepository:
                 jobs.source,
                 jobs.company,
                 COALESCE(jobs.clean_title, jobs.title) AS title,
+                jobs.raw_title,
                 jobs.summary,
                 jobs.batch,
                 jobs.target_graduate_year,

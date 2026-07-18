@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import date
+from typing import Callable
 
 from .matcher import Matcher
 from .models import Job
@@ -87,6 +88,7 @@ def enrich_official_urls(
     *,
     only_recommended: bool = True,
     limit: int | None = None,
+    progress: Callable[[str], None] | None = None,
 ) -> DailySummary:
     rows = repo.list_recommended_jobs() if only_recommended else repo.list_all_jobs()
     candidates = [row for row in rows if not row.get("official_url")]
@@ -94,11 +96,16 @@ def enrich_official_urls(
         candidates = candidates[: max(limit, 0)]
     updated_items = 0
     for row in candidates:
+        company = str(row.get("company") or "该公司").strip()
+        if progress:
+            progress(f"正在查找「{company}」的官方投递入口")
         job = _job_from_row(row)
         job_id = int(row.get("job_id") or row.get("id"))
         official_url = finder.find_best(job)
         if official_url and repo.update_official_url_if_empty(job_id, official_url):
             updated_items += 1
+            if progress:
+                progress(f"已整理「{company}」的官方投递入口")
     return DailySummary(
         items_seen=len(candidates),
         new_items=0,

@@ -5,8 +5,9 @@ from fastapi.testclient import TestClient
 
 from jobpicky.models import Job
 from jobpicky.paths import AppPaths
+from jobpicky.runtime import RunEvent
 from jobpicky.storage import JobRepository
-from jobpicky.web.app import create_app
+from jobpicky.web.app import TaskManager, create_app
 
 
 def test_web_preferences_never_return_app_secret_and_persist_user_inputs(tmp_path: Path):
@@ -62,6 +63,53 @@ def test_web_lists_local_jobs_and_health(tmp_path: Path):
     assert 'src="/static/js/app.js?v=' in page
     assert client.get("/static/css/app.css").status_code == 200
     assert client.get("/static/js/app.js").status_code == 200
+
+
+def test_web_jobs_use_concise_discovery_summary_without_exposing_raw_title(tmp_path: Path):
+    paths = AppPaths(tmp_path / "profile")
+    repo = JobRepository(paths.database)
+    repo.init_schema()
+    stored = repo.upsert_job(Job(
+        dedupe_key="web:summary",
+        company="迈瑞医疗",
+        title="迈瑞医疗",
+        raw_title=(
+            "上市公司 医疗 收录 2026.06.09 迈瑞医疗 "
+            "迈瑞医疗2027届暑期实习生招聘，面向全球2027届毕业生，提供12个岗位。 深圳市 本科"
+        ),
+        summary="招聘详情正文很长，不适合直接展示在列表卡片中。",
+    ))
+    client = TestClient(create_app(paths))
+
+    item = client.get("/api/jobs").json()["items"][0]
+    detail = client.get(f"/api/jobs/{stored.job_id}").json()
+
+    assert item["card_summary"].startswith("迈瑞医疗2027届暑期实习生招聘")
+    assert detail["card_summary"] == item["card_summary"]
+    assert "raw_title" not in item
+    assert "raw_title" not in detail
+
+
+def test_task_progress_keeps_a_short_unique_activity_stream(tmp_path: Path):
+    manager = TaskManager(AppPaths(tmp_path / "profile"))
+    manager._tasks["scan-1"] = {"task_id": "scan-1", "status": "running"}
+    try:
+        for index in range(8):
+            manager.progress("scan-1", RunEvent(
+                "daily", 2, 6, "扫描岗位", detail=f"正在读取公司 {index}",
+            ))
+        manager.progress("scan-1", RunEvent(
+            "daily", 2, 6, "扫描岗位", detail="正在读取公司 7",
+        ))
+
+        task = manager.get("scan-1")
+
+        assert [item["text"] for item in task["activities"]] == [
+            f"正在读取公司 {index}" for index in range(2, 8)
+        ]
+        assert task["message"] == "正在读取公司 7"
+    finally:
+        manager._executor.shutdown(wait=False, cancel_futures=True)
 
 
 def test_web_ui_exposes_local_first_product_structure(tmp_path: Path):

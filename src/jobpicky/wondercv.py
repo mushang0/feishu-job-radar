@@ -12,6 +12,7 @@ from typing import Callable
 from urllib.parse import urljoin
 
 import requests
+from bs4 import BeautifulSoup
 
 from .models import Job, Position
 from .normalizer import build_dedupe_key, infer_batch, infer_city, infer_graduate_year, normalize_company, normalize_date
@@ -20,7 +21,7 @@ from .taxonomy import infer_role_direction, role_signal_terms
 
 
 WONDERCV_URL = "https://www.wondercv.com/xiaozhao/"
-EXTRACTION_VERSION = "detail-structure-v2"
+EXTRACTION_VERSION = "detail-structure-v3"
 
 
 def _print_progress(message: str) -> None:
@@ -115,7 +116,7 @@ def parse_wondercv_list(html: str, page_url: str, aliases: dict[str, list[str]] 
                 title=title,
                 raw_title=raw_title,
                 clean_title=title,
-                summary=parsed["summary"],
+                summary=_concise_card_summary(str(parsed["summary"] or "")),
                 batch=batch,
                 target_graduate_year=infer_graduate_year(raw_title),
                 city=city,
@@ -176,6 +177,35 @@ def parse_wondercv_detail(html: str) -> DetailParseResult:
     )
 
 
+def extract_wondercv_card_summary(raw_title: str) -> str:
+    """Recover the concise list-card copy kept in WonderCV discovery text."""
+    if not _clean(raw_title):
+        return ""
+    return _concise_card_summary(str(_parse_card_text(_clean(raw_title))["summary"] or ""))
+
+
+def _concise_card_summary(value: str, limit: int = 96) -> str:
+    text = _clean(value)
+    if len(text) <= limit:
+        return text
+    sentences = [part for part in re.findall(r".+?(?:[。！？]|$)", text) if part]
+    selected: list[str] = []
+    for sentence in sentences[:2]:
+        if len("".join(selected)) + len(sentence) <= limit:
+            selected.append(sentence)
+        else:
+            break
+    if selected:
+        return "".join(selected)
+    clauses = [part for part in re.findall(r".+?(?:[，；、]|$)", text) if part]
+    for clause in clauses:
+        if len("".join(selected)) + len(clause) > limit:
+            break
+        selected.append(clause)
+    concise = "".join(selected).rstrip("，；、 ")
+    return f"{concise}。" if concise else text[: limit - 1].rstrip("，；、 ") + "。"
+
+
 class WonderCVCrawler:
     def __init__(
         self,
@@ -224,7 +254,7 @@ class WonderCVCrawler:
         for page in range(1, max_pages + 1):
             self._ensure_not_cancelled()
             page_url = self._page_url(page)
-            self.progress(f"抓取列表：第 {page}/{max_pages} 页")
+            self.progress(f"正在查找第 {page}/{max_pages} 页的新岗位")
             try:
                 response = self.get(page_url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
                 response.raise_for_status()
@@ -235,29 +265,33 @@ class WonderCVCrawler:
             page_jobs = parse_wondercv_list(response.text, page_url, self.aliases)
             self._ensure_not_cancelled()
             if not page_jobs:
-                self.progress(f"第 {page} 页没有岗位，扫描完成。")
+                self.progress(f"第 {page} 页没有发现新岗位，正在结束扫描")
                 break
             # The stop rule only depends on list-page fields.  Evaluate it before
             # detail requests so a fully known page does not spend minutes
             # re-fetching detail pages which will be discarded anyway.
             if should_stop and should_stop(page_jobs):
-                self.progress(f"第 {page} 页均为已处理岗位，日常扫描完成。")
+                self.progress(f"第 {page} 页岗位均已整理，已获取到最新位置")
                 break
             if self._enrich_details_enabled():
-                self.progress(f"第 {page} 页发现 {len(page_jobs)} 个岗位，开始回填详情。")
+                self.progress(f"第 {page} 页发现 {len(page_jobs)} 条招聘公告，正在读取详情")
                 enriched_jobs: list[Job] = []
                 for index, job in enumerate(page_jobs, start=1):
                     self._ensure_not_cancelled()
-                    label = _clean(f"{job.company} {job.title}")[:36]
-                    self.progress(f"详情回填：第 {page} 页 {index}/{len(page_jobs)} - {label}")
+                    company = _clean(job.company or job.title or "新公司")[:28]
+                    self.progress(f"发现新公司「{company}」，正在获取招聘广告（{index}/{len(page_jobs)}）")
                     enriched = self.enrich_detail(job)
                     self._ensure_not_cancelled()
-                    state = "完成" if enriched.parse_status == "detail_ready" else "未完整"
-                    self.progress(f"详情回填：第 {page} 页 {index}/{len(page_jobs)} - {state}")
+                    if enriched.parse_status == "detail_ready":
+                        count = len(enriched.positions)
+                        detail = f"发现 {count} 个明确岗位" if count else "公告未明确列出岗位名称"
+                        self.progress(f"已读取「{company}」招聘详情，{detail}")
+                    else:
+                        self.progress(f"「{company}」详情暂未完整，已保留招聘公告")
                     enriched_jobs.append(enriched)
                 page_jobs = enriched_jobs
             else:
-                self.progress(f"第 {page} 页发现 {len(page_jobs)} 个岗位。")
+                self.progress(f"第 {page} 页发现 {len(page_jobs)} 条招聘公告")
             yield page_jobs
 
     def _ensure_not_cancelled(self) -> None:
@@ -319,7 +353,9 @@ def merge_detail_into_job(job: Job, detail: DetailParseResult) -> Job:
     job.extraction_version = EXTRACTION_VERSION
     job.positions = detail.positions or []
     job.job_tags = _non_detail_tags(job.job_tags)
-    if detail.summary:
+    # The discovery card is intentionally concise.  Detail text remains in
+    # announcement_text and must not replace the copy used by list cards.
+    if detail.summary and not job.summary:
         job.summary = detail.summary
     if detail.graduate_year:
         job.target_graduate_year = detail.graduate_year
@@ -466,6 +502,12 @@ def _extract_detail_keywords(text: str) -> list[str]:
 
 
 def _extract_detail_positions(html: str, role_text: str) -> list[Position]:
+    soup = BeautifulSoup(html, "html.parser")
+    has_role_cards = bool(soup.select("section#jobs .role-item"))
+    authoritative = [*_extract_role_card_positions(html), *_extract_position_tables(html)]
+    if authoritative or has_role_cards:
+        return _finalize_positions(authoritative)
+
     blocks = _role_section_blocks(_extract_block_texts(html))
     if not blocks and role_text:
         blocks = [role_text]
@@ -521,16 +563,286 @@ def _extract_detail_positions(html: str, role_text: str) -> list[Position]:
             current.requirements = _clean(re.sub(r"^(?:岗位要求|任职要求|职位要求|任职资格|要求)[：:]?", "", block))
         elif current.requirements:
             current.requirements = _clean(f"{current.requirements} {block}")
-    for ordinal, position in enumerate(positions):
+    return _finalize_positions(positions)
+
+
+GENERIC_ROLE_CARD_TITLES = {"研发", "制造", "运营", "技术", "产品", "市场", "销售", "职能", "管培生", "其他"}
+POSITION_TABLE_TITLE_HEADERS = {
+    "岗位", "职位", "岗位名称", "职位名称", "招聘岗位", "需求岗位", "岗位类型", "岗位类别",
+    "招聘职位", "职位类型", "职位类别", "招聘类别", "招聘方向", "岗位方向",
+}
+NON_POSITION_HEADER_TITLES = {
+    "面向人群", "招聘对象", "学历要求", "工作地点", "专业要求", "语言/区域方向", "招聘人数",
+}
+POSITION_HEADER_TITLES = POSITION_TABLE_TITLE_HEADERS | NON_POSITION_HEADER_TITLES
+VAGUE_POSITION_TITLES = {
+    "所属企业校招岗位", "所属企业校招岗", "具体岗位", "各类岗位", "多个岗位", "招聘岗位详见官网",
+}
+
+
+def _extract_role_card_positions(html: str) -> list[Position]:
+    soup = BeautifulSoup(html, "html.parser")
+    section = soup.select_one("section#jobs")
+    if not section:
+        return []
+    items = section.select(".role-item")
+    if _role_cards_are_cross_announcement_mix(soup, items):
+        return []
+    campaign_marker = any(
+        re.search(r"招聘(?:入口)?\s*$", _clean(item.find("strong").get_text(" ", strip=True)))
+        for item in items if item.find("strong")
+    )
+    announcement_text = _clean(" ".join(
+        heading.get_text(" ", strip=True)
+        for heading in reversed(section.find_all_previous(["h2", "h3"]))
+    ))
+    positions: list[Position] = []
+    for item in items:
+        heading = item.find("strong")
+        if not heading:
+            continue
+        description_node = item.find("p")
+        description = _clean(description_node.get_text(" ", strip=True) if description_node else "")
+        title = _clean_authoritative_position_title(heading.get_text(" ", strip=True))
+        expanded_titles = _expanded_role_card_titles(title, description)
+        if expanded_titles:
+            for expanded_title in expanded_titles:
+                if campaign_marker and not _title_has_announcement_evidence(expanded_title, announcement_text):
+                    continue
+                source_text = _clean(f"{expanded_title} {description}")
+                positions.append(_position_from_authoritative_text(
+                    expanded_title, source_text, source="detail_role_card", confidence=0.99,
+                    responsibilities=description or None,
+                ))
+            continue
+        if title in GENERIC_ROLE_CARD_TITLES:
+            match = re.match(r"^(.{2,32}?)(?:方向|岗位)(?:[，,。；;]|$)", description)
+            title = _clean_authoritative_position_title(match.group(1)) if match else ""
+        if not title:
+            continue
+        if campaign_marker and not _title_has_announcement_evidence(title, announcement_text):
+            continue
+        source_text = _clean(f"{title} {description}")
+        positions.append(_position_from_authoritative_text(
+            title, source_text, source="detail_role_card", confidence=0.99,
+            responsibilities=description or None,
+        ))
+    return positions
+
+
+def _title_has_announcement_evidence(title: str, announcement_text: str) -> bool:
+    evidence = re.sub(r"[^\w\u4e00-\u9fff]", "", announcement_text).casefold()
+    candidates = [title, re.sub(r"[（(].*?[）)]", "", title)]
+    return any(
+        len(normalized) >= 4 and normalized in evidence
+        for candidate in candidates
+        if (normalized := re.sub(r"[^\w\u4e00-\u9fff]", "", candidate).casefold())
+    )
+
+
+def _expanded_role_card_titles(title: str, description: str) -> list[str]:
+    if not title or not re.search(r"(?:中心|分院|部门).*(?:实习|见习)", title):
+        return []
+    match = re.search(r"招聘(.{2,100}?)(?:等)?(?:方向)?(?:实习生|见习生)", description)
+    if not match:
+        return []
+    titles: list[str] = []
+    for value in re.split(r"[、；;]", match.group(1)):
+        cleaned = _clean_authoritative_position_title(value)
+        if cleaned and cleaned not in titles:
+            titles.append(cleaned)
+    return titles
+
+
+def _role_cards_are_cross_announcement_mix(soup: BeautifulSoup, items: list) -> bool:
+    heading = _clean(soup.find("h1").get_text(" ", strip=True) if soup.find("h1") else "")
+    page_hint = re.split(r"(?:20\d{2}|\d{2}届|春招|秋招|校招|招聘|实习|提前批)", heading, maxsplit=1)[0]
+    page_hint = re.sub(r"[^\w\u4e00-\u9fff]", "", page_hint).casefold()
+    organizations: list[str] = []
+    pattern = re.compile(
+        r"^(.{2,36}?(?:有限责任公司|股份有限公司|有限公司|集团|大学|学院|公安局|研究院|分局))"
+        r".{0,12}?(?:公开)?(?:招聘|招收|招募)"
+    )
+    for item in items:
+        text = _clean(item.get_text(" ", strip=True))
+        match = pattern.search(text)
+        if match:
+            organization = re.sub(r"[^\w\u4e00-\u9fff]", "", match.group(1)).casefold()
+            if organization not in organizations:
+                organizations.append(organization)
+    if len(organizations) < 2 or not page_hint:
+        return False
+    return not any(
+        page_hint in organization or organization in page_hint
+        or (len(page_hint) >= 4 and page_hint[:4] in organization)
+        for organization in organizations
+    )
+
+
+def _extract_position_tables(html: str) -> list[Position]:
+    soup = BeautifulSoup(html, "html.parser")
+    positions: list[Position] = []
+    for table in soup.find_all("table"):
+        rows: list[list[str]] = []
+        for row in table.find_all("tr"):
+            cells = row.find_all(["th", "td"], recursive=False) or row.find_all(["th", "td"])
+            values = [_clean(cell.get_text(" ", strip=True)) for cell in cells]
+            if any(values):
+                rows.append(values)
+        if len(rows) < 2:
+            continue
+        header_index = title_index = None
+        title_priority = 99
+        header_rows = rows[:2] if len(rows[0]) == 1 else rows[:1]
+        for row_index, row in enumerate(header_rows):
+            for cell_index, value in enumerate(row):
+                if value in POSITION_TABLE_TITLE_HEADERS or re.fullmatch(r"(?:招聘|需求)?(?:岗位|职位)(?:名称|类型|类别)?", value):
+                    priority = 0 if value in {"岗位名称", "职位名称", "招聘岗位", "需求岗位", "招聘职位", "岗位", "职位"} else 1
+                    current = (priority, cell_index)
+                    if title_index is None or current < (title_priority, title_index):
+                        header_index, title_index, title_priority = row_index, cell_index, priority
+            if title_index is not None:
+                break
+        if header_index is None or title_index is None:
+            continue
+        for row in rows[header_index + 1:]:
+            if title_index >= len(row):
+                continue
+            row_text = _clean(" ".join(row))
+            raw_titles = re.split(r"[、；;\n]+", row[title_index])
+            for raw_title in raw_titles:
+                title = _clean_authoritative_position_title(raw_title)
+                if not title:
+                    continue
+                positions.append(_position_from_authoritative_text(
+                    title, row_text, source="detail_position_table", confidence=0.97,
+                ))
+    return positions
+
+
+def _position_from_authoritative_text(
+    title: str,
+    source_text: str,
+    *,
+    source: str,
+    confidence: float,
+    responsibilities: str | None = None,
+) -> Position:
+    city = infer_city(source_text)
+    return Position(
+        title=title,
+        direction_id=infer_role_direction(f"{title} {source_text}"),
+        employment_type=_extract_employment_type(source_text),
+        city=city,
+        location_status="confirmed" if city else "pending",
+        degree=_extract_degree(source_text),
+        majors=_extract_majors(source_text),
+        responsibilities=responsibilities,
+        skills=_extract_detail_keywords(source_text),
+        headcount=_extract_headcount(source_text),
+        source_text=source_text,
+        field_evidence={"title": {"source": source, "evidence": source_text[:240]}},
+        confidence=confidence,
+        extraction_version="position-v3",
+    )
+
+
+def _clean_authoritative_position_title(value: str) -> str:
+    title = _clean(value).strip("-—–·• ")
+    title = re.sub(r"^[^\w\u4e00-\u9fff（(【]+", "", title)
+    title = re.sub(r"^【(?:(?:20)?\d{2}届)?(?:校招|春招|秋招|实习|校招实习生)】\s*", "", title)
+    title = re.sub(r"^[（(](?:20)?\d{2}届[）)]\s*", "", title)
+    title = re.sub(r"^(?:20)?\d{2}(?:秋季|春季)?校园招聘[：:]\s*", "", title)
+    title = re.sub(r"^(?:提前批|春招|秋招|校招)\s*[-—–：:]\s*", "", title)
+    title = re.sub(r"^(?:20)?\d{2}届\s*[-—–]?\s*", "", title)
+    title = re.sub(r"^[A-Za-z]{1,10}\d{2,6}\s*[-—–]\s*", "", title)
+    title = re.sub(r"^[A-Za-z]{1,8}\d{1,5}\s+", "", title)
+    title = re.sub(r"\s*[（(]J\d{3,}[）)]\s*$", "", title, flags=re.I)
+    title = re.sub(r"\s*[（(]\d{4,}[）)]\s*$", "", title)
+    title = re.sub(r"[（(](?:春招|秋招|校招|可转正)[）)]", "", title)
+    title = re.sub(r"[（(](?:20)?\d{2}届(?:春季|秋季)?校园招聘[）)]\s*$", "", title)
+    title = re.sub(r"[【[](?:20)?\d{2}届[^】\]]*(?:计划|校园招聘)[】\]]\s*$", "", title)
+    title = re.sub(r"【(?:20)?\d{2}届】\s*$", "", title)
+    title = re.sub(r"[（(]实习生计划[）)]\s*$", "", title)
+    title = re.sub(r"[（(]仅限(?:20)?\d{2}届[）)]\s*$", "", title)
+    title = re.sub(r"^[^—–-]{2,16}计划\s*[-—–]\s*(?=.{2,})", "", title)
+    title = re.sub(r"\s*[-—–]?\s*(?:20)?\d{2}届(?:春招|秋招|校招|提前批)?\s*$", "", title)
+    title = re.sub(r"\s*[-—–]?\s*(?:20)?\d{2}校招\s*$", "", title)
+    title = re.sub(r"\s*[-—–]\s*(?:春招|秋招|校招|提前批)\s*$", "", title)
+    title = re.sub(r"^(?:年薪|月薪)?\d+(?:\.\d+)?(?:-\d+(?:\.\d+)?)?(?:万|[Kk])(?:/年|/月)?\s*", "", title)
+    trailing = re.search(r"\s*[-—–]\s*([^—–-]{2,14})$", title)
+    if trailing and infer_city(trailing.group(1)):
+        title = title[: trailing.start()]
+    leading = re.match(r"^([^—–-]{2,14})\s*[-—–]\s*(.+)$", title)
+    if leading and infer_city(leading.group(1)):
+        title = leading.group(2)
+    location = re.search(r"[（(]([^）)]{2,12})[）)]$", title)
+    if location and infer_city(location.group(1)):
+        title = title[: location.start()]
+    long_qualifier = re.search(r"[（(]([^）)]{25,})[）)]$", title)
+    if long_qualifier:
+        base = _clean(title[: long_qualifier.start()])
+        if _has_position_signal(base):
+            title = base
+    department_recruiting = re.search(
+        r"(?P<department>(?:传播|财务|人力资源|市场|运营|研发|法务|行政|投资|技术)部)"
+        r"现招聘(?P<role>实习生|工程师|专员|经理|助理|顾问|教师|研究员|博士后)$",
+        title,
+    )
+    if department_recruiting:
+        title = f"{department_recruiting.group('department')}{department_recruiting.group('role')}"
+    title = _clean(title).strip("-—–·• ")
+    if (
+        not title
+        or title in POSITION_HEADER_TITLES
+        or title in VAGUE_POSITION_TITLES
+        or len(title) > 60
+        or re.search(
+            r"(?:应届毕业生.*实习生|招聘对象|面向人群|学历要求|招聘公告|招聘简章|"
+            r"(?:有限公司|集团|大学|学院|公安局|研究院).*(?:招聘|招收|招募)|"
+            r"(?:本科|硕士|博士|大专).*学历.*届|未就业毕业生|计划持续招募中|"
+            r"^(?:20\d{2}年)?(?:本硕博|应届(?:本科|大专|硕士|博士)?)(?:高校)?毕业生$|"
+            r"^具有工作经验的专业人才$|(?:公开)?招聘(?:入口)?$|招募$|^校园招聘\s*[-—–]|"
+            r"(?:人才|合伙人)计划(?:$|[｜|])|(?:菁英|精英|摘星)计划(?:暑期)?(?:实习生|实习招募|补招岗)?$|"
+            r"推免生|预选拔)",
+            title,
+        )
+    ):
+        return ""
+    return title
+
+
+def _finalize_positions(positions: list[Position]) -> list[Position]:
+    merged: list[Position] = []
+    by_title: dict[str, Position] = {}
+    for position in positions:
+        position.title = _clean_authoritative_position_title(position.title)
+        if not position.title:
+            continue
+        key = _position_identity(position.title)
+        existing = by_title.get(key)
+        if existing is None:
+            by_title[key] = position
+            merged.append(position)
+        else:
+            _merge_position(existing, position)
+
+    normalized = [(position, _position_identity(position.title)) for position in merged]
+    pruned = [
+        position for position, key in normalized
+        if sum(other_key != key and len(other_key) >= 4 and other_key in key for _, other_key in normalized) < 2
+    ]
+    for ordinal, position in enumerate(pruned):
         position.ordinal = ordinal
+        evidence_source = position.field_evidence.get("title", {}).get("source", "detail_role_block")
         for field_name in ("city", "degree", "majors", "responsibilities", "requirements", "skills", "headcount"):
             value = getattr(position, field_name)
             if value not in (None, "", []):
                 position.field_evidence[field_name] = {
-                    "source": "detail_role_block",
+                    "source": evidence_source,
                     "evidence": (position.source_text or "")[:240],
                 }
-    return positions
+    return pruned
 
 
 def _position_candidates(block: str) -> list[tuple[str, str, str]]:
@@ -596,7 +908,7 @@ def _position_list_candidates(
 
 
 def _clean_position_title(value: str, *, allow_plain: bool = False) -> str:
-    title = _clean(value).strip("-—–·• ")
+    title = _clean_authoritative_position_title(value)
     if not title or title.startswith(POSITION_REJECT_PREFIXES):
         return ""
     if re.match(r"^[（(]?[一二三四五六七八九十0-9]+[）).、]", title):
@@ -611,6 +923,9 @@ def _clean_position_title(value: str, *, allow_plain: bool = False) -> str:
     location = re.search(r"[（(]([^）)]{2,20})[）)]$", title)
     if location and (infer_city(location.group(1)) or "岗位详情" in location.group(1)):
         title = _clean(title[: location.start()])
+    qualification = re.search(r"[（(]([^）)]{8,60})[）)]$", title)
+    if qualification and ("相关专业" in qualification.group(1) or "专业" in qualification.group(1) and "、" in qualification.group(1)):
+        title = _clean(title[: qualification.start()])
     if not title or len(title) > 36 or title.startswith(POSITION_REJECT_PREFIXES):
         return ""
     if any(mark in title for mark in "，。；;：:！？→"):
@@ -626,6 +941,9 @@ def _clean_position_title(value: str, *, allow_plain: bool = False) -> str:
 
 def _has_position_signal(title: str) -> bool:
     base = re.sub(r"[（(][^）)]{1,40}[）)]\s*$", "", title).strip()
+    parts = re.split(r"\s*[-—–]\s*", base, maxsplit=1)
+    if len(parts) > 1 and (parts[0].endswith(POSITION_TITLE_TERMS) or POSITION_ENGLISH_TERMS.search(parts[0])):
+        base = parts[0]
     if base in {"开发", "测试", "算法", "助理", "经理", "专员", "顾问", "教师", "代表"}:
         return False
     return base.endswith(POSITION_TITLE_TERMS) or bool(POSITION_ENGLISH_TERMS.search(base))
@@ -633,6 +951,10 @@ def _has_position_signal(title: str) -> bool:
 
 def _normalized_position_title(title: str) -> str:
     return re.sub(r"[\s·•]+", "", title).casefold()
+
+
+def _position_identity(title: str) -> str:
+    return re.sub(r"(?:岗位|岗)$", "", _normalized_position_title(title))
 
 
 def _merge_position(target: Position, incoming: Position) -> None:
@@ -776,7 +1098,7 @@ def _extract_apply_url(html: str) -> str | None:
 
 
 def _extract_degree(text: str) -> str | None:
-    for degree in ("博士", "硕士", "本科及以上", "本科", "大专", "MBA"):
+    for degree in ("大专及以上", "大专", "本科及以上", "本科", "硕士及以上", "硕士", "博士", "MBA"):
         if degree in (text or ""):
             return degree
     return None

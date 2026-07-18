@@ -72,6 +72,8 @@ class LocalApplicationService:
         cancel_check: Callable[[], bool] | None = None,
         reporter: RunReporter | None = None,
     ) -> LocalInitializationResult:
+        reporter = reporter or RunReporter()
+        reporter.stage("daily", 1, 6, "准备扫描", detail="正在载入本地岗位基线")
         database_was_initialized = inspect_local_database(self.database_path).valid
         repository = DatabaseBootstrapService(self.database_path).initialize()
         recommendations_before = {

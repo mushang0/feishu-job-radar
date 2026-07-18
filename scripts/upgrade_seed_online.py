@@ -19,7 +19,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from jobpicky.storage import JobRepository  # noqa: E402
-from jobpicky.wondercv import EXTRACTION_VERSION, merge_detail_into_job, parse_wondercv_detail  # noqa: E402
+from jobpicky.wondercv import (  # noqa: E402
+    EXTRACTION_VERSION,
+    extract_wondercv_card_summary,
+    merge_detail_into_job,
+    parse_wondercv_detail,
+)
 
 
 DEFAULT_SOURCE = ROOT / "src" / "jobpicky" / "resources" / "jobs_seed.sqlite"
@@ -103,6 +108,7 @@ def upgrade_seed(
                 try:
                     stored, detail = future.result()
                     job = repository.job_from_row(stored)
+                    job.summary = extract_wondercv_card_summary(job.raw_title) or job.summary
                     repository.upsert_job(merge_detail_into_job(job, detail))
                     completed += 1
                     if completed % 25 == 0 or completed == len(rows):
