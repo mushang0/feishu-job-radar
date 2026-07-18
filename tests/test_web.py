@@ -62,11 +62,22 @@ def test_web_lists_local_jobs_and_health(tmp_path: Path):
     assert 'href="/static/css/app.css?v=' in page
     assert 'href="/static/css/liquid-glass.css?v=' in page
     assert 'src="/static/js/app.js?v=' in page
-    assert client.get("/static/css/app.css").status_code == 200
+    app_css = client.get("/static/css/app.css")
+    assert app_css.status_code == 200
+    assert ".task-curve-loader" in app_css.text
+    assert "grid-template-rows:repeat(4,minmax(0,1fr))" in app_css.text
+    assert ".task-spinner" not in app_css.text
     glass_css = client.get("/static/css/liquid-glass.css")
     assert glass_css.status_code == 200
     assert "prefers-reduced-transparency" in glass_css.text
-    assert client.get("/static/js/app.js").status_code == 200
+    assert ".builder-actions.onboarding-ready" in glass_css.text
+    assert ".focus-ticks { border-color:" in glass_css.text
+    app_script = client.get("/static/js/app.js")
+    assert app_script.status_code == 200
+    assert "function taskCurveLoader()" in app_script.text
+    assert "task-step-mark" in app_script.text
+    assert "focus.note" not in app_script.text
+    assert "偏好信息较完整" not in app_script.text
     glass_script = client.get("/static/js/liquid-glass.js")
     assert glass_script.status_code == 200
     assert 'document.addEventListener("pointermove"' in glass_script.text

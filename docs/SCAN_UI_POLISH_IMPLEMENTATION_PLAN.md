@@ -571,10 +571,11 @@ python -m pytest tests/test_web.py tests/test_ui_sandbox.py -q
 - 现状审查：完成；
 - 第二轮方案：完成；
 - 实施计划：完成；
-- 代码实现：未开始；
-- 自动测试：本轮尚未执行；
-- 视觉 QA：本轮尚未执行；
-- 当前工作树：制定计划前为 clean。
+- 代码实现：完成；
+- 自动测试：目标测试 13 项通过，全量测试 312 项通过，发布检查 9/9 通过；
+- 代码验收：完成 JS 语法、静态资源标记、减少动画、透明度降级、旧样式移除和 Git 范围检查；
+- 视觉 QA：按用户要求未使用浏览器控制或自动截图，由用户后续人工执行；
+- 当前工作树：实施开始前为 clean，代码和本文记录等待提交。
 
 ### 15.2 计划使用的技能
 
@@ -584,18 +585,19 @@ python -m pytest tests/test_web.py tests/test_ui_sandbox.py -q
 - `ponytail full`：限制文件、依赖和抽象，优先删除重复覆盖并复用现有状态模型；
 - `docs/UI_WORKFLOW.md`：规定审查、动画预算、最小实现与验证顺序。
 
-### 15.3 后续填写区
+### 15.3 实际结果
 
-- 实际开始日期：待填写；
-- 实际修改文件：待填写；
-- 实际提交：待填写；
-- 目标测试结果：待填写；
-- 全量测试结果：待填写；
-- 发布检查结果：待填写；
-- 桌面视觉结果：待填写；
-- 移动端视觉结果：待填写；
-- reduced-motion / transparency 结果：待填写；
-- 浏览器兼容结果：待填写；
-- 与计划的偏差：待填写；
-- 已知限制：待填写；
-- 最终验收：待填写。
+- 实际开始日期：2026-07-18；
+- 实际修改文件：`app.js`、`app.css`、`liquid-glass.css`、`index.html`、`tests/test_web.py` 和本文；
+- 实际提交：`170e697 style(ui): polish scan workspace and onboarding`；测试与记录提交见本文件的 Git 历史；
+- 目标测试结果：`python -m pytest tests/test_web.py tests/test_ui_sandbox.py -q` 为 13 passed；
+- 全量测试结果：`python -m pytest -q` 为 312 passed；
+- 发布检查结果：`python scripts/release_check.py` 为 9/9 passed；
+- JS 语法结果：`node --check src/jobpicky/web/static/js/app.js` 通过；
+- 桌面视觉结果：未执行，交由用户人工验收；
+- 移动端视觉结果：未执行，交由用户人工验收；
+- reduced-motion / transparency 结果：代码规则与静态测试通过，未执行视觉验收；
+- 浏览器兼容结果：未使用浏览器控制功能，待用户人工确认；
+- 与计划的偏差：数学曲线 loader 使用原生 SVG `animateMotion`，没有创建 RAF；因此无需 RAF 生命周期管理，且不存在重复 RAF 风险；
+- 已知限制：SMIL 动画、流光边缘、模糊强度和四种目标尺寸的实际观感仍需用户确认；
+- 最终验收：功能与代码验收通过，视觉验收待用户完成。
