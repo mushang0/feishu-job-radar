@@ -168,6 +168,13 @@ def test_web_ui_exposes_local_first_product_structure(tmp_path: Path):
     assert 'fields=[["城市",location],["招聘批次"' in script
     assert '["企业性质",job.company_type]' not in script
     assert '<dt class="sr-only">${field}</dt>' in script
+    assert 'class="role-browser"' in page
+    assert "data-role-select-all" in script
+    assert "particleCount:24" in script
+    assert "lemniscateA:20" in script
+    assert "lemniscateBoost:7.5" in script
+    assert 'id="radar-filter-deadline"' not in page
+    assert 'const BATCH_FILTERS = ["秋招", "提前批", "实习", "春招"]' in script
 
 
 def test_web_ui_uses_one_reusable_radar_builder_and_no_social_recruitment(tmp_path: Path):

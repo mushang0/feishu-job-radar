@@ -656,18 +656,22 @@ class JobRepository:
             term = f"%{query.lower()}%"
             params.extend((term, term))
         if city:
-            conditions.append(
-                "((';' || REPLACE(COALESCE(jobs.city, ''), '；', ';') || ';') LIKE ? "
-                "OR COALESCE(jobs.location_status, 'pending') = 'pending')"
-            )
+            conditions.append("(';' || REPLACE(COALESCE(jobs.city, ''), '；', ';') || ';') LIKE ?")
             params.append(f"%;{city};%")
         if batch:
-            conditions.append("jobs.batch = ?")
-            params.append(batch)
+            aliases = {
+                "秋招": ("秋招", "秋季招聘"),
+                "提前批": ("提前批",),
+                "实习": ("实习", "日常实习", "暑期实习"),
+                "春招": ("春招", "春季招聘"),
+            }.get(batch, (batch,))
+            text = "COALESCE(jobs.clean_title, jobs.title, '') || ' ' || COALESCE(jobs.raw_title, '') || ' ' || COALESCE(jobs.summary, '')"
+            conditions.append(f"(jobs.batch IN ({', '.join('?' for _ in aliases)}) OR {' OR '.join(f'{text} LIKE ?' for _ in aliases)})")
+            params.extend((*aliases, *(f"%{alias}%" for alias in aliases)))
         if direction:
-            conditions.append("(COALESCE(jobs.role_signals, '') LIKE ? OR COALESCE(job_matches.matched_keywords, '') LIKE ? OR COALESCE(job_matches.matched_strong_keywords, '') LIKE ? OR COALESCE(job_matches.matched_weak_keywords, '') LIKE ?)")
+            conditions.append("(COALESCE(job_matches.matched_role_group_id, '') = ? OR COALESCE(jobs.role_signals, '') LIKE ? OR COALESCE(job_matches.matched_keywords, '') LIKE ? OR COALESCE(job_matches.matched_strong_keywords, '') LIKE ? OR COALESCE(job_matches.matched_weak_keywords, '') LIKE ? OR COALESCE(latest_recommendation.recommend_reason, '') LIKE ?)")
             term = f"%{direction}%"
-            params.extend((term, term, term, term))
+            params.extend((direction, term, term, term, term, term))
         if company_type:
             conditions.append("jobs.company_type = ?")
             params.append(company_type)

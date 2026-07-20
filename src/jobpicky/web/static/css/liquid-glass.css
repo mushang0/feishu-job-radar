@@ -273,12 +273,12 @@ body::before {
 }
 .builder-step.complete:not(.active) { opacity: .72; }
 .step-index {
-  border-color: rgba(88, 122, 185, .46);
-  background: rgba(245, 249, 255, .66);
-  box-shadow: inset 0 1px 0 #fff;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 .builder-step.active .step-index,
-.builder-step.complete .step-index { background: rgba(255, 255, 255, .86); }
+.builder-step.complete .step-index { background: transparent; }
 .choice-button,
 .role-tabs button,
 .stage-card,
@@ -373,7 +373,7 @@ body::before {
   background: rgba(255, 255, 255, .52);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .9);
 }
-.job-modal-card > footer { border-top-color: rgba(119, 139, 165, .18); background: rgba(238, 244, 251, .66); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
+.job-modal-card > footer { border-top: 0; background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; }
 .home-notification,
 .toast {
   border-color: rgba(255, 255, 255, .82);
@@ -581,6 +581,7 @@ body {
   background: rgba(245, 245, 247, .68);
   color: #555559;
 }
+.role-option-grid .choice-button { border-radius: 10px; }
 .stage-card:not([aria-pressed="true"]),
 .role-tabs button:not([aria-selected="true"]) {
   border-color: rgba(229, 229, 231, .9);

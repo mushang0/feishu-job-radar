@@ -28,17 +28,38 @@ def test_repository_upserts_new_job_and_does_not_duplicate(tmp_path: Path):
     assert repo.count_jobs() == 1
 
 
-def test_city_filter_keeps_jobs_whose_location_is_pending(tmp_path: Path):
+def test_city_filter_only_keeps_jobs_in_selected_city(tmp_path: Path):
     repo = JobRepository(tmp_path / "jobs.sqlite")
     repo.init_schema()
     repo.upsert_job(Job(dedupe_key="pending:1", company="待确认公司", title="嵌入式工程师", city=None))
     repo.upsert_job(Job(dedupe_key="known:1", company="上海公司", title="嵌入式工程师", city="上海市"))
+    repo.upsert_job(Job(dedupe_key="known:2", company="深圳公司", title="嵌入式工程师", city="深圳市"))
 
     rows, total = repo.search_jobs(city="深圳市")
 
     assert total == 1
-    assert [row["company"] for row in rows] == ["待确认公司"]
-    assert rows[0]["location_status"] == "pending"
+    assert [row["company"] for row in rows] == ["深圳公司"]
+
+
+def test_repository_filters_semantic_batch_and_matched_direction(tmp_path: Path):
+    repo = JobRepository(tmp_path / "jobs.sqlite")
+    repo.init_schema()
+    fall = repo.upsert_job(Job(
+        dedupe_key="fall:1", company="秋招公司", title="2027届校园招聘", raw_title="2027届秋招正式启动", batch="校招",
+    ))
+    repo.upsert_job(Job(dedupe_key="intern:1", company="实习公司", title="算法工程师", batch="日常实习"))
+    repo.save_match(fall.job_id, {"matched_role_group_id": "ai.algorithm"})
+
+    batch_rows, batch_total = repo.search_jobs(batch="秋招")
+    internship_rows, internship_total = repo.search_jobs(batch="实习")
+    direction_rows, direction_total = repo.search_jobs(direction="ai.algorithm")
+
+    assert batch_total == 1
+    assert [row["company"] for row in batch_rows] == ["秋招公司"]
+    assert internship_total == 1
+    assert [row["company"] for row in internship_rows] == ["实习公司"]
+    assert direction_total == 1
+    assert [row["company"] for row in direction_rows] == ["秋招公司"]
 
 
 def test_repository_does_not_replace_known_collected_date_with_null(tmp_path: Path):
