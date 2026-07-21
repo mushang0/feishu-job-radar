@@ -21,6 +21,7 @@ class ProvisioningResult:
     table_created: bool
     fields_created: tuple[str, ...]
     fields_updated: tuple[str, ...]
+    fields_deleted: tuple[str, ...]
     views_created: tuple[str, ...]
     views_updated: tuple[str, ...]
     workspace_url: str
@@ -56,7 +57,7 @@ class WorkspaceProvisioner:
             on_table_created(table_id)
             table_created = True
 
-        fields_created, fields_updated = self._reconcile_fields(table_id)
+        fields_created, fields_updated, fields_deleted = self._reconcile_fields(table_id)
         fields = self.client.list_fields(table_id)
         views_created, views_updated = self._reconcile_views(table_id, fields)
         self.verify(table_id)
@@ -69,6 +70,7 @@ class WorkspaceProvisioner:
             table_created=table_created,
             fields_created=tuple(fields_created),
             fields_updated=tuple(fields_updated),
+            fields_deleted=tuple(fields_deleted),
             views_created=tuple(views_created),
             views_updated=tuple(views_updated),
             workspace_url=f"{base_url}?table={table_id}",
@@ -100,11 +102,23 @@ class WorkspaceProvisioner:
             if not self._view_property_matches(actual.get("property") or {}, desired_property):
                 raise WorkspaceVerificationError(f"视图配置回读不一致：{expected.name}")
 
-    def _reconcile_fields(self, table_id: str) -> tuple[list[str], list[str]]:
+    def _reconcile_fields(self, table_id: str) -> tuple[list[str], list[str], list[str]]:
         fields = self.client.list_fields(table_id)
         by_name = {str(item.get("field_name")): item for item in fields}
         created: list[str] = []
         updated: list[str] = []
+        deleted: list[str] = []
+        for legacy_name in ("届别",):
+            actual = by_name.get(legacy_name)
+            if actual is not None:
+                self.client.delete_field(table_id, str(actual["field_id"]))
+                deleted.append(legacy_name)
+                by_name.pop(legacy_name, None)
+        current_recommendation = by_name.get("当前推荐")
+        if current_recommendation is not None and fields.index(current_recommendation) != len(fields) - 1:
+            self.client.delete_field(table_id, str(current_recommendation["field_id"]))
+            deleted.append("当前推荐")
+            by_name.pop("当前推荐", None)
         for expected in self.schema.fields:
             actual = by_name.get(expected.name)
             if actual is None:
@@ -116,7 +130,7 @@ class WorkspaceProvisioner:
             if self._options_need_update(expected, actual):
                 self.client.update_field(table_id, str(actual["field_id"]), expected.create_payload())
                 updated.append(expected.name)
-        return created, updated
+        return created, updated, deleted
 
     def _reconcile_views(self, table_id: str, fields: list[dict]) -> tuple[list[str], list[str]]:
         views = self.client.list_views(table_id)
@@ -210,7 +224,7 @@ class WorkspaceProvisioner:
             return False
         actual_names = self._option_names(actual)
         unexpected = set(actual_names) - set(expected.options)
-        if unexpected:
+        if unexpected - {"不合适"}:
             raise WorkspaceConflictError(f"单选字段包含未知选项，无法安全修复：{expected.name}")
         return actual_names != expected.options
 

@@ -166,6 +166,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "app_id": "",
         "app_secret": "",
         "webhook_url": "",
+        "enabled": True,
+        "workspace_url": "",
+        "last_sync_at": "",
+        "last_successful_sync_at": "",
+        "last_sync_summary": {},
+        "baseline_items": 0,
+        "recommended_items": 0,
     },
 }
 
@@ -272,6 +279,13 @@ def _config_for_storage(config: dict[str, Any]) -> dict[str, Any]:
         "webhook_url",
         "workspace_table_id",
         "workspace_schema_version",
+        "enabled",
+        "workspace_url",
+        "last_sync_at",
+        "last_successful_sync_at",
+        "last_sync_summary",
+        "baseline_items",
+        "recommended_items",
     )
     stored: dict[str, Any] = {
         "user_profile": {

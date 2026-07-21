@@ -70,7 +70,7 @@ run_daily_workflow()
 → scan_runs / RunReport / vacuum
 ```
 
-首次连接飞书（Web `/api/feishu/test`、`/api/setup/initialize` 或 CLI `init`）：
+首次连接飞书（Web `/api/feishu/preflight` → `/api/feishu/connect`，兼容入口 `/api/feishu/test`，或 CLI `init`）：
 
 ```text
 existing_local_repository()（必须已有有效本地库）

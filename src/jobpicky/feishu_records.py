@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from .wondercv import extract_wondercv_card_summary
 from .workspace_schema import JOB_STATUS_OPTIONS
 
 
@@ -22,11 +23,12 @@ def build_create_fields(row: dict[str, Any]) -> dict[str, Any]:
 def build_update_fields(row: dict[str, Any]) -> dict[str, Any]:
     fields: dict[str, Any] = {
         "公司": str(row.get("company") or "未命名公司"),
-        "岗位": str(row.get("title") or "未命名岗位"),
+        "岗位": str(row.get("matched_position_title") or "未明确岗位"),
         "当前推荐": bool(row.get("recommendation_active")),
     }
+    card_summary = extract_wondercv_card_summary(str(row.get("raw_title") or "")) or str(row.get("summary") or "")
+    _set_text(fields, "招聘摘要", card_summary)
     _set_text(fields, "城市", row.get("city"))
-    _set_text(fields, "届别", row.get("target_graduate_year"))
     _set_text(fields, "批次", row.get("batch"))
 
     apply_url = row.get("official_url") or row.get("apply_url") or row.get("original_url")

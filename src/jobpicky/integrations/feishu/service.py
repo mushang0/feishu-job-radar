@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Callable, Literal
 
 from ...alerts import build_daily_message
@@ -29,6 +30,15 @@ class FeishuSetupResult:
     baseline_items: int
     recommended_items: int
     sync: SyncSummary
+
+
+@dataclass(frozen=True, slots=True)
+class FeishuPreflightResult:
+    base_name: str
+    table_name: str
+    baseline_items: int
+    recommended_items: int
+    write_access_confirmed: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,12 +79,24 @@ class FeishuIntegrationService:
     def configured(self) -> bool:
         value = FeishuConfig.from_config(self.config)
         auth = bool(value.tenant_access_token or (value.app_id and value.app_secret))
-        return bool(value.app_token and value.table_id and auth)
+        return self.config.get("feishu", {}).get("enabled", True) is not False and bool(value.app_token and value.table_id and auth)
 
     def test_connection(self):
         client = self.client_factory(FeishuConfig.from_config(self.config))
         client.get_app()
         return client
+
+    def preflight(self) -> FeishuPreflightResult:
+        """Validate credentials and read access without changing local or remote state."""
+        client = self.client_factory(FeishuConfig.from_config(self.config))
+        app = client.get_app()
+        rows = self.repo.list_feishu_reconciliation_rows()
+        return FeishuPreflightResult(
+            base_name=str(app.get("name") or app.get("app_name") or "当前多维表格"),
+            table_name=desired_workspace().table_name,
+            baseline_items=self.repo.count_jobs(),
+            recommended_items=sum(bool(row.get("recommendation_active")) for row in rows),
+        )
 
     def connect(self, *, client=None) -> FeishuSetupResult:
         """Test, provision and push existing local query results; never rebuild them."""
@@ -96,6 +118,27 @@ class FeishuIntegrationService:
             save_config(self.config, self.config_path)
         rows = self.repo.list_feishu_reconciliation_rows()
         sync = self.push_jobs(self.repo, self.config, rows, client_factory=lambda _config: client)
+        feishu.update(
+            {
+                "enabled": True,
+                "workspace_url": provisioned.workspace_url,
+                "last_sync_at": datetime.now().isoformat(timespec="seconds"),
+                "last_sync_summary": {
+                    "created": sync.created,
+                    "updated": sync.updated,
+                    "skipped": sync.skipped,
+                    "failed": sync.failed,
+                    "error": sync.error,
+                },
+                "baseline_items": self.repo.count_jobs(),
+                "recommended_items": sum(bool(row.get("recommendation_active")) for row in rows),
+                "last_error": sync.error,
+            }
+        )
+        if not sync.failed:
+            feishu["last_successful_sync_at"] = feishu["last_sync_at"]
+        if self.config_path:
+            save_config(self.config, self.config_path)
         return FeishuSetupResult(
             table_id=provisioned.table_id,
             workspace_url=provisioned.workspace_url,

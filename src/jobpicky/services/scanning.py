@@ -606,6 +606,8 @@ def _notification_rows(rows: list[dict], config: dict) -> list[dict]:
 
 
 def _feishu_is_configured(config: dict) -> bool:
+    if config.get("feishu", {}).get("enabled", True) is False:
+        return False
     feishu = FeishuConfig.from_config(config)
     has_auth = bool(feishu.tenant_access_token or (feishu.app_id and feishu.app_secret))
     return bool(feishu.app_token and feishu.table_id and has_auth)

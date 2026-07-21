@@ -102,6 +102,9 @@ class FeishuBitableClient:
         data = self._request_json("PUT", self._api_url(f"/tables/{table_id}/fields/{field_id}"), json=payload)
         return self._unwrap(data, "field")
 
+    def delete_field(self, table_id: str, field_id: str) -> None:
+        self._request_json("DELETE", self._api_url(f"/tables/{table_id}/fields/{field_id}"))
+
     def list_views(self, table_id: str) -> list[dict[str, Any]]:
         return self._list_items(self._api_url(f"/tables/{table_id}/views"), page_size=100)
 

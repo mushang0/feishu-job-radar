@@ -1,3 +1,3 @@
-from .service import FeishuIntegrationService, FeishuRunResult, FeishuSetupResult
+from .service import FeishuIntegrationService, FeishuPreflightResult, FeishuRunResult, FeishuSetupResult
 
-__all__ = ["FeishuIntegrationService", "FeishuRunResult", "FeishuSetupResult"]
+__all__ = ["FeishuIntegrationService", "FeishuPreflightResult", "FeishuRunResult", "FeishuSetupResult"]

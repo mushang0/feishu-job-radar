@@ -20,6 +20,7 @@ from ..organizations import organization_options
 from ..paths import AppPaths
 from ..core import DatabaseBootstrapService, JobQueryService
 from ..wondercv import extract_wondercv_card_summary
+from ..workspace_schema import desired_workspace
 
 
 class WebStateService:
@@ -43,6 +44,7 @@ class WebStateService:
             ):
                 profile[key] = []
         feishu = config.get("feishu", {})
+        feishu_enabled = feishu.get("enabled", True) is not False
         configuration_errors = validate_config(
             config,
             require_graduate_years=False,
@@ -53,8 +55,8 @@ class WebStateService:
             "feishu": {
                 "base_url": feishu.get("base_url", ""),
                 "app_id": feishu.get("app_id", ""),
-                "configured": bool(feishu.get("base_url") and feishu.get("app_id") and feishu.get("app_secret")),
-                "workspace_configured": bool(feishu.get("workspace_table_id")),
+                "configured": feishu_enabled and bool(feishu.get("base_url") and feishu.get("app_id") and feishu.get("app_secret")),
+                "workspace_configured": feishu_enabled and bool(feishu.get("workspace_table_id")),
             },
             "onboarding_complete": self.paths.config.is_file() and not configuration_errors,
         }
@@ -123,9 +125,40 @@ class WebStateService:
                 "base_url": parsed_base_url,
                 "app_id": str(app_id).strip(),
                 "app_secret": str(app_secret).strip(),
+                "enabled": True,
             }
         )
         save_config(config, self.paths.config)
+
+    def feishu_status(self) -> dict[str, Any]:
+        config = load_config(self.paths.config)
+        feishu = config.get("feishu", {})
+        enabled = feishu.get("enabled", True) is not False
+        credentials_saved = bool(feishu.get("base_url") and feishu.get("app_id") and feishu.get("app_secret"))
+        workspace_configured = bool(feishu.get("workspace_table_id"))
+        return {
+            "configured": enabled and credentials_saved,
+            "credentials_saved": credentials_saved,
+            "workspace_configured": enabled and workspace_configured,
+            "workspace_url": feishu.get("workspace_url", ""),
+            "workspace_name": desired_workspace().table_name,
+            "last_successful_sync_at": feishu.get("last_successful_sync_at", ""),
+            "last_sync_at": feishu.get("last_sync_at", ""),
+            "last_sync_summary": deepcopy(feishu.get("last_sync_summary") or {}),
+            "baseline_items": int(feishu.get("baseline_items") or 0),
+            "recommended_items": int(feishu.get("recommended_items") or 0),
+            "last_error": deepcopy(feishu.get("last_error") or None),
+        }
+
+    def disconnect_feishu(self, *, clear_credentials: bool) -> dict[str, Any]:
+        config = load_config(self.paths.config)
+        feishu = config.setdefault("feishu", {})
+        feishu["enabled"] = False
+        if clear_credentials:
+            for key in ("base_url", "app_id", "app_secret", "tenant_access_token"):
+                feishu[key] = ""
+        save_config(config, self.paths.config)
+        return self.feishu_status()
 
     def jobs(self, *, page: int = 1, page_size: int = 25, scope: str = "all", query: str = "",
              city: str = "", batch: str = "", direction: str = "", deadline_status: str = "",

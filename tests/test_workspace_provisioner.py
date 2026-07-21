@@ -72,6 +72,10 @@ class FakeWorkspaceClient:
         field.update(deepcopy(payload))
         return deepcopy(field)
 
+    def delete_field(self, table_id, field_id):
+        self.write_count += 1
+        self.fields[table_id] = [field for field in self.fields[table_id] if field["field_id"] != field_id]
+
     def list_views(self, table_id):
         return [{key: value for key, value in view.items() if key != "property"} for view in deepcopy(self.views[table_id])]
 
@@ -119,9 +123,9 @@ def test_provision_creates_and_verifies_complete_workspace():
     progress = next(view for view in client.views[result.table_id] if view["view_name"] == "投递进度")
     assert "hidden_fields" not in progress["property"]
     progress_filter = progress["property"]["filter_info"]
-    assert progress_filter["conjunction"] == "and"
-    assert len(progress_filter["conditions"]) == 1
-    assert progress_filter["conditions"][0]["operator"] == "isNot"
+    assert progress_filter["conjunction"] == "or"
+    assert len(progress_filter["conditions"]) == 7
+    assert all(condition["operator"] == "is" for condition in progress_filter["conditions"])
     assert all(len(json.loads(condition["value"])) == 1 for condition in progress_filter["conditions"])
 
 
@@ -148,6 +152,19 @@ def test_provision_repairs_missing_field_and_view():
     assert result.fields_created == ("备注",)
     assert result.views_created == ("收藏",)
     assert "备注" in {field["field_name"] for field in client.list_fields(table_id)}
+
+
+def test_provision_removes_legacy_graduate_field_and_moves_recommendation_last():
+    client, table_id = _complete_workspace()
+    client.create_field(table_id, {"field_name": "届别", "type": 1})
+
+    result = WorkspaceProvisioner(client, desired_workspace()).provision(table_id, on_table_created=lambda _: None)
+
+    fields = client.list_fields(table_id)
+    assert "届别" not in {field["field_name"] for field in fields}
+    assert fields[-1]["field_name"] == "当前推荐"
+    assert "届别" in result.fields_deleted
+    assert "当前推荐" in result.fields_deleted
 
 
 def test_provision_refuses_same_name_table_without_saved_identity():

@@ -21,7 +21,9 @@ from pydantic import BaseModel, Field
 from .. import __version__
 from ..config import load_config, validate_config
 from ..error_safety import safe_exception_detail
+from ..feishu import FeishuApiError
 from ..integrations.feishu import FeishuIntegrationService
+from ..onboarding import parse_base_url
 from ..paths import AppPaths
 from ..runtime import RunReporter
 from ..services.scanning import DailyStageError, DailyWorkflowResult, run_daily_workflow
@@ -39,6 +41,28 @@ class FeishuTestPayload(BaseModel):
     base_url: str
     app_id: str
     app_secret: str
+
+
+class FeishuDisconnectPayload(BaseModel):
+    clear_credentials: bool = False
+
+
+def _feishu_error(exc: Exception) -> tuple[int, dict[str, str]]:
+    text = str(exc).lower()
+    code = getattr(exc, "code", None)
+    if code == 1254040:
+        return 422, {"stage": "base", "code": "base_not_found", "message": "无法识别这个 Base，请确认链接来自多维表格的 /base/ 地址。"}
+    if code == 1254302:
+        return 403, {"stage": "base_permission", "code": "base_access_denied", "message": "应用无法访问该 Base。请先添加文档应用；若已开启高级权限，请授予“可管理”权限。"}
+    if code in {99991663, 99991672, 99991679} or "scope" in text:
+        return 403, {"stage": "api_permission", "code": "missing_api_permission", "message": "应用缺少多维表格 API 权限，请开通 bitable:app，并在需要时发布或等待管理员审核。"}
+    if code in {10003, 10014} or "身份认证" in text or "credentials" in text:
+        return 401, {"stage": "credentials", "code": "invalid_credentials", "message": "App ID 或 App Secret 无效，请在“凭证与基础信息”中重新复制。"}
+    if isinstance(exc, FeishuApiError) and exc.retryable:
+        return 503, {"stage": "service", "code": "feishu_service_unavailable", "message": "飞书服务暂时不可用，请稍后重试。"}
+    if "network" in text or "http request" in text or "网络" in text:
+        return 502, {"stage": "network", "code": "network_error", "message": "无法连接飞书服务，请检查网络后重试。"}
+    return 502, {"stage": "connection", "code": "feishu_connection_failed", "message": "无法完成飞书检查。请核对凭据、API 权限和文档应用权限。"}
 
 
 class TaskManager:
@@ -385,8 +409,49 @@ def create_app(paths: AppPaths | None = None) -> FastAPI:
             "sync": asdict(result.sync),
         }
 
-    @app.post("/api/feishu/test")
-    def test_feishu(payload: FeishuTestPayload) -> dict[str, Any]:
+    @app.post("/api/feishu/preflight")
+    def preflight_feishu(payload: FeishuTestPayload) -> dict[str, Any]:
+        config = load_config(paths.config)
+        values = (payload.base_url.strip(), payload.app_id.strip(), payload.app_secret.strip())
+        if not all(values):
+            raise HTTPException(
+                status_code=422,
+                detail={"stage": "input", "code": "missing_credentials", "message": "请填写 Base 链接、App ID 和 App Secret。"},
+            )
+        try:
+            parse_base_url(values[0])
+            repo = existing_local_repository(paths.database)
+        except ValueError as exc:
+            code = "local_database_not_initialized" if "数据库" in str(exc) else "invalid_base_url"
+            raise HTTPException(status_code=409 if code.startswith("local_") else 422, detail={"stage": "local_database" if code.startswith("local_") else "base", "code": code, "message": str(exc)}) from None
+        test_config = deepcopy(config)
+        test_config.setdefault("feishu", {}).update(
+            {"base_url": values[0], "app_id": values[1], "app_secret": values[2]}
+        )
+        try:
+            result = FeishuIntegrationService(repo, test_config).preflight()
+        except Exception as exc:
+            logging.warning("Web Feishu preflight failed: %s", safe_exception_detail(exc, test_config))
+            status_code, detail = _feishu_error(exc)
+            raise HTTPException(status_code=status_code, detail=detail) from None
+        return {
+            "ok": True,
+            "read_only": True,
+            "base_name": result.base_name,
+            "table_name": result.table_name,
+            "baseline_items": result.baseline_items,
+            "recommended_items": result.recommended_items,
+            "checks": [
+                {"key": "credentials", "ok": True, "message": "App 凭据有效"},
+                {"key": "base_url", "ok": True, "message": "Base 链接有效"},
+                {"key": "base_access", "ok": True, "message": "应用可以访问该 Base"},
+                {"key": "api_permission", "ok": True, "message": "多维表格读取权限有效；写入与管理权限将在正式连接时确认"},
+                {"key": "local_database", "ok": True, "message": "本地岗位库已经准备完成"},
+            ],
+        }
+
+    @app.post("/api/feishu/connect")
+    def connect_feishu(payload: FeishuTestPayload) -> dict[str, Any]:
         config = load_config(paths.config)
         profile_errors = validate_config(
             config,
@@ -447,6 +512,8 @@ def create_app(paths: AppPaths | None = None) -> FastAPI:
                 "Web Feishu connection test failed: %s",
                 safe_exception_detail(exc, test_config),
             )
+            status_code, detail = _feishu_error(exc)
+            raise HTTPException(status_code=status_code, detail=detail) from None
             raise HTTPException(
                 status_code=502,
                 detail={
@@ -489,6 +556,8 @@ def create_app(paths: AppPaths | None = None) -> FastAPI:
                     "message": "飞书连接成功，但工作台初始化或同步失败；凭据已保存，请重试。",
                 },
             ) from None
+        sync = asdict(result.sync)
+        sync_counts = {key: sync[key] for key in ("created", "updated", "skipped", "failed")}
         return {
             "ok": True,
             "connection_tested": True,
@@ -496,8 +565,23 @@ def create_app(paths: AppPaths | None = None) -> FastAPI:
             "workspace_url": result.workspace_url,
             "baseline_items": result.baseline_items,
             "recommended_items": result.recommended_items,
-            "sync": asdict(result.sync),
+            "sync": sync_counts,
+            **sync,
+            "partial_failure": bool(sync["failed"]),
         }
+
+    @app.post("/api/feishu/test")
+    def test_feishu(payload: FeishuTestPayload) -> dict[str, Any]:
+        """Backward-compatible alias for the original combined endpoint."""
+        return connect_feishu(payload)
+
+    @app.get("/api/feishu/status")
+    def feishu_status() -> dict[str, Any]:
+        return state.feishu_status()
+
+    @app.post("/api/feishu/disconnect")
+    def disconnect_feishu(payload: FeishuDisconnectPayload) -> dict[str, Any]:
+        return state.disconnect_feishu(clear_credentials=payload.clear_credentials)
 
     @app.post("/api/tasks/daily", status_code=202)
     def start_daily() -> dict[str, str]:
