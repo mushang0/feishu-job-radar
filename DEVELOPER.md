@@ -21,6 +21,29 @@ python -m venv .venv
 
 日常开发直接使用该虚拟环境运行测试；普通用户不需要执行这套源码安装流程。
 
+### CLI 维护命令
+
+CLI 主要面向开发、自动化和本地数据维护，普通用户优先使用 WebUI：
+
+```powershell
+# 每日增量扫描、匹配、可选飞书同步和提醒
+jobpicky daily
+
+# 只更新本地，不调用飞书
+jobpicky daily --no-feishu
+
+# 按当前偏好重新匹配历史岗位
+jobpicky rematch --no-feishu
+
+# 导出岗位或推荐到 Excel
+jobpicky export --table recommended --output data/exports/recommended.xlsx
+
+# 从飞书回收求职状态、下次行动和备注
+jobpicky pull
+```
+
+CLI 默认读取当前目录下的 `config.yaml` 和 `data/`。发布前的构建、干净安装和版本验收流程见本文后面的“发布验收”部分。
+
 ## 固定的 UI 沙盒测试流程
 
 需要在浏览器中检查 UI、首次安装、扫描过程或多次使用后的状态时，统一使用

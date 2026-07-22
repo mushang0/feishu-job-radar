@@ -34,3 +34,6 @@ dist/
 # Local-only agent resources
 .agents/
 AGENTS.md
+
+# Internal documentation is kept locally for maintainers, not shipped to users
+/docs/

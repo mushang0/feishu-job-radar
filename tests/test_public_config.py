@@ -53,10 +53,10 @@ def test_readme_describes_automatic_workspace_setup_without_old_migration():
     text = (ROOT / "README.md").read_text(encoding="utf-8")
 
     assert "uvx --python 3.12 jobpicky" in text
+    assert "python -m pip install jobpicky" in text
     assert "自动创建" in text
     assert "git clone" not in text
     assert "python -m venv" not in text
-    assert "pip install" not in text
     assert "YOUR_TABLE_ID" not in text
     assert "岗位ID（单行文本）" not in text
     assert "migrate-feishu" not in text

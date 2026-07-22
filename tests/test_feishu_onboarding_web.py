@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -278,7 +279,9 @@ def test_nine_step_ui_security_accessibility_and_assets(tmp_path: Path):
     page = client.get("/").text
     script = client.get("/static/js/app.js").text
     style = client.get("/static/css/app.css").text
-    manifest = json.loads(Path("docs/feishu-guide/screenshot-manifest.json").read_text(encoding="utf-8"))
+    guide_markup = re.findall(r'<button class="guide-image".*?</button>', page, flags=re.DOTALL)
+    guide_files = re.findall(r'data-guide-image="([^"]+)"', page)
+    guide_root = Path("src/jobpicky/web/static/images/feishu-guide")
 
     assert page.count("data-feishu-step=") == 9
     assert 'target="_blank" rel="noopener noreferrer"' in page
@@ -300,9 +303,7 @@ def test_nine_step_ui_security_accessibility_and_assets(tmp_path: Path):
     assert "app_secret" not in script.split("localStorage.setItem", 1)[-1].split("function renderFeishuStatus", 1)[0]
     assert "partial_failure" in script and "同步部分完成" in script
     assert "prefers-reduced-motion:reduce" in style
-    assert len(manifest) == 18
-    for item in manifest:
-        assert item["altText"]
-        assert f'alt="{item["altText"]}"' in page
-        image = Path("src/jobpicky/web/static/images/feishu-guide") / item["file"]
-        assert image.is_file() and image.stat().st_size > 1000
+    assert len(guide_markup) == 18
+    assert all(re.search(r'<img [^>]*alt="[^"]+"', markup) for markup in guide_markup)
+    assert len(guide_files) == 18
+    assert all((guide_root / file).is_file() and (guide_root / file).stat().st_size > 1000 for file in guide_files)

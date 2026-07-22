@@ -4,10 +4,14 @@ from datetime import datetime, timedelta
 from fastapi.testclient import TestClient
 
 from jobpicky.models import Job
+from jobpicky.core import packaged_seed_job_count
 from jobpicky.paths import AppPaths
 from jobpicky.runtime import RunEvent
 from jobpicky.storage import JobRepository
 from jobpicky.web.app import TaskManager, create_app
+
+
+SEED_JOB_COUNT = packaged_seed_job_count()
 
 
 def test_web_preferences_never_return_app_secret_and_persist_user_inputs(tmp_path: Path):
@@ -369,5 +373,5 @@ def test_web_setup_preview_describes_three_step_workspace_flow(tmp_path: Path):
     assert first.json() == second.json()
     assert preview["configured"] is True
     assert preview["table_name"] == "求职工作台"
-    assert preview["baseline_items"] == 871
+    assert preview["baseline_items"] == SEED_JOB_COUNT
     assert not paths.database.exists()

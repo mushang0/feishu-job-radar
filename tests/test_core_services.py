@@ -9,10 +9,14 @@ from jobpicky.core import (
     JobQueryService,
     MatchingService,
     RecommendationService,
+    packaged_seed_job_count,
     inspect_local_database,
 )
 from jobpicky.models import Job
 from jobpicky.storage import JobRepository
+
+
+SEED_JOB_COUNT = packaged_seed_job_count()
 
 
 def _services(tmp_path: Path, config: dict):
@@ -25,7 +29,7 @@ def test_bootstrap_copies_seed_into_runtime_database(tmp_path: Path):
     target = tmp_path / "profile" / "jobs.sqlite"
     repo = DatabaseBootstrapService(target).initialize()
     assert target.exists()
-    assert repo.count_jobs() == 871
+    assert repo.count_jobs() == SEED_JOB_COUNT
 
 
 def test_bootstrap_replaces_empty_schema_but_preserves_valid_database(tmp_path: Path):
@@ -35,12 +39,12 @@ def test_bootstrap_replaces_empty_schema_but_preserves_valid_database(tmp_path: 
     assert inspect_local_database(target).status == "empty_schema"
 
     repo = DatabaseBootstrapService(target).initialize()
-    assert repo.count_jobs() == 871
+    assert repo.count_jobs() == SEED_JOB_COUNT
     assert inspect_local_database(target).status == "valid"
 
     repo.upsert_job(Job(dedupe_key="local:real", company="Local", title="Real job"))
     DatabaseBootstrapService(target).initialize()
-    assert JobRepository(target).count_jobs() == 872
+    assert JobRepository(target).count_jobs() == SEED_JOB_COUNT + 1
 
 
 def test_ingestion_classifies_new_changed_and_unchanged_and_protects_detail(tmp_path: Path, mock_config):

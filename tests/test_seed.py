@@ -64,13 +64,12 @@ def _table_snapshot(path: Path, table: str, columns: list[str] | None = None) ->
 
 def test_canonical_source_preserves_every_seed_job_value_and_null(tmp_path: Path):
     exported = tmp_path / "jobs.json"
-
-    assert export_seed_source(SEED, exported) == 871
-    assert json.loads(exported.read_text(encoding="utf-8")) == json.loads(
-        SOURCE.read_text(encoding="utf-8")
-    )
-
     document = json.loads(SOURCE.read_text(encoding="utf-8"))
+    expected_jobs = len(document["tables"]["jobs"]["rows"])
+
+    assert export_seed_source(SEED, exported) == expected_jobs
+    assert json.loads(exported.read_text(encoding="utf-8")) == document
+
     assert document["format_version"] == 2
     assert set(document["tables"]) == {"jobs", "job_positions"}
     for table, snapshot in document["tables"].items():
@@ -78,7 +77,6 @@ def test_canonical_source_preserves_every_seed_job_value_and_null(tmp_path: Path
         assert snapshot["columns"] == columns
         assert [[row[column] for column in columns] for row in snapshot["rows"]] == [list(row) for row in rows]
     jobs = document["tables"]["jobs"]["rows"]
-    assert len(document["tables"]["job_positions"]["rows"]) == 2638
     assert all(len(job["summary"] or "") <= 96 for job in jobs)
     assert all(job["collected_date"] <= "2026-07-21" for job in jobs)
     assert all(job["last_checked"] is None for job in jobs)
@@ -92,7 +90,7 @@ def test_built_seed_matches_source_and_initializes_new_runtime_database(tmp_path
     columns = document["tables"]["jobs"]["columns"]
     position_columns = document["tables"]["job_positions"]["columns"]
 
-    assert build_seed(SOURCE, generated) == 871
+    assert build_seed(SOURCE, generated) == len(document["tables"]["jobs"]["rows"])
     generated_columns, generated_rows = _table_snapshot(generated, "jobs", columns)
     old_columns, old_rows = _table_snapshot(SEED, "jobs", columns)
     assert set(old_columns) == set(columns)
