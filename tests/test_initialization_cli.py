@@ -63,7 +63,7 @@ def test_run_init_uses_existing_database_and_connects_without_local_work(tmp_pat
         "jobpicky.cli.DatabaseBootstrapService.initialize",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("bootstrap must not run")),
     )
-    monkeypatch.setattr("jobpicky.cli.sync_feishu", lambda *args, **kwargs: events.append("sync") or SimpleNamespace(created=0, updated=0, skipped=0, failed=0))
+    monkeypatch.setattr("jobpicky.cli.sync_feishu", lambda *args, **kwargs: events.append("sync") or SimpleNamespace(created=0, updated=0, skipped=0, failed=0, error=None))
 
     code = _run_init(config, str(database), str(tmp_path / "config.yaml"), str(tmp_path / "export.xlsx"), assume_yes=True)
 
@@ -71,7 +71,7 @@ def test_run_init_uses_existing_database_and_connects_without_local_work(tmp_pat
     assert events.index("service-test-connection") < events.index("read-only-preflight") < events.index("confirm") < events.index("provision") < events.index("sync")
     assert "已重新匹配" not in capsys.readouterr().out
     assert config["feishu"]["workspace_table_id"] == "tbl-managed"
-    assert config["feishu"]["workspace_schema_version"] == "3"
+    assert config["feishu"]["workspace_schema_version"] == "6"
 
 
 def test_run_init_requires_existing_local_database(tmp_path: Path, monkeypatch, capsys):

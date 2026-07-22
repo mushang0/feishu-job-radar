@@ -117,7 +117,7 @@ class FeishuIntegrationService:
         if self.config_path:
             save_config(self.config, self.config_path)
         rows = self.repo.list_feishu_reconciliation_rows()
-        sync = self.push_jobs(self.repo, self.config, rows, client_factory=lambda _config: client)
+        sync = self.push_jobs(self.repo, self.config, rows, client_factory=self.client_factory)
         feishu.update(
             {
                 "enabled": True,

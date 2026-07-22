@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 
-WORKSPACE_SCHEMA_VERSION = "4"
+WORKSPACE_SCHEMA_VERSION = "6"
 
 FIELD_TYPE_CODES = {
     "text": 1,
@@ -14,7 +14,7 @@ FIELD_TYPE_CODES = {
     "url": 15,
 }
 
-JOB_STATUS_OPTIONS = ("待处理", "收藏", "已投递", "笔试中", "面试中", "Offer", "已结束")
+JOB_STATUS_OPTIONS = ("待处理", "收藏", "已投递", "笔试中", "面试中", "Offer", "已结束", "不合适")
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,6 +107,7 @@ def desired_workspace() -> WorkspaceSchema:
                 JOB_STATUS_OPTIONS,
                 view_type="kanban",
                 visible_fields=visible_fields,
+                excluded_status_values=("不合适",),
             ),
         ),
     )

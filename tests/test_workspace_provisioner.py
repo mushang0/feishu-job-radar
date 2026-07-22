@@ -123,9 +123,9 @@ def test_provision_creates_and_verifies_complete_workspace():
     progress = next(view for view in client.views[result.table_id] if view["view_name"] == "投递进度")
     assert "hidden_fields" not in progress["property"]
     progress_filter = progress["property"]["filter_info"]
-    assert progress_filter["conjunction"] == "or"
-    assert len(progress_filter["conditions"]) == 7
-    assert all(condition["operator"] == "is" for condition in progress_filter["conditions"])
+    assert progress_filter["conjunction"] == "and"
+    assert len(progress_filter["conditions"]) == 1
+    assert progress_filter["conditions"][0]["operator"] == "isNot"
     assert all(len(json.loads(condition["value"])) == 1 for condition in progress_filter["conditions"])
 
 

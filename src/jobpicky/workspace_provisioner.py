@@ -168,25 +168,16 @@ class WorkspaceProvisioner:
         missing_statuses = [status for status in view.status_values if status not in status_option_ids]
         if missing_statuses:
             raise WorkspaceVerificationError(f"求职状态选项缺少远端 ID：{', '.join(missing_statuses)}")
+        excluded = set(view.excluded_status_values)
         conditions = [
             {
                 "field_id": field_ids["求职状态"],
-                "operator": "is",
+                "operator": "isNot" if excluded else "is",
                 "value": json.dumps([status_option_ids[status]]),
             }
-            for status in view.status_values
+            for status in (view.excluded_status_values or view.status_values)
         ]
-        conditions.extend(
-            {
-                "field_id": field_ids["求职状态"],
-                "operator": "isNot",
-                "value": json.dumps([status_option_ids[status]]),
-            }
-            for status in view.excluded_status_values
-        )
         conjunction = "or" if len(conditions) > 1 else "and"
-        if view.excluded_status_values:
-            conjunction = "and"
         result = {
             "filter_info": {"conjunction": conjunction, "conditions": conditions},
         }

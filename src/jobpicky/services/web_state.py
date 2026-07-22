@@ -55,6 +55,7 @@ class WebStateService:
             "feishu": {
                 "base_url": feishu.get("base_url", ""),
                 "app_id": feishu.get("app_id", ""),
+                "secret_saved": bool(feishu.get("app_secret")),
                 "configured": feishu_enabled and bool(feishu.get("base_url") and feishu.get("app_id") and feishu.get("app_secret")),
                 "workspace_configured": feishu_enabled and bool(feishu.get("workspace_table_id")),
             },
@@ -95,9 +96,22 @@ class WebStateService:
         feishu = config.setdefault("feishu", {})
         try:
             if "base_url" in incoming_feishu:
+                previous_base_url = str(feishu.get("base_url") or "").strip()
                 feishu["base_url"] = str(incoming_feishu["base_url"]).strip()
                 if feishu["base_url"]:
                     parse_base_url(feishu["base_url"])
+                if previous_base_url and previous_base_url != feishu["base_url"]:
+                    for key in (
+                        "workspace_table_id",
+                        "workspace_schema_version",
+                        "workspace_url",
+                        "last_sync_at",
+                        "last_successful_sync_at",
+                        "last_sync_summary",
+                        "baseline_items",
+                        "recommended_items",
+                    ):
+                        feishu.pop(key, None)
             for key in ("app_id", "app_secret"):
                 if key in incoming_feishu and str(incoming_feishu[key]).strip():
                     feishu[key] = str(incoming_feishu[key]).strip()
@@ -120,14 +134,9 @@ class WebStateService:
         parsed_base_url = str(base_url).strip()
         parse_base_url(parsed_base_url)
         feishu = config.setdefault("feishu", {})
-        feishu.update(
-            {
-                "base_url": parsed_base_url,
-                "app_id": str(app_id).strip(),
-                "app_secret": str(app_secret).strip(),
-                "enabled": True,
-            }
-        )
+        feishu.update({"base_url": parsed_base_url, "app_id": str(app_id).strip(), "enabled": True})
+        if str(app_secret).strip():
+            feishu["app_secret"] = str(app_secret).strip()
         save_config(config, self.paths.config)
 
     def feishu_status(self) -> dict[str, Any]:
@@ -138,6 +147,7 @@ class WebStateService:
         workspace_configured = bool(feishu.get("workspace_table_id"))
         return {
             "configured": enabled and credentials_saved,
+            "secret_saved": credentials_saved,
             "credentials_saved": credentials_saved,
             "workspace_configured": enabled and workspace_configured,
             "workspace_url": feishu.get("workspace_url", ""),

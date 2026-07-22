@@ -4,7 +4,7 @@ from jobpicky.workspace_schema import WORKSPACE_SCHEMA_VERSION, desired_workspac
 def test_desired_workspace_uses_company_as_primary_field_and_declares_user_views():
     workspace = desired_workspace()
 
-    assert WORKSPACE_SCHEMA_VERSION == "4"
+    assert WORKSPACE_SCHEMA_VERSION == "6"
     assert workspace.primary_field == "公司"
     assert workspace.field_names == (
         "公司",
@@ -35,6 +35,7 @@ def test_workspace_schema_has_exact_user_status_options_and_types():
             {"name": "面试中"},
             {"name": "Offer"},
             {"name": "已结束"},
+            {"name": "不合适"},
         ]
     }
     assert workspace.field("截止时间").type_code == 5
@@ -59,5 +60,5 @@ def test_workspace_views_define_types_filters_and_visible_fields():
     assert views["收藏"].status_values == ("收藏",)
     assert views["收藏"].view_type == "gallery"
     assert views["投递进度"].view_type == "kanban"
-    assert views["投递进度"].status_values == ("待处理", "收藏", "已投递", "笔试中", "面试中", "Offer", "已结束")
-    assert views["投递进度"].excluded_status_values == ()
+    assert views["投递进度"].status_values == ("待处理", "收藏", "已投递", "笔试中", "面试中", "Offer", "已结束", "不合适")
+    assert views["投递进度"].excluded_status_values == ("不合适",)

@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from jobpicky.config import load_config
 from jobpicky.core import DatabaseBootstrapService
-from jobpicky.feishu import FeishuApiError
+from jobpicky.feishu import FeishuApiError, FeishuConfig
 from jobpicky.integrations.feishu import FeishuIntegrationService, FeishuPreflightResult
 from jobpicky.paths import AppPaths
 from jobpicky.services.synchronization import SyncSummary
@@ -50,6 +50,21 @@ def test_preflight_is_read_only_and_does_not_save_credentials(tmp_path: Path, mo
     assert saved["app_secret"] == ""
 
 
+def test_preflight_reuses_saved_app_secret_when_request_omits_it(tmp_path: Path, monkeypatch):
+    paths, client = configured_client(tmp_path)
+    from jobpicky.config import save_config
+
+    config = load_config(paths.config)
+    config["feishu"].update({"base_url": payload()["base_url"], "app_id": "saved-app", "app_secret": "saved-secret"})
+    save_config(config, paths.config)
+    monkeypatch.setattr(FeishuIntegrationService, "preflight", lambda service: FeishuPreflightResult("Base", "求职工作台", 1, 1))
+
+    response = client.post("/api/feishu/preflight", json={"base_url": payload()["base_url"], "app_id": "saved-app", "app_secret": ""})
+
+    assert response.status_code == 200
+    assert client.get("/api/feishu/status").json()["secret_saved"] is True
+
+
 def test_service_preflight_calls_only_read_api(tmp_path: Path):
     repo = JobRepository(tmp_path / "jobs.sqlite")
     repo.init_schema()
@@ -74,6 +89,37 @@ def test_service_preflight_calls_only_read_api(tmp_path: Path):
 
     assert result.base_name == "只读测试 Base"
     assert result.write_access_confirmed is False
+
+
+def test_connect_rebuilds_sync_client_after_workspace_creation(tmp_path: Path, monkeypatch):
+    repo = JobRepository(tmp_path / "jobs.sqlite")
+    repo.init_schema()
+    config = {"feishu": {"base_url": "https://example.feishu.cn/base/app", "app_id": "app", "app_secret": "secret"}}
+    clients = []
+
+    class Client:
+        def __init__(self, client_config):
+            self.config = client_config
+            clients.append(self)
+
+    class Provisioner:
+        def __init__(self, client, schema):
+            pass
+
+        def provision(self, table_id, *, on_table_created):
+            on_table_created("tbl-new")
+            return SimpleNamespace(table_id="tbl-new", workspace_url="https://example.feishu.cn/base/app?table=tbl-new")
+
+    def push_jobs(_repo, current_config, _rows, *, client_factory):
+        sync_client = client_factory(FeishuConfig.from_config(current_config))
+        assert sync_client.config.table_id == "tbl-new"
+        return SyncSummary()
+
+    monkeypatch.setattr("jobpicky.integrations.feishu.service.WorkspaceProvisioner", Provisioner)
+    service = FeishuIntegrationService(repo, config, client_factory=Client, push_jobs=push_jobs)
+    service.connect(client=Client(FeishuConfig.from_config(config)))
+
+    assert len(clients) == 2
 
 
 def test_preflight_rejects_wiki_link_with_actionable_message(tmp_path: Path):
@@ -138,6 +184,71 @@ def test_connect_saves_and_returns_complete_sync_result(tmp_path: Path, monkeypa
     assert calls[1][0] == "connect"
     assert load_config(paths.config)["feishu"]["app_secret"] == "session-only-secret"
     assert "session-only-secret" not in response.text
+
+
+def test_resync_uses_saved_workspace_credentials_and_returns_sync_result(tmp_path: Path, monkeypatch):
+    paths, client = configured_client(tmp_path)
+    from jobpicky.config import save_config
+
+    config = load_config(paths.config)
+    config["feishu"].update({**payload(), "workspace_table_id": "tbl-guide", "enabled": True})
+    save_config(config, paths.config)
+    calls = []
+
+    def resync(service):
+        calls.append(service.config["feishu"]["workspace_table_id"])
+        return SimpleNamespace(
+            table_id="tbl-guide",
+            workspace_url="https://example.feishu.cn/base/bascnGuide?table=tbl-guide",
+            baseline_items=811,
+            recommended_items=17,
+            sync=SyncSummary(created=8, updated=2, skipped=1, failed=0),
+        )
+
+    monkeypatch.setattr(FeishuIntegrationService, "connect", resync)
+    response = client.post("/api/feishu/resync")
+
+    assert response.status_code == 200
+    assert response.json()["partial_failure"] is False
+    assert (response.json()["created"], response.json()["updated"]) == (8, 2)
+    assert calls == ["tbl-guide"]
+
+
+def test_changing_base_clears_old_workspace_binding(tmp_path: Path):
+    paths, client = configured_client(tmp_path)
+    from jobpicky.config import save_config
+
+    config = load_config(paths.config)
+    config["feishu"].update(
+        {
+            **payload(),
+            "workspace_table_id": "tbl-old",
+            "workspace_schema_version": "5",
+            "workspace_url": "https://example.feishu.cn/base/bascnGuide?table=tbl-old",
+            "last_sync_at": "2026-07-21T10:00:00",
+            "last_successful_sync_at": "2026-07-21T10:00:00",
+            "last_sync_summary": {"created": 1},
+            "baseline_items": 10,
+            "recommended_items": 2,
+        }
+    )
+    save_config(config, paths.config)
+
+    response = client.put(
+        "/api/preferences",
+        json={"feishu": {"base_url": "https://example.feishu.cn/base/bascnNew", "app_id": "cli_new", "app_secret": "new-secret"}},
+    )
+
+    assert response.status_code == 200
+    saved = load_config(paths.config)["feishu"]
+    assert saved["base_url"].endswith("bascnNew")
+    assert saved["app_id"] == "cli_new"
+    assert saved["workspace_table_id"] == ""
+    assert saved["workspace_schema_version"] == ""
+    assert saved["workspace_url"] == ""
+    assert saved["last_sync_summary"] == {}
+    assert saved["baseline_items"] == 0
+    assert saved["recommended_items"] == 0
 
 
 def test_status_never_returns_secrets_and_disconnect_is_explicit(tmp_path: Path):

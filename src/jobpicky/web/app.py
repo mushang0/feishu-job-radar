@@ -38,13 +38,25 @@ class PreferencesPayload(BaseModel):
 
 
 class FeishuTestPayload(BaseModel):
-    base_url: str
-    app_id: str
-    app_secret: str
+    base_url: str = ""
+    app_id: str = ""
+    app_secret: str = ""
 
 
 class FeishuDisconnectPayload(BaseModel):
     clear_credentials: bool = False
+
+
+def _feishu_values(payload: FeishuTestPayload, config: dict[str, Any]) -> tuple[str, str, str]:
+    saved = config.get("feishu", {})
+    return tuple(
+        str(value or saved.get(key) or "").strip()
+        for key, value in (
+            ("base_url", payload.base_url),
+            ("app_id", payload.app_id),
+            ("app_secret", payload.app_secret),
+        )
+    )
 
 
 def _feishu_error(exc: Exception) -> tuple[int, dict[str, str]]:
@@ -274,9 +286,12 @@ def create_app(paths: AppPaths | None = None) -> FastAPI:
     app.state.tasks = tasks
 
     @app.get("/", response_class=HTMLResponse)
-    def index() -> str:
+    def index() -> HTMLResponse:
         template = Path(__file__).with_name("templates").joinpath("index.html")
-        return template.read_text(encoding="utf-8")
+        return HTMLResponse(
+            content=template.read_text(encoding="utf-8"),
+            headers={"Cache-Control": "no-store"},
+        )
 
     @app.get("/api/health")
     def health() -> dict[str, Any]:
@@ -412,7 +427,7 @@ def create_app(paths: AppPaths | None = None) -> FastAPI:
     @app.post("/api/feishu/preflight")
     def preflight_feishu(payload: FeishuTestPayload) -> dict[str, Any]:
         config = load_config(paths.config)
-        values = (payload.base_url.strip(), payload.app_id.strip(), payload.app_secret.strip())
+        values = _feishu_values(payload, config)
         if not all(values):
             raise HTTPException(
                 status_code=422,
@@ -461,9 +476,7 @@ def create_app(paths: AppPaths | None = None) -> FastAPI:
         if profile_errors:
             raise HTTPException(status_code=422, detail=profile_errors)
 
-        base_url = payload.base_url.strip()
-        app_id = payload.app_id.strip()
-        app_secret = payload.app_secret.strip()
+        base_url, app_id, app_secret = _feishu_values(payload, config)
         missing = [
             message
             for value, message in (
@@ -556,6 +569,45 @@ def create_app(paths: AppPaths | None = None) -> FastAPI:
                     "message": "飞书连接成功，但工作台初始化或同步失败；凭据已保存，请重试。",
                 },
             ) from None
+        sync = asdict(result.sync)
+        sync_counts = {key: sync[key] for key in ("created", "updated", "skipped", "failed")}
+        return {
+            "ok": True,
+            "connection_tested": True,
+            "table_id": result.table_id,
+            "workspace_url": result.workspace_url,
+            "baseline_items": result.baseline_items,
+            "recommended_items": result.recommended_items,
+            "sync": sync_counts,
+            **sync,
+            "partial_failure": bool(sync["failed"]),
+        }
+
+    @app.post("/api/feishu/resync")
+    def resync_feishu() -> dict[str, Any]:
+        config = load_config(paths.config)
+        try:
+            repo = existing_local_repository(paths.database)
+            service = FeishuIntegrationService(repo, config, config_path=paths.config)
+            if not service.configured:
+                raise ValueError("飞书配置不完整，请先在配置中填写 Base 链接、App ID 和 App Secret。")
+            result = service.connect()
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "stage": "configuration",
+                    "code": "feishu_not_configured",
+                    "message": str(exc),
+                },
+            ) from None
+        except Exception as exc:
+            logging.error(
+                "Web Feishu resync failed: %s",
+                safe_exception_detail(exc, config),
+            )
+            status_code, detail = _feishu_error(exc)
+            raise HTTPException(status_code=status_code, detail=detail) from None
         sync = asdict(result.sync)
         sync_counts = {key: sync[key] for key in ("created", "updated", "skipped", "failed")}
         return {
